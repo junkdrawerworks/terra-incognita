@@ -1,4 +1,5 @@
 // Terra Incognita: a world-building map. Everything runs in the page; the world is kept in localStorage.
+import { guardEdges } from './edge-guard.js';
 (() => {
 'use strict';
 
@@ -1673,6 +1674,11 @@ function endPointer(e) {
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
 canvas.addEventListener('pointerleave', e => { if (e.pointerType !== 'touch') { hover = null; scheduleStatus(); requestDraw(); } });
+// A line sketched near the side of a phone's screen can set off Android's back gesture (or Chrome's swipe to go back),
+// which takes the touch away and then goes Back, out of the world. A Back that comes while a finger is on the map, or
+// within a second of a touch on it being taken, is a slip and leaves the map as it was; a Back otherwise leaves in one
+// press, as it always has. (See js/edge-guard.js.)
+guardEdges({ surfaces: [canvas] });
 canvas.addEventListener('wheel', e => {
   e.preventDefault(); const pt = local(e);
   const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;

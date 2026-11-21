@@ -55,6 +55,9 @@ To put it online with GitHub Pages: **Settings → Pages → Build and deploymen
 - `index.html`: the page.
 - `js/app.js`: the whole app: world generation from a seed, drainage and rivers, climate, realms and borders, names,
   drawing the map, the tools and the panels. `window.terra` is a small hook the test and the screenshots drive it with.
+- `js/edge-guard.js`: keeps a line sketched near the side of a phone's screen from throwing you out of the world when
+  Android takes it for its back gesture: a Back while a finger is on the map, or just after a touch on it was taken,
+  leaves the map as it was.
 - `css/app.css`: the page, with light and dark palettes.
 - `fonts/`: IM Fell English and IM Fell English SC, Instrument Sans, and IBM Plex Mono (all SIL Open Font License),
   served from here so nothing loads from elsewhere.

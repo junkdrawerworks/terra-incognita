@@ -11,7 +11,9 @@ const dataUri = async (path, type) => `data:${type};base64,${(await readFile(new
 // and the links that only make sense for the hosted site (manifest, home-screen icon, preloads) come out.
 let css = await read('css/app.css');
 for (const [, file] of css.matchAll(/url\(\.\.\/(fonts\/[^)]+\.woff2)\)/g)) css = css.replace(`url(../${file})`, `url(${await dataUri(file, 'font/woff2')})`);
-const js = (await read('js/app.js')).replace(/<\/script/gi, '<\\/script');
+// The page's one import, js/edge-guard.js, goes in ahead of the app, as plain code.
+const guard = (await read('js/edge-guard.js')).replace(/^export function/m, 'function');
+const js = (await read('js/app.js')).replace("import { guardEdges } from './edge-guard.js';\n", () => guard).replace(/<\/script/gi, '<\\/script');
 const icon = await dataUri('icon.svg', 'image/svg+xml');
 const html = (await read('index.html'))
   .replace(/<link rel="(manifest|apple-touch-icon|preload)"[^>]*>\n/g, '')

@@ -10,8 +10,8 @@
 // valley) that leave the lakes be, a coast named after the sea it is on, a coast drawn smooth that comes out
 // smooth, sea names clear of the scale bar and the latitudes down the left edge, and places the sea rises over; and
 // the README's count of the kinds of land. Last, a phone held sideways, the map clear of a touch screen's sides, a
-// browser that won't keep the autosave, and saved worlds the page can't read or that a newer version wrote, kept aside
-// and given back by Download the old save.
+// Back mid-sketch taken for a slip, a browser that won't keep the autosave, and saved worlds the page can't read or
+// that a newer version wrote, kept aside and given back by Download the old save.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -572,6 +572,48 @@ for (const [width, height] of [[320, 568], [360, 740], [390, 844], [412, 915]]) 
   const pg = watch(await c.newPage());
   await pg.goto(base);
   ok(await pg.evaluate(() => Math.round(document.getElementById('map').getBoundingClientRect().left)) === 17, 'with a mouse the map keeps the page\'s own margin');
+  await c.close();
+}
+
+// A Back that comes while a coast is being sketched, or just after the browser took the touch away from the map (as
+// Android's back gesture does when a finger near the screen's side is taken for it), is taken for a slip: the world
+// stays, as it was. A while later, Back leaves the page in one press, as it always has.
+{
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const pg = watch(await c.newPage());
+  const cdp = await c.newCDPSession(pg);
+  await pg.goto('about:blank');
+  await pg.goto(base);
+  await pg.evaluate(() => { window.terra.startBlank(); window.stayed = true; });
+  const b = await pg.locator('#map').boundingBox();
+  const at = async ([x, y]) => { const p = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), [x, y]); return { x: b.x + p.x, y: b.y + p.y }; };
+  const touch = async (type, cell) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: cell ? [await at(cell)] : [] });
+  const stayed = async () => { await pg.waitForTimeout(300); return pg.evaluate(() => window.stayed === true).catch(() => false); };
+  const loop = [[6, 60], [80, 40], [150, 70], [160, 160], [90, 220], [10, 170], [6, 80]];
+  await pg.click('.tool[data-tool="sketch"]');
+  // Back in the middle of a coast: the sketch carries on, and letting go raises the land.
+  await touch('touchStart', loop[0]);
+  for (const p of loop.slice(1, 4)) await touch('touchMove', p);
+  await pg.evaluate(() => history.back()).catch(() => {}); // (without the guard, the page goes)
+  ok(await stayed(), 'Back in the middle of a sketch stays on the world');
+  for (const p of loop.slice(4)) await touch('touchMove', p);
+  await touch('touchEnd');
+  await pg.waitForTimeout(300);
+  const raised = await pg.evaluate(() => window.terra.state());
+  ok(raised.land > 1000, `and the coast sketched across the Back still raises land (${raised.land} cells)`);
+  // The browser takes the touch and a Back follows: the half-sketched coast goes, and the world is as it was.
+  await touch('touchStart', [200, 60]);
+  for (const p of [[260, 50], [320, 90], [330, 160]]) await touch('touchMove', p);
+  await touch('touchCancel');
+  await pg.goBack({ waitUntil: 'commit', timeout: 2000 }).catch(() => {});
+  ok(await stayed(), 'Back just after the touch was taken stays on the world');
+  ok(JSON.stringify(await pg.evaluate(() => window.terra.state())) === JSON.stringify(raised), 'and the world is as it was');
+  // A while later, Back leaves in one press.
+  await pg.click('.tool[data-tool="select"]');
+  await pg.waitForTimeout(1100);
+  await pg.goBack({ waitUntil: 'commit', timeout: 2000 }).catch(() => {});
+  for (let t = 0; t < 30 && pg.url() !== 'about:blank'; t++) await new Promise((r) => setTimeout(r, 100));
+  ok(pg.url() === 'about:blank', 'a deliberate Back leaves the page in one press');
   await c.close();
 }
 

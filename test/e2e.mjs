@@ -577,7 +577,8 @@ for (const [width, height] of [[320, 568], [360, 740], [390, 844], [412, 915]]) 
 
 // A Back that comes while a coast is being sketched, or just after the browser took the touch away from the map (as
 // Android's back gesture does when a finger near the screen's side is taken for it), is taken for a slip: the world
-// stays, as it was. A while later, Back leaves the page in one press, as it always has.
+// stays, as it was. A while later, Back leaves the page in one press, as it always has: the guard's extra history entry
+// goes on when a finger touches the map and comes off a second after it lifts.
 {
   const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const pg = watch(await c.newPage());
@@ -590,9 +591,12 @@ for (const [width, height] of [[320, 568], [360, 740], [390, 844], [412, 915]]) 
   const touch = async (type, cell) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: cell ? [await at(cell)] : [] });
   const stayed = async () => { await pg.waitForTimeout(300); return pg.evaluate(() => window.stayed === true).catch(() => false); };
   const loop = [[6, 60], [80, 40], [150, 70], [160, 160], [90, 220], [10, 170], [6, 80]];
+  const guarded = () => pg.evaluate(() => history.state?.__edgeGuard === true);
   await pg.click('.tool[data-tool="sketch"]');
+  ok(!(await guarded()), 'no extra history entry while nothing is being sketched');
   // Back in the middle of a coast: the sketch carries on, and letting go raises the land.
   await touch('touchStart', loop[0]);
+  ok(await guarded(), 'a finger on the map adds the extra entry');
   for (const p of loop.slice(1, 4)) await touch('touchMove', p);
   await pg.evaluate(() => history.back()).catch(() => {}); // (without the guard, the page goes)
   ok(await stayed(), 'Back in the middle of a sketch stays on the world');
@@ -601,6 +605,8 @@ for (const [width, height] of [[320, 568], [360, 740], [390, 844], [412, 915]]) 
   await pg.waitForTimeout(300);
   const raised = await pg.evaluate(() => window.terra.state());
   ok(raised.land > 1000, `and the coast sketched across the Back still raises land (${raised.land} cells)`);
+  await pg.waitForTimeout(1100);
+  ok(!(await guarded()), 'and a second after letting go, the entry is gone');
   // The browser takes the touch and a Back follows: the half-sketched coast goes, and the world is as it was.
   await touch('touchStart', [200, 60]);
   for (const p of [[260, 50], [320, 90], [330, 160]]) await touch('touchMove', p);
@@ -610,7 +616,8 @@ for (const [width, height] of [[320, 568], [360, 740], [390, 844], [412, 915]]) 
   ok(JSON.stringify(await pg.evaluate(() => window.terra.state())) === JSON.stringify(raised), 'and the world is as it was');
   // A while later, Back leaves in one press.
   await pg.click('.tool[data-tool="select"]');
-  await pg.waitForTimeout(1100);
+  await pg.waitForTimeout(1300);
+  ok(!(await guarded()), 'with nothing being sketched, there is no extra entry to press Back through');
   await pg.goBack({ waitUntil: 'commit', timeout: 2000 }).catch(() => {});
   for (let t = 0; t < 30 && pg.url() !== 'about:blank'; t++) await new Promise((r) => setTimeout(r, 100));
   ok(pg.url() === 'about:blank', 'a deliberate Back leaves the page in one press');

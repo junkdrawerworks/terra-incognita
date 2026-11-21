@@ -191,6 +191,10 @@ kbd{font:11px var(--f-mono);border:1px solid var(--line-strong);border-bottom-wi
   .toast{left:8px;right:50px;bottom:8px;transform:none;max-width:none;font-size:12.5px;padding:6px 6px 6px 11px} /* clear of the zoom buttons */
   .seg button{padding:0 10px}
 }
+/* On a phone's touch screen the map keeps 24 px from the screen's sides (from the map's own edge, where a finger
+   reaches it, inside its 1 px frame), clear of where Android's back gesture starts. The whole page takes the wider
+   margin, so the map still lines up with the tools and the panel. */
+@media (pointer: coarse) and (max-width: 560px){ .app{padding-inline:23px} }
 @media (prefers-reduced-motion: no-preference){
   .toast{transition:opacity .2s}
 }

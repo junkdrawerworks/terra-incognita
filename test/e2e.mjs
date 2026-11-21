@@ -9,8 +9,9 @@
 // can stamp. Then what the map says about itself: a lake's elevation, rivers drawn out of lakes (one with a wide
 // valley) that leave the lakes be, a coast named after the sea it is on, a coast drawn smooth that comes out
 // smooth, sea names clear of the scale bar and the latitudes down the left edge, and places the sea rises over; and
-// the README's count of the kinds of land. Last, a phone held sideways, a browser that won't keep the autosave, and
-// saved worlds the page can't read or that a newer version wrote, kept aside and given back by Download the old save.
+// the README's count of the kinds of land. Last, a phone held sideways, the map clear of a touch screen's sides, a
+// browser that won't keep the autosave, and saved worlds the page can't read or that a newer version wrote, kept aside
+// and given back by Download the old save.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -555,6 +556,24 @@ const sidePage = watch(await side.newPage());
 await sidePage.goto(base);
 ok(await sidePage.evaluate(() => document.getElementById('mapwrap').getBoundingClientRect().height <= innerHeight), 'a phone held sideways fits the whole map on screen');
 await side.close();
+
+// On a touch screen the map keeps clear of the screen's sides, where Android's back gesture starts: 24 px from where a
+// finger reaches it to the edge of the screen, at any phone width. With a mouse, the page keeps its own margin.
+for (const [width, height] of [[320, 568], [360, 740], [390, 844], [412, 915]]) {
+  const c = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const m = await pg.evaluate(() => { const r = document.getElementById('map').getBoundingClientRect(); return { left: r.left, right: innerWidth - r.right, wide: document.documentElement.scrollWidth <= innerWidth }; });
+  ok(m.left >= 23.5 && m.right >= 23.5 && m.wide, `the map is ${Math.min(m.left, m.right).toFixed(1)} px from the screen's side on a ${width} px touch screen`);
+  await c.close();
+}
+{
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  ok(await pg.evaluate(() => Math.round(document.getElementById('map').getBoundingClientRect().left)) === 17, 'with a mouse the map keeps the page\'s own margin');
+  await c.close();
+}
 
 // A browser that won't keep the autosave says so over the map, not only in the World tab.
 const full = await browser.newContext({ viewport: { width: 390, height: 844 } });

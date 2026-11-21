@@ -255,6 +255,10 @@ ok(await page.locator('#pane-world .jd-foot').isVisible(), 'the World tab links 
 
 // Nothing scrolls sideways on a phone.
 ok(await S(() => document.documentElement.scrollWidth <= window.innerWidth), 'nothing scrolls sideways at 390px');
+// And a swipe sideways is nobody's, so it can't run on into Chrome's swipe to go Back or Forward: the page doesn't
+// overscroll, and the map takes every touch.
+ok(JSON.stringify(await S(() => [document.documentElement, document.body, document.getElementById('map')].map((e) => [getComputedStyle(e).overscrollBehaviorX, getComputedStyle(e).touchAction])))
+  === JSON.stringify([['none', 'auto'], ['none', 'auto'], ['auto', 'none']]), 'nothing overscrolls sideways, and the map takes every touch');
 
 // Installable: Chromium finds no problems with the manifest and icons.
 const cdp = await ctx.newCDPSession(page);

@@ -1507,9 +1507,13 @@ function sketchRiver(raw) {
   const surf = k => D.lake[at(k)] ? spill(at(k)) : hAt(k);
   const wet0 = hAt(0) < sea, wet1 = hAt(n - 1) < sea;
   if ((wet0 && !wet1) || (!wet0 && !wet1 && !D.lake[at(n - 1)] && surf(0) < surf(n - 1))) { const r = []; for (let k = n - 1; k >= 0; k--) r.push(pts[2 * k], pts[2 * k + 1]); pts = r; }
-  let first = 0; while (first < n && hAt(first) < sea) first++;
-  if (first >= n - 2) { toast('Rivers need dry land to run across. Start the line on land.'); return; }
-  let last = n - 1; for (let k = first; k < n; k++) if (hAt(k) < sea) { last = k; break; }
+  // A line that crosses the sea becomes a river over its longest stretch of land, out to where that reaches the sea (or
+  // to the line's end, inland). The rest is left out, and if that's more than a few cells of land, it says so.
+  const runs = [];
+  for (let k = 0; k < n; k++) if (hAt(k) >= sea) { const a = k; while (k + 1 < n && hAt(k + 1) >= sea) k++; if (k - a >= 2) runs.push([a, k]); }
+  if (!runs.length) { toast('Rivers need dry land to run across. Start the line on land.'); return; }
+  const run = runs.reduce((a, b) => b[1] - b[0] >= a[1] - a[0] ? b : a), leftOut = runs.some(r => r !== run && r[1] - r[0] >= 6);
+  let [first, last] = run; if (last < n - 1) last++;
   // A river drawn into a lake ends at its shore, and the lake keeps its level.
   const endLake = hAt(last) >= sea && D.lake[at(last)] ? spill(at(last)) : 0;
   if (endLake) while (last - 1 > first + 2 && D.lake[at(last - 1)] && spill(at(last - 1)) === endLake) last--;
@@ -1593,7 +1597,7 @@ function sketchRiver(raw) {
   if (!world.springs) world.springs = [];
   world.springs.push({ x: pts[2 * first], y: pts[2 * first + 1], flow: RIVER_T * 1.25 });
   settleSketch(bx0, by0, bx1, by1);
-  toast(hAt(last) < sea ? 'River drawn. It gathers tributaries as rain drains into its valley.' : 'River drawn. It ends inland, so it finds its own way on from there.', { label: 'Undo', fn: undo });
+  toast(leftOut ? 'River drawn. The line crossed the sea, so only its longest stretch of land became a river.' : hAt(last) < sea ? 'River drawn. It gathers tributaries as rain drains into its valley.' : 'River drawn. It ends inland, so it finds its own way on from there.', { label: 'Undo', fn: undo });
 }
 // Cut a gorge from the bottom of a basin, along its overflow route, until the ground falls away on the far side. A lake
 // that was there before the sketch keeps its water: the gorge stops where its route reaches one, as the lake's own

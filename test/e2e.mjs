@@ -15,8 +15,8 @@
 // same worlds, and a world file from an earlier build that must keep opening. Then nothing lost and nothing undone by
 // surprise: a pinch that paints nothing, a drag a pinch cuts short, a page left mid-stroke, Undo mid-stroke, a toast's
 // Undo, Undo naming the places it takes, Found new realms and Clear naming the notes they take, a refused file, and two
-// tabs on one world. And sketches that keep what's on the map: rivers drawn into and beside lakes, and a range across
-// a lake's way out.
+// tabs on one world. And sketches that keep what's on the map: rivers drawn into and beside lakes, a range across a
+// lake's way out, and a river line across an inlet.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -761,6 +761,21 @@ await oldCtx.close();
   await drag([[150, 90], [200, 130], [260, 160], [300, 170]], 10, pg);
   const lakesAfter = (await E(() => window.terra.state())).lakes;
   ok(lakesAfter <= lakesBefore * 1.05, `a range across a lake's way out leaves the lake be (${lakesBefore} lake cells before, ${lakesAfter} after)`);
+  // A long River line that crosses a sea inlet near its start becomes a river over the long stretch of land after the
+  // inlet, out to the sea at the line's end, and says the line crossed the sea. It used to end at the inlet, and the
+  // rest of the line, about 250 cells, was dropped without a word.
+  await fresh();
+  await pg.click('.chip[data-v="river"]');
+  const long = [[90, 80], [150, 110], [200, 140], [260, 170], [300, 200], [330, 240], [340, 275]];
+  const along = []; for (let k = 0; k < long.length - 1; k++) for (let t = 0; t < 1; t += 0.05) along.push([long[k][0] + (long[k + 1][0] - long[k][0]) * t, long[k][1] + (long[k + 1][1] - long[k][1]) * t]);
+  const sea = await E((pts) => pts.map(([x, y]) => window.terra.cell(x, y).h < 0), along);
+  let end = sea.length - 1; while (sea[end]) end--;
+  let start = end; while (start > 0 && !sea[start - 1]) start--;
+  ok(start > 5 && end - start > 60, `that line crosses an inlet and then a long stretch of land (points ${start} to ${end} of ${along.length})`);
+  await drag(long, 10, pg);
+  const run = along.slice(start, end - 1), beside = (await E((pts) => pts.map(([x, y]) => window.terra.riverNear(x, y, 2.5)), run)).filter(Boolean).length;
+  const inletToast = await pg.textContent('#toast span');
+  ok(beside >= run.length * 0.8 && /crossed the sea/.test(inletToast), `a river line across an inlet runs over the land after it (${beside} of ${run.length} points), and says what was left out ("${inletToast}")`);
   await c.close();
 }
 

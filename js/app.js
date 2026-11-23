@@ -1599,7 +1599,9 @@ function sketchRange(raw) {
   for (let k = 0; k < n; k++) { minX = Math.min(minX, pts[2 * k]); maxX = Math.max(maxX, pts[2 * k]); minY = Math.min(minY, pts[2 * k + 1]); maxY = Math.max(maxY, pts[2 * k + 1]); }
   const bx0 = clamp(Math.floor(minX - sh) - 1, 0, W - 1), bx1 = clamp(Math.ceil(maxX + sh) + 1, 0, W - 1), by0 = clamp(Math.floor(minY - sh) - 1, 0, H - 1), by1 = clamp(Math.ceil(maxY + sh) + 1, 0, H - 1);
   const nz1 = sketchNoise(4), nz2 = sketchNoise(5), taper = Math.min(Wd * 1.2, L / 3);
+  const kept = stepRoom();
   pushUndo({ h: true, meta: true });
+  let rose = 0;
   // Nothing past 1.8 times the widest the range wobbles to (noise stays within 1) is touched.
   const reach = Wd * 1.35 * 1.8, near = segmentGrid(pts, 0, n - 1, bx0, by0, bx1 + 1, by1 + 1, reach), all = Array.from({ length: n - 1 }, (_, k) => k);
   for (let gy = by0; gy <= by1; gy++) for (let gx = bx0; gx <= bx1; gx++) {
@@ -1615,8 +1617,15 @@ function sketchRange(raw) {
       const f = 1 - bd / wob, prof = Math.pow(f * f * (3 - 2 * f), 1.3);
       const rn = 1 - Math.abs(nz1(gx * 0.11, gy * 0.11)), along = 0.8 + 0.4 * fbm(nz2, gx * 0.035 + 20, gy * 0.035, 3);
       const tp = smooth(0, taper, bs) * smooth(0, taper, L - bs);
-      h[gi] = Math.max(h[gi], sea + 0.004 + amp * prof * tp * (0.45 + 0.55 * rn) * along);
-    } else if (bd < wob * 1.8 && h[gi] < sea) h[gi] = Math.max(h[gi], sea - 0.008 - 0.14 * smooth(wob, wob * 1.8, bd));
+      const v = sea + 0.004 + amp * prof * tp * (0.45 + 0.55 * rn) * along; if (v > h[gi]) { h[gi] = v; rose++; }
+    } else if (bd < wob * 1.8 && h[gi] < sea) { const v = sea - 0.008 - 0.14 * smooth(wob, wob * 1.8, bd); if (v > h[gi]) { h[gi] = v; rose++; } }
+  }
+  // Over ground already higher than the range would be, nothing rises, and it takes no Undo step.
+  if (!rose) {
+    takeBackStep(kept);
+    const height = ui.sketch.height in RANGE_AMP ? ui.sketch.height : 'medium';
+    toast(`That ground is already higher than a ${height[0].toUpperCase() + height.slice(1)} range would make it. ${height === 'high' ? 'Use Raise' : 'Use Raise or a higher Height'} to build it up.`);
+    return;
   }
   settleSketch(bx0, by0, bx1, by1);
   toast('Mountains raised. Valleys they block drain through a gorge at the lowest pass.', { label: 'Undo', fn: undo });

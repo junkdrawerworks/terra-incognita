@@ -1481,6 +1481,30 @@ await oldCtx.close();
   await c.close();
 }
 
+// A Mountain range drawn over ground already higher than it would be changes nothing, so it takes no Undo step and
+// says why, as a Land loop does. It said 'Mountains raised' and took an Undo step for a world exactly as it was.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const quiet = () => pg.evaluate(async () => ({ undo: window.terra.state().undo, print: await window.terra.fingerprint() }));
+  await pg.click('.tool[data-tool="raise"]');
+  await pg.evaluate(() => { for (const [id, v] of [['optSize', '14'], ['optStr', '10']]) { const r = document.getElementById(id); r.value = v; r.dispatchEvent(new Event('input')); } });
+  const b = await pg.locator('#map').boundingBox(), s = await pg.evaluate(() => window.terra.toScreen(304, 136));
+  await pg.mouse.move(b.x + s.x, b.y + s.y); await pg.mouse.down(); await pg.waitForTimeout(3500); await pg.mouse.up();
+  await pg.waitForTimeout(300);
+  await pg.click('.tool[data-tool="sketch"]');
+  await pg.click('.chip[data-v="range"]');
+  await pg.click('.chip[data-v="low"]');
+  await pg.evaluate(() => { const r = document.getElementById('optWidth'); r.value = '3'; r.dispatchEvent(new Event('input')); });
+  const before = await quiet();
+  await drag([[299, 136], [304, 136], [309, 136]], 6, pg);
+  const said = await pg.textContent('#toast span');
+  ok(JSON.stringify(await quiet()) === JSON.stringify(before) && said === 'That ground is already higher than a Low range would make it. Use Raise or a higher Height to build it up.', `a Low Mountain range over higher ground changes nothing and takes no Undo step, and says why ("${said}")`);
+  await pg.click('.chip[data-v="medium"]');
+  await c.close();
+}
+
 // Raise on open sea that doesn't reach the surface keeps the heights in the save's steps of 1/65535, as every other
 // edit does, so the world in memory, the autosave and what Undo brings back agree. It left 396 cells between steps.
 {

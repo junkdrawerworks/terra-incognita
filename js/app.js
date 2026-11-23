@@ -1555,6 +1555,10 @@ function sketchLoop(pts, mode) {
     for (let y = 0; y < bh && !floods; y++) for (let x = 0; x < bw; x++) { const gx = bx0 + x, gy = by0 + y; if (h[gy * W + gx] >= sea && depth(y * bw + x, gx, gy) > 0) { floods = true; break; } }
     if (!floods) { toast('Nothing to flood there. Draw the loop over land.'); return; }
   }
+  // What there was before, so the toast can say what changed: the first land out of open sea is named as such, and
+  // only rivers and borders that exist are said to be redrawn.
+  let landBefore = 0; for (let i = 0; i < N; i++) if (h[i] >= sea) landBefore++;
+  const realmsBefore = D.realms.length, riversBefore = riverCount();
   const kept = stepRoom();
   pushUndo({ h: true, meta: true });
   const dry = dryPlaces();
@@ -1582,9 +1586,18 @@ function sketchLoop(pts, mode) {
     return;
   }
   settleSketch(bx0, by0, bx1, by1);
+  if (mode === 'land' && !landBefore) {
+    let land = 0; for (let i = 0; i < N; i++) if (h[i] >= sea) land++;
+    const rivers = riverCount();
+    toast(`Land rises from the sea: ${fmtInt(land * KM * KM)} km²${rivers ? `, with ${rivers === 1 ? 'a river' : `${rivers} rivers`}` : ''}. Found new realms in the World tab fills it with towns.`, { label: 'Undo', fn: undo }, 8000);
+    return;
+  }
   const wet = mode === 'sea' ? drowned(dry) : [];
-  toast(mode === 'land' ? 'Land raised. Rivers and borders have been redrawn.' : wet.length ? `Flooded. The sea rose over ${someWet(wet)}.` : 'Flooded. The coast has been redrawn.', { label: 'Undo', fn: undo });
+  toast(mode === 'land' ? 'Land raised.' + (realmsBefore ? ' Rivers and borders have been redrawn.' : riversBefore || riverCount() ? ' Rivers have been redrawn.' : '') : wet.length ? `Flooded. The sea rose over ${someWet(wet)}.` : 'Flooded. The coast has been redrawn.', { label: 'Undo', fn: undo });
 }
+// How many rivers the map names: one for each river that reaches the sea, its tributaries and the lakes on its way
+// included, as a river's page names it after its mouth.
+function riverCount() { const m = new Set(); for (let i = 0; i < N; i++) if (D.isR[i]) m.add(mouthOf(i)); return m.size; }
 // The pieces of a line (k0 to k1) sorted into squares, so a cell looks only at the pieces that could be within r of it:
 // any piece that close is in the cell's own square, in the same order as along the line.
 function segmentGrid(pts, k0, k1, x0, y0, x1, y1, r) {

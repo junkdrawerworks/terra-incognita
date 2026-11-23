@@ -195,6 +195,11 @@ await page.click('.chip[data-v="land"]');
 await drag([[150, 80], [260, 66], [345, 96], [355, 170], [300, 232], [200, 238], [128, 192], [118, 120], [150, 80]], 5);
 st = await state();
 ok(st.land > 15000, `a sketched loop becomes land (${st.land} cells)`);
+// The first land out of open sea is named as such, with its area and rivers, and what to do next; there are no borders
+// to redraw yet. It used to say 'Land raised. Rivers and borders have been redrawn.'
+const risen = await page.textContent('#toast span');
+const risenArea = risen.match(/^Land rises from the sea: ([\d,]+) km², with (\d+) rivers\. Found new realms in the World tab fills it with towns\.$/);
+ok(risenArea && +risenArea[1].replace(/,/g, '') === st.land * 100 && +risenArea[2] > 1, `the first land out of the sea says how big it is and how many rivers it has ("${risen}")`);
 
 // A sea loop across its coast floods some of it.
 await page.click('.chip[data-v="sea"]');
@@ -227,6 +232,13 @@ await page.keyboard.press('Control+z'); await page.waitForTimeout(300);
 ok((await state()).rivers === riversBefore, 'undo takes the river back out');
 await page.keyboard.press('Control+Shift+z'); await page.waitForTimeout(300);
 ok((await state()).rivers === st.rivers, 'redo puts it back');
+
+// More land with rivers but no realms yet says the rivers have been redrawn, and nothing about borders.
+await page.click('.chip[data-v="land"]');
+await drag([[395, 220], [425, 215], [430, 245], [400, 250], [395, 220]], 5);
+const islet = await page.textContent('#toast span');
+await page.click('#btnUndo'); await page.waitForTimeout(300);
+ok(islet === 'Land raised. Rivers have been redrawn.' && (await state()).land === st.land, `a second Land loop before there are realms says the rivers have been redrawn ("${islet}")`);
 
 // New realms fill the island.
 await page.click('#tab-world');
@@ -2165,7 +2177,7 @@ await oldCtx.close();
   await pg.click('#btnUndo');
   const hidden = !(await toastUp());
   if (!hidden) await pg.click('#toast button');
-  ok(raised.startsWith('Land raised') && hidden && (await T(() => window.terra.state())).land === seaMoved, `after the top Undo, a toast's Undo is gone, and the sea level stays where it was moved to ("${raised}")`);
+  ok(raised === 'Land raised. Rivers and borders have been redrawn.' && hidden && (await T(() => window.terra.state())).land === seaMoved, `after the top Undo, a toast's Undo is gone, and the sea level stays where it was moved to ("${raised}")`);
   // A sketch, then a town dragged before its toast is gone: the toast goes with the drag, and the town stays put.
   await drag(loop, 3, pg);
   await pg.keyboard.press('v');

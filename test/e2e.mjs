@@ -2664,6 +2664,29 @@ await oldCtx.close();
   ok(savedFile.filename.endsWith('.json') && savedFile.size > 100000, `Save world file goes through the viewer's downloads (${savedFile.filename})`);
   ok(errors.length === 0, 'with no errors' + (errors.length ? ': ' + errors.join('; ') : ''));
   await c.close();
+  // Published without downloads, the viewer can't save files. Save world file, Save map image, Download the old save
+  // and Ctrl S's line go (they stayed, and only said so when pressed), the welcome leaves out its tip on saving, and
+  // the World tab says how to keep a copy. Open world file stays.
+  const n = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  await n.addInitScript(() => {
+    window.claude = { use: async (k) => { if (k === 'downloads') return null; throw Object.assign(new Error('no'), { code: 'not_declared' }); } };
+    try { localStorage.setItem('terra-incognita/world/unreadable', '{"old":true}'); } catch (e) { }
+  });
+  const np = await n.newPage();
+  const nerrors = [];
+  np.on('pageerror', (e) => nerrors.push(e.message)); np.on('console', (m) => { if (m.type() === 'error') nerrors.push(m.text()); });
+  await np.goto('file://' + join(root, 'dist/terra-incognita.html'));
+  await np.waitForFunction(() => window.terra && window.terra.state().places > 0);
+  await np.waitForTimeout(300);
+  const noSave = await np.evaluate(() => ({
+    hidden: ['wSaveFile', 'wSavePng', 'wOldSave', 'keySave'].filter((id) => document.getElementById(id).hidden),
+    open: !document.getElementById('wOpenFile').hidden,
+    note: document.getElementById('wKeepNote').textContent,
+    tip: [...document.querySelectorAll('#pane-inspect .tips li')].pop().textContent,
+  }));
+  ok(noSave.hidden.join() === 'wSaveFile,wSavePng,wOldSave,keySave' && noSave.open && noSave.note === "This view can't save files. Open terra-incognita.junkdrawer.works to keep a copy." && !noSave.tip.startsWith('The World tab keeps it') && nerrors.length === 0,
+    `in a view of Claude's that can't save files, the save buttons go and the World tab says so ("${noSave.note}")` + (nerrors.length ? ': ' + nerrors.join('; ') : ''));
+  await n.close();
   const h = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const hp = await h.newPage();
   const herrors = [];

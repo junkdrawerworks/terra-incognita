@@ -50,6 +50,10 @@ node tools/make-icons.mjs     # redraws the PNG icons from icon.svg
 node scripts/build.mjs        # writes dist/artifact.html, a single-file copy for Claude's Artifact viewer
 ```
 
+In Claude, `dist/artifact.html` is published as an Artifact with the capabilities `{sample: {}, downloads: true}`:
+`sample` powers *Write its history*, and `downloads` powers the two Save buttons. Without `downloads` those buttons
+are hidden.
+
 To put it online with GitHub Pages: **Settings → Pages → Build and deployment → Deploy from a branch**, then pick `main` and `/ (root)`.
 
 ### Files

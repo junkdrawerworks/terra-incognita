@@ -156,6 +156,7 @@ textarea{width:100%;min-height:130px;font:14px/1.55 var(--f-ui);border:1px solid
 .draft.busy{color:var(--muted);font-style:italic}
 .note{margin:0;font-size:12.5px;color:var(--muted)}
 .note.warn{color:var(--danger)}
+.note a{color:inherit;text-underline-offset:3px;white-space:nowrap}
 .link{border:0;background:transparent;padding:0;font:500 13px var(--f-ui);color:var(--muted);cursor:pointer;text-decoration:underline;text-underline-offset:3px;align-self:flex-start}
 .link.danger{color:var(--danger)}
 #wOldSaveDrop{display:block;margin-top:4px}

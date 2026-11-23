@@ -951,7 +951,7 @@ function askAboutOtherTab() {
 }
 // The save kept aside, as stored, or null when there isn't one. Download the old save shows only while there is.
 function keptAside() { try { return localStorage.getItem(UNREADABLE_KEY); } catch (e) { return null; } }
-function syncOldSave() { const none = keptAside() === null; $('#wOldSave').hidden = none; if (none) $('#wOldSaveDrop').hidden = true; }
+function syncOldSave() { const none = keptAside() === null; $('#wOldSave').hidden = none || savingOff; if (none) $('#wOldSaveDrop').hidden = true; }
 function savePrefs() { try { localStorage.setItem(PREF_KEY, JSON.stringify({ style: ui.style, layers: ui.layers, brush: ui.brush, sketch: ui.sketch })); } catch (e) { } }
 function loadPrefs() { try { const p = JSON.parse(localStorage.getItem(PREF_KEY) || 'null'); if (p) { if (p.style === 'atlas' || p.style === 'terrain') ui.style = p.style; Object.assign(ui.layers, p.layers || {}); Object.assign(ui.brush, p.brush || {}); Object.assign(ui.sketch, p.sketch || {}); } } catch (e) { } }
 function setSaveNote(t, warn) { const el = $('#wSaveNote'); el.textContent = t; el.classList.toggle('warn', !!warn); }
@@ -960,6 +960,17 @@ function setSaveNote(t, warn) { const el = $('#wSaveNote'); el.textContent = t; 
 const CL = (window.claude && typeof window.claude.use === 'function') ? window.claude : null;
 let sampleFn = null, downloadsNS;
 const dlReady = CL ? CL.use('downloads').then(d => { downloadsNS = d; }).catch(() => { downloadsNS = null; }) : Promise.resolve(downloadsNS = null);
+// True in a view of Claude's that can't save files (an Artifact published without downloads). Its Save world file,
+// Save map image and Download the old save would only say so when pressed, so they go, and the World tab says how to
+// keep a copy instead.
+let savingOff = false;
+dlReady.then(() => { if (CL && !downloadsNS) { savingOff = true; syncSaving(); } });
+function syncSaving() {
+  $('#wSaveFile').hidden = $('#wSavePng').hidden = savingOff;
+  $('#keySave').hidden = $('#keySave').nextElementSibling.hidden = savingOff;
+  if (savingOff) $('#wKeepNote').innerHTML = 'This view can\'t save files. Open <a href="https://terra-incognita.junkdrawer.works/" target="_blank" rel="noopener">terra-incognita.junkdrawer.works</a> to keep a copy.';
+  syncOldSave(); if (!ui.selected) renderInspector();
+}
 if (CL) CL.use('sample').then(s => { sampleFn = s; if (ui.selected && ui.selected.type === 'place') renderInspector(); }).catch(() => { });
 
 // ------------------------------------------------------------------ drawing
@@ -2416,8 +2427,8 @@ function mapLabel() {
 }
 let mapLabelSaid = '';
 function syncMapLabel() { const t = mapLabel(); if (t !== mapLabelSaid) canvas.setAttribute('aria-label', mapLabelSaid = t); }
-// The welcome's last tip, on keeping the world.
-const keepTip = () => '<li>The World tab keeps it: <b>Save map image</b> makes a picture to show someone, and <b>Save world file</b> a copy that lasts.</li>';
+// The welcome's last tip, on keeping the world, where files can be saved.
+const keepTip = () => savingOff ? '' : '<li>The World tab keeps it: <b>Save map image</b> makes a picture to show someone, and <b>Save world file</b> a copy that lasts.</li>';
 function welcomeHTML() {
   const { settl, lms, land } = tally();
   const cap = world.places.find(p => p.kind === 'capital');
@@ -2869,8 +2880,9 @@ window.addEventListener('keydown', e => {
   if (mod && e.key.toLowerCase() === 'z' && !text) { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
   if (mod && e.key.toLowerCase() === 'y' && !text) { e.preventDefault(); redo(); return; }
   // Ctrl+S saves the world file and Ctrl+O opens one. The browser's own Save page as would keep the app without the
-  // world, which lives in this browser's storage. A text box keeps them, as it keeps Ctrl+Z.
-  if (mod && !e.shiftKey && !e.altKey && !text && /^[so]$/i.test(e.key)) {
+  // world, which lives in this browser's storage. A text box keeps them, as it keeps Ctrl+Z, and a view of Claude's that
+  // can't save files keeps Ctrl+S.
+  if (mod && !e.shiftKey && !e.altKey && !text && /^[so]$/i.test(e.key) && !(savingOff && e.key.toLowerCase() === 's')) {
     e.preventDefault(); if (e.repeat) return;
     if (e.key.toLowerCase() === 's') saveWorldFile(); else $('#wFile').click();
     return;

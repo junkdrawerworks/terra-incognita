@@ -2618,7 +2618,8 @@ function showTab(t) {
 function landShare() { let land = 0; for (let i = 0; i < N; i++) if (world.h[i] >= world.sea) land++; return land / N; }
 function syncWorldTab() {
   $('#worldName').value = world.name;
-  $('#wSeed').value = world.seed; $('#wShape').value = world.shape; $('#wSea').value = world.sea;
+  // Blank ocean isn't in the Shape list (Start from blank ocean is beside it): on one, the list keeps the shape it had.
+  $('#wSeed').value = world.seed; if (!SHAPES[world.shape].blank) $('#wShape').value = world.shape; $('#wSea').value = world.sea;
   $('#wSeaOut').textContent = `${Math.round(landShare() * 100)}% of the map is land`;
   for (const k of ['realms', 'rivers', 'labels', 'names', 'grid']) $('#ly' + k[0].toUpperCase() + k.slice(1)).checked = ui.layers[k];
   $('#styleTerrain').setAttribute('aria-pressed', String(ui.style === 'terrain')); $('#styleAtlas').setAttribute('aria-pressed', String(ui.style === 'atlas'));
@@ -2652,7 +2653,7 @@ function savePng() {
   cv.toBlob(blob => { if (blob) saveFile(slug() + '.png', blob, 'Map image saved.'); else toast('The image could not be made.'); }, 'image/png');
 }
 function bindWorldTab() {
-  $('#wShape').innerHTML = Object.entries(SHAPES).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
+  $('#wShape').innerHTML = Object.entries(SHAPES).filter(([, v]) => !v.blank).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
   const generate = s => { newWorld(s, $('#wShape').value); syncWorldTab(); markDirty(); toast(`Generated world ${s}.`, { label: 'Undo', fn: undo }); };
   $('#wGen').onclick = () => generate(clamp(parseInt($('#wSeed').value, 10) || 1, 1, 999999));
   $('#wBlank').onclick = startBlank;

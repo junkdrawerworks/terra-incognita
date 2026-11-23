@@ -495,6 +495,26 @@ ok(rangeOk.envoys > 10 && rangeOk.tolls > 10 && !rangeOk.repeats && !rangeOk.bad
   await desk.click('#tab-inspect');
 }
 
+// Blank ocean isn't a shape to generate: Start from blank ocean is the button beside Generate. After it, the World tab
+// shows the shape generated last (Continent at first), so Generate and Random seed grow land. They made another empty
+// ocean and said "Generated world N."
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.click('#tab-world');
+  const shapes = await pg.evaluate(() => [...document.querySelectorAll('#wShape option')].map((o) => o.textContent));
+  await pg.selectOption('#wShape', 'archipelago');
+  await pg.click('#wDice');
+  await pg.click('#wBlank');
+  await pg.click('#tab-world');
+  const shown = await pg.inputValue('#wShape');
+  await pg.click('#wDice');
+  const st = await pg.evaluate(() => window.terra.state());
+  ok(!shapes.includes('Blank ocean') && shown === 'archipelago' && st.shape === 'archipelago' && st.land > 10000, `after Start from blank ocean, the World tab shows the shape generated last, and Random seed grows land in it (${shapes.join(', ')}; ${st.shape}, ${st.land} land cells)`);
+  await c.close();
+}
+
 // A rumor that wasn't kept stays with its place, not with whatever has its id in a new world.
 const firstCap = (await desk.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
 await desk.evaluate((id) => window.terra.select({ type: 'place', id }), firstCap.id);

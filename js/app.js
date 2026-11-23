@@ -774,9 +774,8 @@ function applySnap(s) {
   if (s.m) world.m.set(s.m);
   if (s.meta) {
     const o = JSON.parse(s.meta); if (!o.springs) o.springs = [];
-    // Notes aren't part of undo, so a place that is still there keeps what was written in it since. Not across a new
-    // world, though: its places reuse the old world's ids.
-    if (!s.world) { const notes = new Map(world.places.map(p => [p.id, p.lore])); for (const p of o.places) if (notes.has(p.id)) p.lore = notes.get(p.id); }
+    // Notes are part of the step too: writing in a place's notes is a step of its own (see bindPlace), so the notes
+    // come back as they were when it was taken.
     const seedChanged = o.seed !== world.seed; Object.assign(world, o); if (seedChanged) computeTN();
   }
   return inv;
@@ -784,8 +783,8 @@ function applySnap(s) {
 // A whole world brought back (from New world, Generate or Open) is named, as it was when it came.
 function undo() { if (settleGesture()) return; dropActionToast(); const s = undoStack.pop(); if (!s) return; const was = world.places; redoStack.push(applySnap(s)); afterRestore(s.world); if (s.world) toast(`Back to ${world.name}.`, { label: 'Redo', fn: redo }, 6000); else tellPlaces(was, true); }
 function redo() { if (settleGesture()) return; dropActionToast(); const s = redoStack.pop(); if (!s) return; const was = world.places; undoStack.push(applySnap(s)); afterRestore(s.world); if (s.world) toast(`${world.name} again.`, { label: 'Undo', fn: undo }, 6000); else tellPlaces(was, false); }
-// Undo and Redo say so when places go or come back, and when notes go with them, since notes aren't part of Undo:
-// undoing the founding of a town takes the notes written in it since.
+// Undo and Redo say so when places go or come back, and when notes go with them (a place founded with notes in it,
+// by another tab or a file, has no step of its own for them).
 function tellPlaces(was, undid) {
   const now = new Set(world.places.map(p => p.id)), then = new Set(was.map(p => p.id));
   const gone = was.filter(p => !now.has(p.id)), back = world.places.filter(p => !then.has(p.id));
@@ -2543,8 +2542,11 @@ async function writeHistory(p) {
   renderDraft();
 }
 function bindPlace(p) {
-  // Edits on this page are one undo step, so Undo steps back through them before anything older. Notes stay out of undo.
-  let pushed = false; const once = () => { if (!pushed) { pushUndo({ meta: true }); pushed = true; } };
+  // Edits on this page, its notes included, are one undo step for each visit, so Undo puts the page back as it was when
+  // it opened (the notes too) before it takes away anything older, such as the founding of the place. Typing is not
+  // undone letter by letter. A step from anything else in between (a brush, say) starts a new one, so an Undo of that
+  // can't take back what was typed after it.
+  let step = null; const once = () => { if (!step || undoStack[undoStack.length - 1] !== step) { pushUndo({ meta: true }); step = undoStack[undoStack.length - 1]; } };
   const nm = $('#pName');
   const removeLink = $('#pDelete');
   // The heading and the Remove link say the name as it is typed.
@@ -2553,11 +2555,12 @@ function bindPlace(p) {
   nm.addEventListener('change', () => { if (!p.name.trim()) { p.name = 'Nameless'; nm.value = p.name; named(); } refreshCodex(); requestDraw(); });
   $('#pReroll').onclick = () => { pushUndo({ meta: true }); p.name = freshName(() => p.kind === 'landmark' ? landmarkName(p.sub, p.tongue, Math.random) : makeName(p.tongue, Math.random)); nm.value = p.name; named(); requestDraw(); refreshCodex(); markDirty(); };
   $('#pKind').onchange = e => { changeKind(p, e.target.value); refocus('#pKind'); };
-  $('#pLore').addEventListener('input', e => { p.lore = e.target.value; markDirty(); });
+  $('#pLore').addEventListener('input', e => { once(); p.lore = e.target.value; markDirty(); });
   $('#pDelete').onclick = () => removeSel({ type: 'place', id: p.id });
   $('#pRumor').onclick = () => { if (draft.busy) return; Object.assign(draft, { placeId: p.id, text: rumor(p), busy: false, kind: 'rumor', note: '', ctl: null }); renderDraft(); };
   const wb = $('#pWrite'); if (wb) wb.onclick = () => writeHistory(p);
-  $('#dKeep').onclick = () => { const ta = $('#pLore'); p.lore = (p.lore.trim() ? p.lore.trimEnd() + '\n\n' : '') + draft.text.trim(); ta.value = p.lore; Object.assign(draft, { text: '', kind: '', note: '' }); renderDraft(); markDirty(); toast('Added to the notes.'); };
+  // Keeping a rumor or history is a step of its own, so Undo takes back just what was added.
+  $('#dKeep').onclick = () => { pushUndo({ meta: true }); const ta = $('#pLore'); p.lore = (p.lore.trim() ? p.lore.trimEnd() + '\n\n' : '') + draft.text.trim(); ta.value = p.lore; Object.assign(draft, { text: '', kind: '', note: '' }); renderDraft(); markDirty(); toast('Added to the notes.'); };
   $('#dDiscard').onclick = () => { Object.assign(draft, { text: '', kind: '', note: '' }); renderDraft(); };
   if (p.kind === 'capital' && p.realm) {
     // The realm's name and title change where the page shows them, without building the page again, which took away

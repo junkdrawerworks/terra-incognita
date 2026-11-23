@@ -308,17 +308,27 @@ ok(await page.locator('#pWrite').isHidden(), 'the Claude history button stays hi
 ok(!(await page.getAttribute('#pLore', 'placeholder')).includes('Claude'), 'and the notes box does not promise Claude either');
 ok((await page.locator('[data-color]').evaluateAll((bs) => bs.map((b) => b.getAttribute('aria-label')))).every((l) => /^[A-Z][a-z]+$/.test(l)), 'the realm colors are named for screen readers');
 
-// Undo steps back through edits on the page, but never takes notes away.
+// Undo steps back through edits on the page, the notes among them: one step for the visit, so Undo puts the name and
+// the notes back as they were when the page opened, not letter by letter. (Notes used to be left out of Undo, so the
+// next Undo took the place away, notes and all.) Keeping the rumor was a step of its own.
 const undoBefore = (await state()).undo;
+const keptNotes = await page.inputValue('#pLore');
 await page.fill('#pName', 'Saltgate');
 ok((await state()).undo === undoBefore + 1, 'typing a new name is one undo step');
 ok((await page.textContent('#pDelete')) === 'Remove Saltgate', 'the Remove link follows the new name');
 await page.locator('#pLore').press('Control+End');
 await page.keyboard.type(' The mayor is a retired smuggler.');
+ok((await state()).undo === undoBefore + 1, 'and typing in the notes on the same visit is part of that step');
 await page.click('#btnUndo');
 await page.waitForTimeout(300);
 ok((await page.inputValue('#pName')) === town.name, 'Undo puts the old name back');
-ok((await page.inputValue('#pLore')).endsWith('The mayor is a retired smuggler.'), 'Undo leaves the notes alone');
+ok((await page.inputValue('#pLore')) === keptNotes, 'and the notes as they were when the page opened');
+await page.click('#btnUndo');
+await page.waitForTimeout(300);
+ok((await page.inputValue('#pLore')) === '' && (await S((id) => window.terra.places().some((p) => p.id === id), town.id)), 'the next Undo takes back the kept rumor, and leaves the town');
+await page.click('#btnRedo'); await page.click('#btnRedo');
+await page.waitForTimeout(300);
+ok((await page.inputValue('#pLore')).endsWith('The mayor is a retired smuggler.') && (await page.inputValue('#pName')) === 'Saltgate', 'Redo brings the notes and the name back');
 
 // It survives a reload, and the map that comes back is the same one: rivers, lakes and borders included.
 // Leaving the page saves at once, so notes typed just before it are kept without waiting for the autosave.
@@ -2399,8 +2409,9 @@ await oldCtx.close();
   await c.close();
 }
 
-// Undo says so when it takes a place away, and that the notes written in it go too (notes aren't part of Undo, so
-// undoing the founding of a town takes them). Its Redo brings the town back, notes and all.
+// Writing in a new town's notes is a step of its own: the first Undo puts back the empty notes and leaves the town
+// (it used to take the town away, notes and all), and only the second takes the town away, saying so. Redo brings
+// the town back, and then its notes.
 {
   const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const pg = watch(await c.newPage());
@@ -2411,13 +2422,17 @@ await oldCtx.close();
   const town = (await pg.evaluate(() => window.terra.places())).at(-1);
   await pg.fill('#pLore', 'The ferry runs at dawn.');
   await pg.click('#btnUndo');
+  const first = await pg.evaluate((id) => ({ there: window.terra.places().some((p) => p.id === id), notes: document.getElementById('pLore')?.value }), town.id);
+  ok(first.there && first.notes === '', `the first Undo empties ${town.name}'s notes again and leaves the town`);
+  await pg.click('#btnUndo');
   const said = await pg.evaluate(() => [document.querySelector('#toast span').textContent, document.querySelector('#toast button')?.textContent]);
   const goneNow = !(await pg.evaluate(() => window.terra.places())).some((p) => p.id === town.id);
-  ok(goneNow && said[0] === `Undid founding ${town.name}. Its notes go with it.` && said[1] === 'Redo', `Undo says what it took away ("${said[0]}")`);
+  ok(goneNow && said[0] === `Undid founding ${town.name}.` && said[1] === 'Redo', `the second takes the town away, and says so ("${said[0]}")`);
   await pg.click('#toast button');
   const backSaid = await pg.textContent('#toast span');
+  await pg.click('#btnRedo');
   const notes = await pg.evaluate((id) => { window.terra.select({ type: 'place', id }); return document.getElementById('pLore').value; }, town.id);
-  ok(notes === 'The ferry runs at dawn.' && backSaid === `${town.name} is back, notes and all.`, `and its Redo brings ${town.name} back with its notes ("${backSaid}")`);
+  ok(notes === 'The ferry runs at dawn.' && backSaid === `${town.name} is back.`, `and Redo brings ${town.name} back, then its notes ("${backSaid}")`);
   // An Undo that changes no places says nothing.
   await pg.click('#tab-world');
   await pg.fill('#worldName', 'Renamed');

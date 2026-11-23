@@ -902,6 +902,27 @@ await oldCtx.close();
   await c.close();
 }
 
+// A place's page has its name for a heading, as it is typed, and its realm's field says Realm name, so a screen reader
+// doesn't meet two fields called Name; the Codex's groups are headings to jump between, and a population is in people.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => window.terra.newWorld(20417, 'continent'));
+  const nin = await pg.evaluate(() => window.terra.places().find((p) => p.name === 'Ninten'));
+  await pg.evaluate((id) => window.terra.select({ type: 'place', id }), nin.id);
+  const heading = await pg.getByRole('heading', { level: 2, name: 'Ninten', exact: true }).count();
+  await pg.focus('#pName'); await pg.keyboard.press('End'); await pg.keyboard.type(' Vale');
+  const typed = await pg.getByRole('heading', { level: 2, name: 'Ninten Vale', exact: true }).count();
+  const fields = await pg.evaluate(() => [...document.querySelectorAll('#pane-inspect label')].map((l) => l.textContent).filter((t) => /name/i.test(t)));
+  await pg.click('#tab-codex');
+  const groups = await pg.evaluate(() => [document.querySelectorAll('#codexList h3').length, document.querySelectorAll('#codexList .clist').length]);
+  const row = await pg.getByRole('button', { name: /^Ninten Vale Capital · [\d,]+ people$/ }).count();
+  ok(heading === 1 && typed === 1 && JSON.stringify(fields) === '["Name","Realm name"]' && groups[0] === groups[1] && groups[0] > 3 && row === 1,
+    `a place's page has its name for a heading, kept in step as it is typed, its realm's field is Realm name, and the Codex's groups are headings with populations in people (${heading}, ${typed}, ${fields.join(' / ')}, ${groups.join(' of ')} groups, ${row})`);
+  await c.close();
+}
+
 // Up close, names stop growing: a realm's at 42 px and a sea's at three times its size on the whole map (they were 166
 // and 115 px tall at the closest zoom). A sea name is clicked and dragged where it is drawn, not where its old size
 // reached.

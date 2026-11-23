@@ -2185,7 +2185,7 @@ function placeHTML(p) {
   let realm = '';
   if (p.kind === 'capital' && p.realm) {
     realm = `<div class="section"><h3>Realm</h3>
-      <div class="field"><label for="rName">Name</label><input type="text" id="rName" value="${esc(p.realm.name)}"></div>
+      <div class="field"><label for="rName">Realm name</label><input type="text" id="rName" value="${esc(p.realm.name)}"></div>
       <div class="field"><label for="rTitle">Title</label><select id="rTitle">${ALL_TITLES.map(t => `<option ${t === p.realm.title ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></div>
       <div class="field"><label for="rTongue">Tongue</label><select id="rTongue">${TONGUE_IDS.map(t => `<option value="${t}" ${t === p.tongue ? 'selected' : ''}>${TONGUES[t].label}</option>`).join('')}</select></div>
       <div class="field"><span class="h3" style="text-transform:none;letter-spacing:0;font-weight:400;font-size:12px">Color</span><div class="swatches" role="group" aria-label="Realm color">${REALM_COLORS.map((c, k) => `<button data-color="${c}" style="background:${c}" aria-label="${REALM_COLOR_NAMES[k]}" aria-pressed="${c === p.realm.color}"></button>`).join('')}</div></div>
@@ -2193,7 +2193,8 @@ function placeHTML(p) {
     </div>`;
   }
   const busy = draft.busy && draft.placeId === p.id;
-  return `<div>
+  // The page's heading is the place's name, for a screen reader to find; on screen the name is the field under it.
+  return `<div class="place-head"><h2 class="sr" id="pTitle" tabindex="-1">${esc(p.name)}</h2>
       <p class="eyebrow"><span class="glyph">${kindGlyph(p, 15)}</span><span class="eb-text">${esc(kindLabel(p))}${f.realm ? ` · <span class="swatch" style="background:${f.realm.color}"></span>${esc(f.realm.display)}` : ''}</span>${SHOW_ON_MAP}</p>
       <div class="name-row"><label class="sr" for="pName">Name</label><input id="pName" class="name-input" value="${esc(p.name)}" autocomplete="off" spellcheck="false">
       <button class="icon-btn" id="pReroll" title="Suggest another name" aria-label="Suggest another name">${svgIcon('<path d="M16 4v4h-4"/><path d="M15.5 8A6.5 6.5 0 1 0 16 12"/>', 17)}</button></div>
@@ -2264,9 +2265,11 @@ function bindPlace(p) {
   let pushed = false; const once = () => { if (!pushed) { pushUndo({ meta: true }); pushed = true; } };
   const nm = $('#pName');
   const removeLink = $('#pDelete');
-  nm.addEventListener('input', () => { once(); p.name = nm.value; removeLink.textContent = `Remove ${p.name}`; requestDraw(); markDirty(); });
-  nm.addEventListener('change', () => { if (!p.name.trim()) { p.name = 'Nameless'; nm.value = p.name; removeLink.textContent = `Remove ${p.name}`; } refreshCodex(); requestDraw(); });
-  $('#pReroll').onclick = () => { pushUndo({ meta: true }); p.name = freshName(() => p.kind === 'landmark' ? landmarkName(p.sub, p.tongue, Math.random) : makeName(p.tongue, Math.random)); nm.value = p.name; $('#pDelete').textContent = `Remove ${p.name}`; requestDraw(); refreshCodex(); markDirty(); };
+  // The heading and the Remove link say the name as it is typed.
+  const named = () => { removeLink.textContent = `Remove ${p.name}`; $('#pTitle').textContent = p.name; };
+  nm.addEventListener('input', () => { once(); p.name = nm.value; named(); requestDraw(); markDirty(); });
+  nm.addEventListener('change', () => { if (!p.name.trim()) { p.name = 'Nameless'; nm.value = p.name; named(); } refreshCodex(); requestDraw(); });
+  $('#pReroll').onclick = () => { pushUndo({ meta: true }); p.name = freshName(() => p.kind === 'landmark' ? landmarkName(p.sub, p.tongue, Math.random) : makeName(p.tongue, Math.random)); nm.value = p.name; named(); requestDraw(); refreshCodex(); markDirty(); };
   $('#pKind').onchange = e => changeKind(p, e.target.value);
   $('#pLore').addEventListener('input', e => { p.lore = e.target.value; markDirty(); });
   $('#pDelete').onclick = () => removeSel({ type: 'place', id: p.id });
@@ -2351,7 +2354,7 @@ function renderCodex() {
   let h = '';
   const realms = D.realms.filter(r => match(r.display) || match(r.place.name));
   if (realms.length) {
-    h += `<div class="group-h">Realms</div><div class="clist">` + realms.map(r => `<button class="crow" data-id="${r.place.id}"><span class="ic"><span class="swatch" style="background:${r.color};width:13px;height:13px"></span></span><span class="crow-text"><span class="nm">${esc(r.display)}</span><span class="meta">Capital ${esc(r.place.name)}</span></span><span class="meta mono">${fmtInt(r.area * KM * KM)} km²</span></button>`).join('') + `</div>`;
+    h += `<h3 class="group-h">Realms</h3><div class="clist">` + realms.map(r => `<button class="crow" data-id="${r.place.id}"><span class="ic"><span class="swatch" style="background:${r.color};width:13px;height:13px"></span></span><span class="crow-text"><span class="nm">${esc(r.display)}</span><span class="meta">Capital ${esc(r.place.name)}</span></span><span class="meta mono">${fmtInt(r.area * KM * KM)} km²</span></button>`).join('') + `</div>`;
   }
   const groups = D.realms.map(r => ({ title: r.name, color: r.color, items: world.places.filter(p => ownerOf(p) === r.idx) }));
   groups.push({ title: 'Unclaimed lands', color: null, items: world.places.filter(p => ownerOf(p) < 0) });
@@ -2359,7 +2362,7 @@ function renderCodex() {
   for (const g of groups) {
     const items = g.items.filter(p => match(p.name)).sort((a, b) => P_ORDER[b.kind] - P_ORDER[a.kind] || (b.pop || 0) - (a.pop || 0));
     if (!items.length) continue; any = true;
-    h += `<div class="group-h">${g.color ? `<span class="swatch" style="background:${g.color}"></span>` : ''}${esc(g.title)}</div><div class="clist">` + items.map(p => `<button class="crow" data-id="${p.id}"><span class="ic">${kindGlyph(p, 15)}</span><span class="nm">${esc(p.name)}</span><span class="meta">${esc(kindLabel(p))}${p.pop ? ` · <span class="mono">${fmtInt(p.pop)}</span>` : ''}</span></button>`).join('') + `</div>`;
+    h += `<h3 class="group-h">${g.color ? `<span class="swatch" style="background:${g.color}"></span>` : ''}${esc(g.title)}</h3><div class="clist">` + items.map(p => `<button class="crow" data-id="${p.id}"><span class="ic">${kindGlyph(p, 15)}</span><span class="nm">${esc(p.name)}</span><span class="meta">${esc(kindLabel(p))}${p.pop ? ` · <span class="mono">${fmtInt(p.pop)}</span><span class="sr"> people</span>` : ''}</span></button>`).join('') + `</div>`;
   }
   if (!realms.length && !any) h = `<p class="note">${q ? 'Nothing by that name yet.' : 'No places yet. Use the settle tool to found one.'}</p>`;
   $('#codexList').innerHTML = h;

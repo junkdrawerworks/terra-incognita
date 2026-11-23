@@ -12,7 +12,10 @@
 // the README's count of the kinds of land. Last, a phone held sideways, the map clear of a touch screen's sides, a
 // Back mid-sketch taken for a slip, a browser that won't keep the autosave, and saved worlds the page can't read or
 // that a newer version wrote, kept aside and given back by Download the old save. Five seeds that must keep growing the
-// same worlds, and a world file from an earlier build that must keep opening.
+// same worlds, and a world file from an earlier build that must keep opening. Then nothing lost and nothing undone by
+// surprise: a pinch that paints nothing, a drag a pinch cuts short, a page left mid-stroke, Undo mid-stroke, a toast's
+// Undo, Undo naming the places it takes, Found new realms and Clear naming the notes they take, a refused file, and two
+// tabs on one world.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -994,6 +997,71 @@ await oldCtx.close();
   await pg.click('#tab-world');
   const cut = await open('world.json', whole.slice(0, whole.length >> 1));
   ok(cut === 'That world file is damaged or cut short, so it can\'t be opened. Try another copy.', `a world file cut short is called damaged ("${cut}")`);
+  await c.close();
+}
+
+// Two tabs on the same world. A change saved in one is brought into the other, so notes written in tab A survive a
+// rename in tab B; it used to be saved over with B's stale copy. A tab with changes of its own still to save asks which
+// to keep, and either answer leaves both tabs able to save.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const A = watch(await c.newPage());
+  await A.goto(base);
+  const B = watch(await c.newPage());
+  await B.goto(base);
+  const cap = (await A.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
+  const stored = () => A.evaluate(() => { const w = JSON.parse(localStorage.getItem('terra-incognita/world/v1')); return { name: w.name, lore: w.places.find((p) => p.kind === 'capital').lore }; });
+  const notes = (pg) => pg.evaluate((id) => { window.terra.select({ type: 'place', id }); return document.getElementById('pLore').value; }, cap.id);
+  const said = (pg) => pg.evaluate(() => { const t = document.getElementById('toast'); return t.hidden ? '' : [t.querySelector('span').textContent, ...[...t.querySelectorAll('button')].map((b) => b.textContent)].join(' | '); });
+  const rename = (pg, name) => pg.evaluate((name) => { const n = document.getElementById('worldName'); n.dispatchEvent(new Event('focus')); n.value = name; n.dispatchEvent(new Event('input')); }, name);
+  const write = (pg, text) => pg.evaluate(([id, text]) => { window.terra.select({ type: 'place', id }); const ta = document.getElementById('pLore'); ta.value = text; ta.dispatchEvent(new Event('input')); }, [cap.id, text]);
+  const leave = (pg) => pg.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  await write(A, 'Written in tab A.');
+  await A.waitForTimeout(1300);
+  const broughtIn = await said(B);
+  await rename(B, 'Renamed in tab B');
+  await B.waitForTimeout(1300);
+  await A.reload();
+  ok((await stored()).name === 'Renamed in tab B' && await notes(A) === 'Written in tab A.' && broughtIn === 'Brought in the changes from another tab. | Undo', `notes written in tab A survive a rename in tab B, which brought them in ("${broughtIn}")`);
+  // Both tabs have changes to save: B saves first, and A asks.
+  const clash = async (aText, bName) => {
+    await rename(B, bName);
+    await write(A, aText);
+    await leave(B);
+    await A.waitForTimeout(300);
+    return said(A);
+  };
+  const asked = await clash('Kept from tab A.', 'Lost in tab B');
+  await A.click('#tab-world');
+  await A.click('#wSaveFile');
+  const still = await said(A), note = await A.textContent('#wSaveNote');
+  ok(asked === "This world was changed in another tab. | Load theirs | Keep this tab's" && still === asked && note.startsWith('Not saved'), `a tab with changes of its own asks which to keep, and the question stays up ("${asked}")`);
+  await A.waitForTimeout(1200);
+  ok((await stored()).name === 'Lost in tab B', 'and saves nothing until it is answered');
+  await A.click("#toast button:has-text(\"Keep this tab's\")");
+  await A.waitForTimeout(300);
+  const kept = await stored();
+  await A.reload(); await B.reload();
+  ok(kept.lore === 'Kept from tab A.' && kept.name === 'Renamed in tab B' && await notes(A) === 'Kept from tab A.' && await notes(B) === 'Kept from tab A.', "Keep this tab's saves tab A's world over tab B's, and both open it after a reload");
+  await rename(B, 'Saved from tab B');
+  await B.waitForTimeout(1300);
+  ok((await stored()).name === 'Saved from tab B', 'and tab B can still save');
+  // Load theirs.
+  await clash('Dropped in tab A.', 'Kept from tab B');
+  await A.click('#toast button:has-text("Load theirs")');
+  const loaded = { name: await A.evaluate(() => window.terra.state().name), notes: await notes(A), said: await said(A) };
+  ok(loaded.name === 'Kept from tab B' && loaded.notes === 'Kept from tab A.' && loaded.said === 'Brought in the changes from another tab. | Undo', `Load theirs brings in tab B's world ("${loaded.said}")`);
+  await rename(A, 'Saved from tab A');
+  await A.waitForTimeout(1300);
+  await A.reload(); await B.reload();
+  ok((await stored()).name === 'Saved from tab A' && await B.evaluate(() => window.terra.state().name) === 'Saved from tab A', 'and tab A can save afterwards, which tab B opens after a reload');
+  // A save from another tab this tab never heard about is caught when it comes to save.
+  await A.evaluate(() => { const k = 'terra-incognita/world/v1', w = JSON.parse(localStorage.getItem(k)); w.name = 'Saved elsewhere'; w.savedAt = new Date(Date.now() + 1000).toISOString(); localStorage.setItem(k, JSON.stringify(w)); });
+  await rename(A, 'Not over that');
+  await A.waitForTimeout(1300);
+  ok((await said(A)).startsWith('This world was changed in another tab.') && (await stored()).name === 'Saved elsewhere', 'a tab about to save over a world another tab saved asks first');
+  await A.click('#toast button:has-text("Load theirs")');
+  ok(await A.evaluate(() => window.terra.state().name) === 'Saved elsewhere', 'and Load theirs opens it');
   await c.close();
 }
 

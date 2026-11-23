@@ -791,8 +791,8 @@ function unb64(str) { const s = atob(str); const u = new Uint8Array(s.length); f
 function snapToSave(a) { for (let i = 0; i < a.length; i++) a[i] = Math.round(clamp(a[i], 0, 1) * 65535) / 65535; }
 function packF(a) { const u = new Uint16Array(a.length); for (let i = 0; i < a.length; i++) u[i] = Math.round(clamp(a[i], 0, 1) * 65535); return b64(new Uint8Array(u.buffer)); }
 function unpackF(str, whole) { const b = unb64(str); if (whole && b.length !== N * 2) throw new Error('bad'); const u = new Uint16Array(b.buffer, 0, b.length >> 1); const f = new Float32Array(N); for (let i = 0; i < N; i++) f[i] = u[i] / 65535; return f; }
-function serialize() {
-  return JSON.stringify({ format: 'terra-incognita', version: 1, name: world.name, seed: world.seed, shape: world.shape, sea: world.sea, W, H, h: packF(world.h), m: packF(world.m), places: world.places, labels: world.labels, springs: world.springs || [], nextId: world.nextId, savedAt: new Date().toISOString() });
+function serialize(savedAt = new Date().toISOString()) {
+  return JSON.stringify({ format: 'terra-incognita', version: 1, name: world.name, seed: world.seed, shape: world.shape, sea: world.sea, W, H, h: packF(world.h), m: packF(world.m), places: world.places, labels: world.labels, springs: world.springs || [], nextId: world.nextId, savedAt });
 }
 // A world file must be whole: one cut short would open as a black map and then be autosaved over the world you had.
 // One saved by a newer version isn't opened at all, since saving it again here would lose whatever is new in it.
@@ -840,11 +840,19 @@ function saveBeforeLeaving() {
   if (saveTimer) saveNow();
 }
 let saveWarned = false; // the first time an autosave fails, say so over the map too, not only in the World tab
+// Another tab can have the same world open. The autosave this tab last wrote or read is lastSavedAt (its savedAt); one
+// stored with any other savedAt came from another tab, and this tab doesn't save over it without asking (otherClash).
+let lastSavedAt = null, otherClash = false;
+const stampOf = s => { if (s == null) return null; const m = /"savedAt":"([^"]*)"\}\s*$/.exec(s.slice(-120)); return m ? m[1] : ''; };
 function saveLocal() {
+  if (otherClash) return false;
   try {
     // A world kept in this browser that couldn't be read is copied aside before the first autosave goes over it.
     if (unreadable !== null) { localStorage.setItem(UNREADABLE_KEY, unreadable); unreadable = null; syncOldSave(); }
-    localStorage.setItem(STORE_KEY, serialize()); setSaveNote('Autosaved in this browser at ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.');
+    else if (stampOf(localStorage.getItem(STORE_KEY)) !== lastSavedAt) { askAboutOtherTab(); return false; }
+    const at = new Date().toISOString();
+    localStorage.setItem(STORE_KEY, serialize(at)); lastSavedAt = at;
+    setSaveNote('Autosaved in this browser at ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.');
     return true;
   } catch (e) {
     const msg = 'This browser would not keep an autosave. Use Save world file to keep your work.';
@@ -856,7 +864,39 @@ let unreadable = null; // the autosave as it was stored, when it couldn't be rea
 function loadLocal() {
   let s = null; try { s = localStorage.getItem(STORE_KEY); } catch (e) { return false; }
   if (!s) return false;
-  try { loadObj(JSON.parse(s)); return true; } catch (e) { unreadable = s; return false; }
+  try { loadObj(JSON.parse(s)); lastSavedAt = stampOf(s); return true; } catch (e) { unreadable = s; return false; }
+}
+// When another tab saves the world, this one brings the change in, keeping its view and what's open, with an Undo. If
+// this tab has changes of its own still to save (or a stroke or drag under way), it asks which to keep instead.
+window.addEventListener('storage', e => {
+  if (e.key !== STORE_KEY || e.newValue === null || !world || stampOf(e.newValue) === lastSavedAt) return;
+  if (otherClash || saveTimer || stroke || (gesture && gesture.type === 'drag' && gesture.moved)) askAboutOtherTab();
+  else bringIn(e.newValue);
+});
+function bringIn(text) {
+  let parsed; try { parsed = checkWorld(JSON.parse(text)); } catch (e) { return false; }
+  const sel = ui.selected;
+  pushUndo({ h: true, m: true, meta: true, world: true }); applyWorld(parsed); lastSavedAt = stampOf(text);
+  if (sel && sel.type !== 'loc' && !findSel(sel)) { ui.selected = null; dropDraft(); }
+  recomputeAll(); syncWorldTab(); updateStatus();
+  toast('Brought in the changes from another tab.', { label: 'Undo', fn: undo });
+  return true;
+}
+// The choice stays up until it's answered, and nothing is saved from this tab meanwhile. Load theirs brings the other
+// tab's world in (Undo brings this tab's back); Keep this tab's saves this tab's world over it.
+function askAboutOtherTab() {
+  otherClash = true; clearTimeout(saveTimer); saveTimer = 0;
+  setSaveNote('Not saved: this world was changed in another tab.', true);
+  toast('This world was changed in another tab.', [
+    { label: 'Load theirs', fn: () => {
+      let s = null; try { s = localStorage.getItem(STORE_KEY); } catch (e) { }
+      if (s === null) { otherClash = false; lastSavedAt = null; saveNow(); return; }
+      // A world this page can't read (one a newer version saved) opens after a reload, from the newest page.
+      if (stampOf(s) === lastSavedAt) { otherClash = false; saveNow(); return; }
+      otherClash = false; if (!bringIn(s)) { otherClash = true; location.reload(); }
+    } },
+    { label: 'Keep this tab\'s', fn: () => { otherClash = false; try { lastSavedAt = stampOf(localStorage.getItem(STORE_KEY)); } catch (e) { } saveNow(); } },
+  ], Infinity);
 }
 // The save kept aside, as stored, or null when there isn't one. Download the old save shows only while there is.
 function keptAside() { try { return localStorage.getItem(UNREADABLE_KEY); } catch (e) { return null; } }
@@ -2230,17 +2270,20 @@ function startBlank() {
 }
 
 // ------------------------------------------------------------------ toast
-let toastTimer = 0, toastActs = false;
-// A toast's Undo (or Redo) belongs to the step it was shown for: it does nothing once another step is on top.
+let toastTimer = 0, toastActs = false, toastWaits = false;
+// A toast can offer an action, or a choice of several. A toast's Undo (or Redo) belongs to the step it was shown for: it
+// does nothing once another step is on top. One shown for Infinity waits to be answered, and no other toast replaces it.
 function toast(msg, action, ms) {
-  const el = $('#toast');
-  el.innerHTML = `<span>${esc(msg)}</span>` + (action ? `<button type="button">${esc(action.label)}</button>` : '');
-  if (action) {
-    const stack = action.fn === undo ? undoStack : action.fn === redo ? redoStack : null, mine = stack && stack[stack.length - 1];
-    el.querySelector('button').onclick = () => { el.hidden = true; toastActs = false; if (!stack || stack[stack.length - 1] === mine) action.fn(); };
-  }
-  toastActs = !!action;
-  el.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; toastActs = false; }, ms || (action ? 6000 : 3200));
+  const waits = ms === Infinity; if (toastWaits && !waits) return;
+  const el = $('#toast'), acts = !action ? [] : Array.isArray(action) ? action : [action];
+  el.innerHTML = `<span>${esc(msg)}</span>` + acts.map(a => `<button type="button">${esc(a.label)}</button>`).join(''); el.classList.toggle('choice', acts.length > 1);
+  el.querySelectorAll('button').forEach((b, k) => {
+    const a = acts[k], stack = a.fn === undo ? undoStack : a.fn === redo ? redoStack : null, mine = stack && stack[stack.length - 1];
+    b.onclick = () => { el.hidden = true; toastActs = toastWaits = false; if (!stack || stack[stack.length - 1] === mine) a.fn(); };
+  });
+  toastActs = acts.length > 0 && !waits; toastWaits = waits;
+  el.hidden = false; clearTimeout(toastTimer);
+  if (!waits) toastTimer = setTimeout(() => { el.hidden = true; toastActs = false; }, ms || (acts.length ? 6000 : 3200));
 }
 // A new step, an Undo or a Redo takes away a toast that offers to undo something, before it can undo the wrong thing.
 function dropActionToast() { if (toastActs) { $('#toast').hidden = true; toastActs = false; clearTimeout(toastTimer); } }

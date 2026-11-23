@@ -1460,6 +1460,7 @@ function endStroke() {
   if (!changed) { takeBackStep(kept); return; }
   if (!land && (tool === 'raise' || rain)) {
     if (rain) { world.m.set(step.m); computeClimate(box[0] - 2, box[1] - 2, box[2] + 2, box[3] + 2); renderBase(box[0] - 2, box[1] - 2, box[2] + 2, box[3] + 2); buildGlyphs(); requestDraw(); }
+    else snapToSave(world.h); // kept, without an Undo step, in the save's steps like every other change
     takeBackStep(kept, rain);
     toast(rain ? 'Rain only changes the land.' : 'The sea floor rose, but not above the waves yet. Keep painting, or use Sketch > Land to raise a coast in one loop.');
     markDirty();

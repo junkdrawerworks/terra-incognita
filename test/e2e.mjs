@@ -1480,6 +1480,24 @@ await oldCtx.close();
   await c.close();
 }
 
+// Raise on open sea that doesn't reach the surface keeps the heights in the save's steps of 1/65535, as every other
+// edit does, so the world in memory, the autosave and what Undo brings back agree. It left 396 cells between steps.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.click('.tool[data-tool="raise"]');
+  await drag([[25, 28], [35, 30], [45, 34]], 6, pg);
+  const said = await pg.textContent('#toast span');
+  const between = await pg.evaluate(() => {
+    const sea = +document.getElementById('wSea').value; let n = 0;
+    for (let y = 15; y < 50; y++) for (let x = 10; x < 60; x++) { const v = (window.terra.cell(x + 0.5, y + 0.5).h + sea) * 65535; if (Math.abs(v - Math.round(v)) > 1e-3) n++; }
+    return n;
+  });
+  ok(said.startsWith('The sea floor rose') && between === 0, `Raise on open sea leaves the heights in the save's steps (${between} cells between them)`);
+  await c.close();
+}
+
 // On a touch screen the brush's ring shows under the finger while it paints, and goes when it lifts; moving the Brush
 // slider shows the ring at its real size in the middle of the map for a moment. With a mouse the ring follows the
 // pointer as before, and the slider shows nothing.

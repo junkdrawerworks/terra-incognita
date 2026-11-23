@@ -16,10 +16,11 @@
 // surprise: a pinch that paints nothing (one finger off the map too), a drag a pinch cuts short (and a wobble it
 // doesn't keep), a town dragged into the sea, a page left mid-stroke, an autosave mid-stroke, Undo mid-stroke, a
 // toast's Undo, Undo naming the places it takes (and the rumor rolled for one), Found new realms and Clear naming the
-// notes they take, a refused file, and two tabs on one world. And sketches that keep what's on the map: rivers drawn
-// into and beside lakes, a range across a lake's way out, a river line across an inlet, figure-8s and loops drawn twice
-// round, a drawn river's source going under the sea, edits that change nothing saying so, and each brush, with its ring
-// under a finger. The single-file copy for Claude's viewer, from a file and over http.
+// notes they take, a label cleared of its text, a refused file, and two tabs on one world. And sketches that keep
+// what's on the map: rivers drawn into and beside lakes, a range across a lake's way out, a river line across an inlet,
+// figure-8s and loops drawn twice round, a drawn river's source going under the sea, edits that change nothing saying
+// so, and each brush, with its ring under a finger and Raise held still building a dome. The single-file copy for
+// Claude's viewer, from a file and over http.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -1564,6 +1565,27 @@ await oldCtx.close();
     return n;
   });
   ok(said.startsWith('The sea floor rose') && between === 0, `Raise on open sea leaves the heights in the save's steps (${between} cells between them)`);
+  await c.close();
+}
+
+// Raise held in one spot builds a dome: it eases off near the top of the heights, so the ground keeps a shape the
+// shading can show. It rose by the same amount to the very top, and made a flat white disc at exactly 5,200 m.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.click('.tool[data-tool="raise"]');
+  await pg.evaluate(() => { for (const [id, v] of [['optSize', '14'], ['optStr', '10']]) { const r = document.getElementById(id); r.value = v; r.dispatchEvent(new Event('input')); } });
+  const b = await pg.locator('#map').boundingBox(), s = await pg.evaluate(() => window.terra.toScreen(150, 160));
+  await pg.mouse.move(b.x + s.x, b.y + s.y); await pg.mouse.down(); await pg.waitForTimeout(3000); await pg.mouse.up();
+  await pg.waitForTimeout(300);
+  const top = await pg.evaluate(() => {
+    const sea = +document.getElementById('wSea').value, o = [];
+    for (let x = 144; x <= 156; x++) o.push(window.terra.cell(x + 0.5, 160.5).h + sea);
+    return o;
+  });
+  const atCeiling = top.filter((h) => h > 1 - 1e-6).length, flat = new Set(top.slice(3, 10).map((h) => h.toFixed(5))).size;
+  ok(atCeiling === 0 && flat > 3, `Raise held 3 s in one spot builds a dome, not a flat disc at the top (${atCeiling} cells at the very top, ${flat} different heights across its middle)`);
   await c.close();
 }
 

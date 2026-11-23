@@ -1443,8 +1443,10 @@ function dab(tool, cx, cy, r, amt) {
     const dx = x + 0.5 - cx, dy = y + 0.5 - cy, d2 = dx * dx + dy * dy; if (d2 >= r2) continue;
     const q = 1 - d2 / r2, w = q * q * amt, i = y * W + x;
     switch (tool) {
-      case 'raise': h[i] = Math.min(1, h[i] + 0.0012 * st * w); break;
-      case 'lower': h[i] = Math.max(0, h[i] - 0.0012 * st * w); break;
+      // Raise eases off over the top quarter of the heights, and Lower over the bottom quarter, so ground held under the
+      // brush rounds into a dome (or a basin) rather than a flat disc at the ceiling (or the sea floor).
+      case 'raise': h[i] = Math.min(1, h[i] + 0.0012 * st * w * Math.min(1, (1 - h[i]) * 4)); break;
+      case 'lower': h[i] = Math.max(0, h[i] - 0.0012 * st * w * Math.min(1, h[i] * 4)); break;
       case 'smooth': {
         let sum = 0, c = 0;
         for (let yy = Math.max(0, y - 1); yy <= Math.min(H - 1, y + 1); yy++) for (let xx = Math.max(0, x - 1); xx <= Math.min(W - 1, x + 1); xx++) { sum += h[yy * W + xx]; c++; }

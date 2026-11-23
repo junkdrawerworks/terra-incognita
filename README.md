@@ -12,7 +12,7 @@ and sea stop them. Every town has a page for its story.
   &nbsp;
   <img src="docs/phone-sketch.png" alt="A hand-drawn island with two snowy ranges and a river, and a second island being sketched as a loop in the sea" width="250">
   &nbsp;
-  <img src="docs/phone-place.png" alt="The page for a capital: its position, elevation, climate, river, population, local goods and the realm it rules" width="250">
+  <img src="docs/phone-place.png" alt="The page for a capital: its coast and river, realm, population and local goods, its realm's name, title, tongue and colour, and a rumor rolled from the map kept in its notes" width="250">
 </p>
 
 ## How it plays

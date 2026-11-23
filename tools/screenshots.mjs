@@ -31,8 +31,9 @@ async function save(shot, path) {
 const browser = await pw.chromium.launch();
 await mkdir(join(root, 'docs'), { recursive: true });
 
-async function open(viewport, deviceScaleFactor, scheme = 'light') {
-  const ctx = await browser.newContext({ viewport, deviceScaleFactor, hasTouch: true, serviceWorkers: 'block', colorScheme: scheme });
+// A phone has a touch screen (so the page says Tap and sizes its controls for a finger); a laptop has a mouse.
+async function open(viewport, deviceScaleFactor, touch, scheme = 'light') {
+  const ctx = await browser.newContext({ viewport, deviceScaleFactor, hasTouch: touch, isMobile: touch, serviceWorkers: 'block', colorScheme: scheme });
   const page = await ctx.newPage();
   await page.addInitScript(seed => {
     let a = seed; // mulberry32
@@ -76,7 +77,7 @@ async function sketchIsland(page) {
 
 // Phone: the starting world; a sketch in progress; a town's page with a rumor in its notes.
 {
-  const page = await open({ width: 390, height: 844 }, 2);
+  const page = await open({ width: 390, height: 844 }, 2, true);
   await S(page, (w) => window.terra.newWorld(w, 'continent'), WORLD);
   await page.waitForTimeout(200);
   await save(await page.screenshot(), 'docs/phone-world.png');
@@ -98,8 +99,16 @@ async function sketchIsland(page) {
   await page.click('#pRumor');
   await page.click('#dKeep');
   await hideToast(page);
-  await page.locator('#pane-inspect').evaluate((el) => el.scrollIntoView({ block: 'end' }));
-  await page.evaluate(() => window.scrollBy(0, -260));
+  // Down to the end of its notes, with the rumor kept in them (and the link under them if it fits), starting on a
+  // whole line.
+  await page.evaluate(() => {
+    const y = (e, edge) => e.getBoundingClientRect()[edge] + scrollY, most = document.documentElement.scrollHeight - innerHeight;
+    const lines = [...document.querySelectorAll('#pane-inspect .facts dt, #pane-inspect .field, #pane-inspect .section h3, #pane-inspect .note, #pane-inspect .row')].map((e) => y(e, 'top') - 14);
+    for (const bottom of [y(document.getElementById('pDelete'), 'bottom') + 14, y(document.getElementById('pLore'), 'bottom') + 20]) {
+      const fit = lines.filter((t) => t >= bottom - innerHeight && t <= most);
+      if (fit.length) { window.scrollTo(0, Math.min(...fit)); return; }
+    }
+  });
   await save(await page.screenshot(), 'docs/phone-place.png');
   await page.context().close();
 }
@@ -107,7 +116,7 @@ async function sketchIsland(page) {
 // Laptop: the starting world as an old atlas, with a capital open.
 let mapData;
 {
-  const page = await open({ width: 1280, height: 800 }, 1);
+  const page = await open({ width: 1280, height: 800 }, 1, false);
   await S(page, (w) => window.terra.newWorld(w, 'continent'), WORLD);
   await S(page, () => window.terra.setStyle('atlas'));
   const cap = (await S(page, () => window.terra.places())).find((p) => p.kind === 'capital');

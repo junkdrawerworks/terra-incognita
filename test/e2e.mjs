@@ -662,6 +662,16 @@ await desk.locator('#wSea').click({ position: { x: seaBox.width * 0.15, y: seaBo
 const landMoved = (await desk.evaluate(() => window.terra.state())).land;
 await desk.keyboard.press('Control+z');
 ok(landMoved !== landBefore && (await desk.evaluate(() => window.terra.state())).land === landBefore, 'Ctrl+Z works straight after using a slider');
+// Ctrl+S saves the world file and Ctrl+O asks for one to open. Ctrl+S used to open the browser's Save page as, which
+// keeps the app without the world in it. In a text box both are left to the browser, as Ctrl+Z is.
+const [keyDl] = await Promise.all([desk.waitForEvent('download'), desk.keyboard.press('Control+s')]);
+const keySaved = JSON.parse(await readFile(await keyDl.path(), 'utf8'));
+const [chooser] = await Promise.all([desk.waitForEvent('filechooser'), desk.keyboard.press('Control+o')]);
+let typedDl = 0; const countDl = () => typedDl++;
+desk.on('download', countDl);
+await desk.focus('#worldName'); await desk.keyboard.press('Control+s'); await desk.waitForTimeout(600);
+desk.off('download', countDl); await desk.locator('#worldName').blur();
+ok(keyDl.suggestedFilename().endsWith('.json') && keySaved.format === 'terra-incognita' && chooser.element() && !typedDl, `Ctrl+S saves the world file (${keyDl.suggestedFilename()}) and Ctrl+O asks for one, but not from a text box`);
 
 // Space and drag pans with any tool, even straight after clicking the tool's button...
 await desk.click('.tool[data-tool="raise"]');
@@ -1878,7 +1888,7 @@ await oldCtx.close();
   await mp.goto(base);
   const d = await hints(mp);
   ok(d.select.startsWith('Drag to pan. Scroll or pinch to zoom. Click') && d.settle === 'Click dry land to found it.' && d.landmark === 'Click dry land to mark it.' && d.label === 'Click the map to place it.' && !/Two fingers/.test(d.sketch + d.raise), 'with a mouse the hints say Click');
-  ok(d.keys && !d.twoFingers && d.rows.includes('+ −') && d.rows.includes('Esc') && d.rows.includes('Ctrl Z') && d.undo[0] === 'Undo (Ctrl+Z)', `with a mouse the shortcuts show, zoom and Esc among them (${d.rows.join(', ')})`);
+  ok(d.keys && !d.twoFingers && d.rows.includes('+ −') && d.rows.includes('Esc') && d.rows.includes('Ctrl Z') && d.rows.includes('Ctrl S') && d.rows.includes('Ctrl O') && d.undo[0] === 'Undo (Ctrl+Z)', `with a mouse the shortcuts show, zoom and Esc among them (${d.rows.join(', ')})`);
   ok(JSON.stringify(d.land) === JSON.stringify(['400', '1,000', '2,500'].map((m) => `Draw a loop. Land rises inside it, to about ${m} m.`)), `a Land loop's hint says how high it rises (${d.land.map((h) => h.match(/about ([\d,]+) m/)[1]).join(', ')} m)`);
   ok(d.grid === 'Latitude and longitude lines' && d.tool === 'Sketch land, sea, ranges and rivers', 'the grid layer and the sketch tool say what they are');
   await m.close();
@@ -1886,8 +1896,8 @@ await oldCtx.close();
   await mac.addInitScript(() => { for (const [k, v] of [['platform', 'MacIntel'], ['userAgentData', { platform: 'macOS' }]]) Object.defineProperty(Navigator.prototype, k, { get: () => v, configurable: true }); });
   const macPage = watch(await mac.newPage());
   await macPage.goto(base);
-  const undoKeys = await macPage.evaluate(() => [document.getElementById('btnUndo').title, document.getElementById('btnRedo').title, document.getElementById('keyUndo').textContent]);
-  ok(JSON.stringify(undoKeys) === JSON.stringify(['Undo (⌘Z)', 'Redo (⇧⌘Z)', '⌘ Z']), `on a Mac Undo says ⌘ (${undoKeys.join(', ')})`);
+  const undoKeys = await macPage.evaluate(() => [document.getElementById('btnUndo').title, document.getElementById('btnRedo').title, ...['keyUndo', 'keySave', 'keyOpen'].map((k) => document.getElementById(k).textContent)]);
+  ok(JSON.stringify(undoKeys) === JSON.stringify(['Undo (⌘Z)', 'Redo (⇧⌘Z)', '⌘ Z', '⌘ S', '⌘ O']), `on a Mac Undo, Save and Open say ⌘ (${undoKeys.join(', ')})`);
   await mac.close();
 }
 

@@ -2732,6 +2732,7 @@ function renderMapImage(S = 4, allNames = true) {
   drawMap(cv.getContext('2d'), 1, cw, ch, { s: S, ox: M, oy: M, s0: allNames ? S / 2 : S }, { plate: ui.style === 'atlas' ? '#E9DFC6' : '#DCE3E5', export: true, allNames });
   return cv;
 }
+const saveWorldFile = () => saveFile(slug() + '.json', serialize(), 'World file saved.');
 function savePng() {
   const cv = renderMapImage(4);
   cv.toBlob(blob => { if (blob) saveFile(slug() + '.png', blob, 'Map image saved.'); else toast('The image could not be made.'); }, 'image/png');
@@ -2786,7 +2787,7 @@ function bindWorldTab() {
     toast(`Cleared ${[np && count(np, 'place'), nl && count(nl, 'label')].filter(Boolean).join(' and ')}${noted ? `, and the notes on ${noted === np ? (np === 1 ? 'it' : 'all of them') : `${noted} of them`}` : ''}.`, { label: 'Undo', fn: undo }, noted ? 10000 : 0);
   };
   for (const k of ['realms', 'rivers', 'labels', 'names', 'grid']) $('#ly' + k[0].toUpperCase() + k.slice(1)).onchange = e => { ui.layers[k] = e.target.checked; requestDraw(); savePrefs(); };
-  $('#wSaveFile').onclick = () => saveFile(slug() + '.json', serialize(), 'World file saved.');
+  $('#wSaveFile').onclick = saveWorldFile;
   $('#wSavePng').onclick = savePng;
   // Exactly the text that was kept, which may not open here at all; storage is left as it is.
   // Once it has been downloaded, it can go from this browser.
@@ -2865,6 +2866,13 @@ window.addEventListener('keydown', e => {
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.key.toLowerCase() === 'z' && !text) { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
   if (mod && e.key.toLowerCase() === 'y' && !text) { e.preventDefault(); redo(); return; }
+  // Ctrl+S saves the world file and Ctrl+O opens one. The browser's own Save page as would keep the app without the
+  // world, which lives in this browser's storage. A text box keeps them, as it keeps Ctrl+Z.
+  if (mod && !e.shiftKey && !e.altKey && !text && /^[so]$/i.test(e.key)) {
+    e.preventDefault(); if (e.repeat) return;
+    if (e.key.toLowerCase() === 's') saveWorldFile(); else $('#wFile').click();
+    return;
+  }
   if (typing || mod || e.altKey) return;
   // The map itself, focused: the arrow keys pan it, an eighth of the view at a time (with Shift, half), and Enter does
   // what a click in its middle would. So does Space when focus came by keyboard; after a click on the map, Space and a
@@ -2908,7 +2916,7 @@ function init() {
   if (!loadLocal()) { firstRun = true; firstHint = unreadable === null; newWorld(DEFAULT_SEED, 'continent', { noUndo: true }); }
   else recomputeAll();
   buildToolbar(); renderToolOpts(); bindWorldTab(); syncWorldTab(); updateUndoButtons(); updateCursor();
-  if (MAC) { $('#btnUndo').title = 'Undo (⌘Z)'; $('#btnRedo').title = 'Redo (⇧⌘Z)'; $('#keyUndo').textContent = '⌘ Z'; }
+  if (MAC) { $('#btnUndo').title = 'Undo (⌘Z)'; $('#btnRedo').title = 'Redo (⇧⌘Z)'; $('#keyUndo').textContent = '⌘ Z'; $('#keySave').textContent = '⌘ S'; $('#keyOpen').textContent = '⌘ O'; }
   $('#worldName').addEventListener('focus', () => { renaming = false; });
   $('#worldName').addEventListener('input', e => { if (!renaming) { pushUndo({ meta: true }); renaming = true; } world.name = e.target.value; markDirty(); if (!ui.selected) renderInspector(); });
   // Left empty, the name is Untitled world, as a reload would make it, in the same Undo step; spaces round it go.

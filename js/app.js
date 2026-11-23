@@ -745,8 +745,28 @@ function applySnap(s) {
   }
   return inv;
 }
-function undo() { settleGesture(); dropActionToast(); const s = undoStack.pop(); if (!s) return; redoStack.push(applySnap(s)); afterRestore(s.world); }
-function redo() { settleGesture(); dropActionToast(); const s = redoStack.pop(); if (!s) return; undoStack.push(applySnap(s)); afterRestore(s.world); }
+function undo() { settleGesture(); dropActionToast(); const s = undoStack.pop(); if (!s) return; const was = world.places; redoStack.push(applySnap(s)); afterRestore(s.world); if (!s.world) tellPlaces(was, true); }
+function redo() { settleGesture(); dropActionToast(); const s = redoStack.pop(); if (!s) return; const was = world.places; undoStack.push(applySnap(s)); afterRestore(s.world); if (!s.world) tellPlaces(was, false); }
+// Undo and Redo say so when places go or come back, and when notes go with them, since notes aren't part of Undo:
+// undoing the founding of a town takes the notes written in it since.
+function tellPlaces(was, undid) {
+  const now = new Set(world.places.map(p => p.id)), then = new Set(was.map(p => p.id));
+  const gone = was.filter(p => !now.has(p.id)), back = world.places.filter(p => !then.has(p.id));
+  if (!gone.length && !back.length) return;
+  const noted = gone.filter(p => p.lore && p.lore.trim());
+  let msg;
+  if (gone.length + back.length === 1) {
+    const p = gone[0] || back[0];
+    if (back.length) msg = `${p.name} is back${p.lore && p.lore.trim() ? ', notes and all' : ''}.`;
+    else msg = (undid ? `Undid ${p.kind === 'landmark' ? 'placing' : 'founding'} ${p.name}.` : `Removed ${p.name} again.`) + (noted.length ? ' Its notes go with it.' : '');
+  } else {
+    const parts = [];
+    if (gone.length) parts.push(`${gone.length} place${gone.length === 1 ? ' is' : 's are'} gone`);
+    if (back.length) parts.push(gone.length ? `${back.length} ${back.length === 1 ? 'is' : 'are'} back` : `${back.length} place${back.length === 1 ? ' is' : 's are'} back`);
+    msg = `${undid ? 'Undone' : 'Redone'}. ${parts.join(' and ')}.` + (noted.length === 1 ? ` ${noted[0].name}'s notes go too.` : noted.length ? ` The notes on ${noted.length} of them go too.` : '');
+  }
+  toast(msg, undid ? { label: 'Redo', fn: redo } : { label: 'Undo', fn: undo }, 10000);
+}
 // Undo or Redo in the middle of a brush stroke or a drag (Ctrl+Z, or a second finger on the button) ends it first, so
 // the whole stroke or drag is one step, and the rest of it can't carry on with no step to take it back. A half-drawn
 // sketch goes.

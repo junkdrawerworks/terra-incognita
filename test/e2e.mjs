@@ -911,6 +911,33 @@ await oldCtx.close();
   await c.close();
 }
 
+// Undo says so when it takes a place away, and that the notes written in it go too (notes aren't part of Undo, so
+// undoing the founding of a town takes them). Its Redo brings the town back, notes and all.
+{
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const cap = (await pg.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
+  await pg.evaluate(([x, y]) => window.terra.select({ type: 'loc', x, y }), [cap.x + 6, cap.y]);
+  await pg.click('#locTown');
+  const town = (await pg.evaluate(() => window.terra.places())).at(-1);
+  await pg.fill('#pLore', 'The ferry runs at dawn.');
+  await pg.click('#btnUndo');
+  const said = await pg.evaluate(() => [document.querySelector('#toast span').textContent, document.querySelector('#toast button')?.textContent]);
+  const goneNow = !(await pg.evaluate(() => window.terra.places())).some((p) => p.id === town.id);
+  ok(goneNow && said[0] === `Undid founding ${town.name}. Its notes go with it.` && said[1] === 'Redo', `Undo says what it took away ("${said[0]}")`);
+  await pg.click('#toast button');
+  const backSaid = await pg.textContent('#toast span');
+  const notes = await pg.evaluate((id) => { window.terra.select({ type: 'place', id }); return document.getElementById('pLore').value; }, town.id);
+  ok(notes === 'The ferry runs at dawn.' && backSaid === `${town.name} is back, notes and all.`, `and its Redo brings ${town.name} back with its notes ("${backSaid}")`);
+  // An Undo that changes no places says nothing.
+  await pg.click('#tab-world');
+  await pg.fill('#worldName', 'Renamed');
+  await pg.click('#btnUndo');
+  ok(await pg.locator('#toast').isHidden(), 'an Undo that leaves the places as they were says nothing');
+  await c.close();
+}
+
 const real = problems.filter((p) => !/ERR_INTERNET_DISCONNECTED|net::ERR_FAILED/.test(p));
 ok(real.length === 0, 'no errors and nothing loaded from elsewhere' + (real.length ? ':\n' + real.join('\n') : ''));
 

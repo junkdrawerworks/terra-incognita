@@ -731,7 +731,7 @@ function takeSnap(parts) {
   if (parts.meta) s.meta = JSON.stringify({ name: world.name, seed: world.seed, shape: world.shape, sea: world.sea, places: world.places, labels: world.labels, springs: world.springs || [], nextId: world.nextId });
   return s;
 }
-function pushUndo(parts) { undoStack.push(takeSnap(parts)); if (undoStack.length > 30) undoStack.shift(); redoStack.length = 0; updateUndoButtons(); }
+function pushUndo(parts) { dropActionToast(); undoStack.push(takeSnap(parts)); if (undoStack.length > 30) undoStack.shift(); redoStack.length = 0; updateUndoButtons(); }
 function applySnap(s) {
   const inv = takeSnap({ h: !!s.h, m: !!s.m, meta: !!s.meta, world: !!s.world });
   if (s.h) world.h.set(s.h);
@@ -745,8 +745,8 @@ function applySnap(s) {
   }
   return inv;
 }
-function undo() { settleGesture(); const s = undoStack.pop(); if (!s) return; redoStack.push(applySnap(s)); afterRestore(s.world); }
-function redo() { settleGesture(); const s = redoStack.pop(); if (!s) return; undoStack.push(applySnap(s)); afterRestore(s.world); }
+function undo() { settleGesture(); dropActionToast(); const s = undoStack.pop(); if (!s) return; redoStack.push(applySnap(s)); afterRestore(s.world); }
+function redo() { settleGesture(); dropActionToast(); const s = redoStack.pop(); if (!s) return; undoStack.push(applySnap(s)); afterRestore(s.world); }
 // Undo or Redo in the middle of a brush stroke or a drag (Ctrl+Z, or a second finger on the button) ends it first, so
 // the whole stroke or drag is one step, and the rest of it can't carry on with no step to take it back. A half-drawn
 // sketch goes.
@@ -2186,13 +2186,20 @@ function startBlank() {
 }
 
 // ------------------------------------------------------------------ toast
-let toastTimer = 0;
+let toastTimer = 0, toastActs = false;
+// A toast's Undo (or Redo) belongs to the step it was shown for: it does nothing once another step is on top.
 function toast(msg, action, ms) {
   const el = $('#toast');
   el.innerHTML = `<span>${esc(msg)}</span>` + (action ? `<button type="button">${esc(action.label)}</button>` : '');
-  if (action) el.querySelector('button').onclick = () => { el.hidden = true; action.fn(); };
-  el.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, ms || (action ? 6000 : 3200));
+  if (action) {
+    const stack = action.fn === undo ? undoStack : action.fn === redo ? redoStack : null, mine = stack && stack[stack.length - 1];
+    el.querySelector('button').onclick = () => { el.hidden = true; toastActs = false; if (!stack || stack[stack.length - 1] === mine) action.fn(); };
+  }
+  toastActs = !!action;
+  el.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; toastActs = false; }, ms || (action ? 6000 : 3200));
 }
+// A new step, an Undo or a Redo takes away a toast that offers to undo something, before it can undo the wrong thing.
+function dropActionToast() { if (toastActs) { $('#toast').hidden = true; toastActs = false; clearTimeout(toastTimer); } }
 
 // ------------------------------------------------------------------ keyboard
 window.addEventListener('keydown', e => {

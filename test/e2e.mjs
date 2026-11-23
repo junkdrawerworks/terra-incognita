@@ -878,6 +878,39 @@ await oldCtx.close();
   await c.close();
 }
 
+// A toast's Undo takes back what the toast is about, or nothing. Once another step goes on, or Undo or Redo is used some
+// other way, the toast goes. Its Undo used to take back whatever was on top: after the top Undo had already taken the
+// Land sketch back, the toast's Undo took back the sea level too.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const T = (fn, arg) => pg.evaluate(fn, arg);
+  const toastUp = () => T(() => !document.getElementById('toast').hidden);
+  await pg.click('#tab-world');
+  await T(() => { const r = document.getElementById('wSea'); r.value = String(+r.value + 0.006); r.dispatchEvent(new Event('input')); r.dispatchEvent(new Event('change')); });
+  const seaMoved = (await T(() => window.terra.state())).land;
+  await pg.keyboard.press('p');
+  await pg.click('.chip[data-v="land"]');
+  const loop = []; for (let t = 0; t <= 8; t++) loop.push([60 + Math.cos(t * Math.PI / 4) * 16, 255 + Math.sin(t * Math.PI / 4) * 10]);
+  await drag(loop, 3, pg);
+  const raised = await T(() => document.querySelector('#toast span').textContent);
+  await pg.click('#btnUndo');
+  const hidden = !(await toastUp());
+  if (!hidden) await pg.click('#toast button');
+  ok(raised.startsWith('Land raised') && hidden && (await T(() => window.terra.state())).land === seaMoved, `after the top Undo, a toast's Undo is gone, and the sea level stays where it was moved to ("${raised}")`);
+  // A sketch, then a town dragged before its toast is gone: the toast goes with the drag, and the town stays put.
+  await drag(loop, 3, pg);
+  await pg.keyboard.press('v');
+  const first = (await T(() => window.terra.places()))[0];
+  const b = await pg.locator('#map').boundingBox(), f = await T(([x, y]) => window.terra.toScreen(x, y), [first.x, first.y]);
+  await pg.mouse.move(b.x + f.x, b.y + f.y); await pg.mouse.down();
+  for (let k = 1; k <= 6; k++) await pg.mouse.move(b.x + f.x + k * 6, b.y + f.y);
+  await pg.mouse.up();
+  ok(!(await toastUp()), `and dragging ${first.name} takes the Land sketch's toast away, so its Undo can't take back the drag`);
+  await c.close();
+}
+
 const real = problems.filter((p) => !/ERR_INTERNET_DISCONNECTED|net::ERR_FAILED/.test(p));
 ok(real.length === 0, 'no errors and nothing loaded from elsewhere' + (real.length ? ':\n' + real.join('\n') : ''));
 

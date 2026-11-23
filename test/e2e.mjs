@@ -979,6 +979,31 @@ await oldCtx.close();
   await c.close();
 }
 
+// A screen reader hears what the toasts say, a tool picked by its key and the brush size, through a live region that is
+// on the page from the start. The toast's own was hidden until a toast appeared with its text already in it, which a
+// screen reader often doesn't read; a tool's key changed nothing it would read at all. The tools name their keys.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => window.terra.newWorld(20417, 'continent'));
+  const cdp = await c.newCDPSession(pg);
+  const live = async () => (await cdp.send('Accessibility.getFullAXTree')).nodes.filter((n) => n.role && n.role.value === 'status' && !n.ignored).length;
+  const before = await live();
+  const said = () => pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r((document.getElementById('say') || {}).textContent)))));
+  await pg.keyboard.press('e');
+  const erase = await said();
+  const b = await pg.locator('#map').boundingBox(), sea = await pg.evaluate(() => window.terra.toScreen(5, 5));
+  await pg.mouse.click(b.x + sea.x, b.y + sea.y);
+  const nothing = await said(), shown = await pg.textContent('#toast span');
+  await pg.keyboard.press('r'); const raise = await said();
+  await pg.keyboard.press(']'); const brush = await said();
+  const keys = await pg.evaluate(() => [...document.querySelectorAll('#tools .tool')].map((t) => t.getAttribute('aria-keyshortcuts')).join(''));
+  ok(before === 1 && erase === 'Remove places and labels picked' && nothing === shown && raise === 'Raise land picked' && /^Brush \d+$/.test(brush) && keys === 'VPRLSWDCMTE',
+    `one live region is on the page before any toast, and reads the toasts, a tool picked by its key and the brush size (${before} before any toast; "${erase}", "${nothing}", "${raise}", "${brush}", keys ${keys})`);
+  await c.close();
+}
+
 // Up close, names stop growing: a realm's at 42 px and a sea's at three times its size on the whole map (they were 166
 // and 115 px tall at the closest zoom). A sea name is clicked and dragged where it is drawn, not where its old size
 // reached.

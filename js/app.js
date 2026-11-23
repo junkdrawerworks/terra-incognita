@@ -1294,7 +1294,7 @@ const TOOLS = [
 const BRUSH_TOOLS = new Set(['raise', 'lower', 'smooth', 'rain', 'drought']);
 const svgIcon = (inner, sz = 20) => `<svg width="${sz}" height="${sz}" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
 function buildToolbar() {
-  $('#tools').innerHTML = TOOLS.map(t => t ? `<button class="tool" data-tool="${t.id}" aria-pressed="${ui.tool === t.id}" aria-label="${t.label}" title="${t.label} (${t.key.toUpperCase()})">${svgIcon(ICONS[t.id])}</button>` : '<div class="tool-sep" aria-hidden="true"></div>').join('');
+  $('#tools').innerHTML = TOOLS.map(t => t ? `<button class="tool" data-tool="${t.id}" aria-pressed="${ui.tool === t.id}" aria-label="${t.label}" aria-keyshortcuts="${t.key.toUpperCase()}" title="${t.label} (${t.key.toUpperCase()})">${svgIcon(ICONS[t.id])}</button>` : '<div class="tool-sep" aria-hidden="true"></div>').join('');
   $('#tools').addEventListener('click', e => { const b = e.target.closest('[data-tool]'); if (b) setTool(b.dataset.tool); });
 }
 function setTool(id) {
@@ -2494,12 +2494,18 @@ function startBlank() {
 }
 
 // ------------------------------------------------------------------ toast
+// What a screen reader should hear: #say is a live region that is on the page from the start, as one has to be for its
+// changes to be read (the toast is hidden between messages, and one that appears with its text already in it is often
+// not read at all). It is emptied first and filled a frame later, so the same message twice is read twice.
+let sayFrame = 0;
+function say(msg) { const el = $('#say'); el.textContent = ''; cancelAnimationFrame(sayFrame); sayFrame = requestAnimationFrame(() => { el.textContent = msg; }); }
 let toastTimer = 0, toastActs = false, toastWaits = false;
 // A toast can offer an action, or a choice of several. A toast's Undo (or Redo) belongs to the step it was shown for: it
 // does nothing once another step is on top. One shown for Infinity waits to be answered, and no other toast replaces it.
 function toast(msg, action, ms) {
   const waits = ms === Infinity; if (toastWaits && !waits) return;
   const el = $('#toast'), acts = !action ? [] : Array.isArray(action) ? action : [action];
+  say(msg);
   el.innerHTML = `<span>${esc(msg)}</span>` + acts.map(a => `<button type="button">${esc(a.label)}</button>`).join(''); el.classList.toggle('choice', acts.length > 1);
   el.querySelectorAll('button').forEach((b, k) => {
     const a = acts[k], stack = a.fn === undo ? undoStack : a.fn === redo ? redoStack : null, mine = stack && stack[stack.length - 1];
@@ -2537,11 +2543,12 @@ window.addEventListener('keydown', e => {
     if (el && el.closest && el.closest('.panel, .menu, .toast')) return;
     e.preventDefault(); removeSel(ui.selected); return;
   }
-  if (e.key === '[' || e.key === ']') { ui.brush.size = clamp(ui.brush.size + (e.key === ']' ? 2 : -2), 2, 40); renderToolOpts(); requestDraw(); savePrefs(); return; }
+  if (e.key === '[' || e.key === ']') { ui.brush.size = clamp(ui.brush.size + (e.key === ']' ? 2 : -2), 2, 40); renderToolOpts(); requestDraw(); savePrefs(); say(`Brush ${ui.brush.size}`); return; }
   if (e.key === 'f' || e.key === 'F') { fitView(); return; }
   if (e.key === '+' || e.key === '=') { zoomAt(view.cw / 2, view.ch / 2, 1.3); return; }
   if (e.key === '-') { zoomAt(view.cw / 2, view.ch / 2, 1 / 1.3); return; }
-  const t = TOOLS.find(x => x && x.key === e.key.toLowerCase()); if (t) setTool(t.id);
+  // A tool picked by its key says so, since nothing a screen reader reads moves.
+  const t = TOOLS.find(x => x && x.key === e.key.toLowerCase()); if (t) { setTool(t.id); say(`${t.label} picked`); }
 });
 window.addEventListener('keyup', e => { if (e.key === ' ') { if (spaceDown) e.preventDefault(); spaceDown = false; updateCursor(); } });
 // The control a keyboard user moved focus onto: the browser shows its focus ring then, but not after a click.

@@ -832,8 +832,10 @@ function unb64(str) { const s = atob(str); const u = new Uint8Array(s.length); f
 function snapToSave(a) { for (let i = 0; i < a.length; i++) a[i] = Math.round(clamp(a[i], 0, 1) * 65535) / 65535; }
 function packF(a) { const u = new Uint16Array(a.length); for (let i = 0; i < a.length; i++) u[i] = Math.round(clamp(a[i], 0, 1) * 65535); return b64(new Uint8Array(u.buffer)); }
 function unpackF(str, whole) { const b = unb64(str); if (whole && b.length !== N * 2) throw new Error('bad'); const u = new Uint16Array(b.buffer, 0, b.length >> 1); const f = new Float32Array(N); for (let i = 0; i < N; i++) f[i] = u[i] / 65535; return f; }
-function serialize(savedAt = new Date().toISOString()) {
-  return JSON.stringify({ format: 'terra-incognita', version: 1, name: world.name, seed: world.seed, shape: world.shape, sea: world.sea, W, H, h: packF(world.h), m: packF(world.m), places: world.places, labels: world.labels, springs: world.springs || [], nextId: world.nextId, savedAt });
+// A world file also says which look it was saved in (Terrain or Atlas), and opening it switches to that look, so it
+// opens on another device as it was made. The autosave doesn't: there your own choice of look stays.
+function serialize(savedAt = new Date().toISOString(), forFile = false) {
+  return JSON.stringify({ format: 'terra-incognita', version: 1, name: world.name, seed: world.seed, shape: world.shape, sea: world.sea, W, H, h: packF(world.h), m: packF(world.m), places: world.places, labels: world.labels, springs: world.springs || [], nextId: world.nextId, ...(forFile ? { style: ui.style } : {}), savedAt });
 }
 // A world file must be whole: one cut short would open as a black map and then be autosaved over the world you had.
 // One saved by a newer version isn't opened at all, since saving it again here would lose whatever is new in it.
@@ -952,7 +954,8 @@ function askAboutOtherTab() {
 function keptAside() { try { return localStorage.getItem(UNREADABLE_KEY); } catch (e) { return null; } }
 function syncOldSave() { const none = keptAside() === null; $('#wOldSave').hidden = none || savingOff; if (none) $('#wOldSaveDrop').hidden = true; }
 function savePrefs() { try { localStorage.setItem(PREF_KEY, JSON.stringify({ style: ui.style, layers: ui.layers, brush: ui.brush, sketch: ui.sketch })); } catch (e) { } }
-function loadPrefs() { try { const p = JSON.parse(localStorage.getItem(PREF_KEY) || 'null'); if (p) { if (p.style === 'atlas' || p.style === 'terrain') ui.style = p.style; Object.assign(ui.layers, p.layers || {}); Object.assign(ui.brush, p.brush || {}); Object.assign(ui.sketch, p.sketch || {}); } } catch (e) { } }
+const STYLES = ['terrain', 'atlas'];
+function loadPrefs() { try { const p = JSON.parse(localStorage.getItem(PREF_KEY) || 'null'); if (p) { if (STYLES.includes(p.style)) ui.style = p.style; Object.assign(ui.layers, p.layers || {}); Object.assign(ui.brush, p.brush || {}); Object.assign(ui.sketch, p.sketch || {}); } } catch (e) { } }
 function setSaveNote(t, warn) { const el = $('#wSaveNote'); el.textContent = t; el.classList.toggle('warn', !!warn); }
 
 // ------------------------------------------------------------------ claude runtime (optional)
@@ -2751,7 +2754,7 @@ function renderMapImage(S = 4, allNames = true) {
   drawMap(cv.getContext('2d'), 1, cw, ch, { s: S, ox: M, oy: M, s0: allNames ? S / 2 : S }, { plate: ui.style === 'atlas' ? '#E9DFC6' : '#DCE3E5', export: true, allNames });
   return cv;
 }
-const saveWorldFile = () => saveFile(slug() + '.json', serialize(), 'World file saved.');
+const saveWorldFile = () => saveFile(slug() + '.json', serialize(undefined, true), 'World file saved.');
 function savePng() {
   const cv = renderMapImage(4);
   cv.toBlob(blob => { if (blob) saveFile(slug() + '.png', blob, 'Map image saved.'); else toast('The image could not be made.'); }, 'image/png');
@@ -2828,7 +2831,10 @@ function bindWorldTab() {
         return;
       }
       pushUndo({ h: true, m: true, meta: true, world: true }); applyWorld(parsed);
-      ui.selected = null; dropDraft(); recomputeAll(); fitView(); syncWorldTab(); markDirty(); toast(`Opened ${world.name}.`, { label: 'Undo', fn: undo });
+      // In the look it was saved in; a file from before files kept one opens in the look on screen.
+      const look = STYLES.includes(parsed.o.style) && parsed.o.style !== ui.style ? parsed.o.style : null;
+      if (look) { ui.style = look; savePrefs(); }
+      ui.selected = null; dropDraft(); recomputeAll(); fitView(); syncWorldTab(); markDirty(); toast(`Opened ${world.name}${look ? `, in ${look === 'atlas' ? 'Atlas' : 'Terrain'} as it was saved` : ''}.`, { label: 'Undo', fn: undo });
     };
     rd.readAsText(file); e.target.value = '';
   };

@@ -35,7 +35,8 @@ and sea stop them. Every town has a page for its story.
   Codex lists every place and every sea, region and range named on the map, and finds words in your notes.
 - **Keyboard.** Every tool has a letter (V, P, R…), [ and ] size the brush, F shows the whole map, and Ctrl S saves
   the world file; the World tab lists them.
-- **Two looks.** Terrain is shaded relief; Atlas is parchment with drawn mountains and trees.
+- **Two looks.** Terrain is shaded relief; Atlas is parchment with drawn mountains and trees. A world file opens in
+  the look it was saved in.
 
   <img src="docs/desktop.png" alt="The Atlas look on a laptop: the starting continent on parchment, with drawn mountains and forests, five realms outlined in colour and named rivers, beside the page for the capital Ninten" width="640">
 

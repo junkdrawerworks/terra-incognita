@@ -2815,6 +2815,21 @@ await oldCtx.close();
   await pg.click('#styleTerrain');
   ok(atlasShare > terrainShare + 0.3 && atlasPng.readUInt32BE(16) === 1980 && JSON.stringify(corner) === JSON.stringify([0xE9, 0xDF, 0xC6]),
     `Atlas draws the map in pale inks (${Math.round(atlasShare * 100)}% of the frame pale, against ${Math.round(terrainShare * 100)}% in Terrain), and its Save map image on parchment (margin rgb ${corner.join(', ')})`);
+  // A world file keeps the look it was saved in, and opens in it on another device, where the other look was chosen.
+  // The autosave doesn't keep one, so there your own choice stays. (The file from an earlier build has none, and opens
+  // in the look on screen.)
+  await pg.click('#styleAtlas'); await pg.waitForTimeout(200);
+  await pg.click('#tab-world');
+  const [lookDl] = await Promise.all([pg.waitForEvent('download'), pg.click('#wSaveFile')]);
+  const lookFile = JSON.parse(await readFile(await lookDl.path(), 'utf8'));
+  await pg.click('#styleTerrain'); await pg.waitForTimeout(200);
+  await pg.setInputFiles('#wFile', await lookDl.path());
+  await pg.waitForFunction(() => document.querySelector('#toast span')?.textContent.startsWith('Opened'));
+  const lookSaid = await pg.textContent('#toast span');
+  await pg.waitForTimeout(1300);
+  const look = await pg.evaluate(() => [document.getElementById('styleAtlas').getAttribute('aria-pressed'), 'style' in JSON.parse(localStorage.getItem('terra-incognita/world/v1'))]);
+  await pg.click('#styleTerrain');
+  ok(lookFile.style === 'atlas' && look[0] === 'true' && !look[1] && lookSaid.endsWith(', in Atlas as it was saved.'), `a world file saved in Atlas opens in Atlas ("${lookSaid}"), and the autosave keeps no look`);
 
   // Each Shape grows its own kind of world, with land and realms on it.
   const shapes = [];

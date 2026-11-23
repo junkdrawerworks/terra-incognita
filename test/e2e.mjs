@@ -1085,6 +1085,22 @@ await oldCtx.close();
   ok(out.every((s) => +s.split(' ')[1] >= 3), `text boxes and list boxes have edges at 3:1 or more against both panels, and the world's name underlined on the page, light and dark (${out.join(', ')})`);
 }
 
+// A realm's colours have their names on screen, not only for a screen reader: on each one, and the picked one's beside
+// the row, for anyone who can't tell two of them apart by eye.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => { window.terra.newWorld(20417, 'continent'); const p = window.terra.places().find((q) => q.kind === 'capital'); window.terra.select({ type: 'place', id: p.id }); });
+  const titles = await pg.locator('[data-color]').evaluateAll((bs) => bs.every((b) => b.title && b.title === b.getAttribute('aria-label')));
+  const named = () => pg.evaluate(() => [document.querySelector('.swatch-name')?.textContent, document.querySelector('[data-color][aria-pressed="true"]')?.title]);
+  const first = await named();
+  await pg.click('[data-color]:not([aria-pressed="true"])');
+  const next = await named();
+  ok(titles && first[0] && first[0] === first[1] && next[0] === next[1] && next[0] !== first[0], `a realm's colours are named on screen as well, on each one and beside the row (${first[0]}, then ${next[0]})`);
+  await c.close();
+}
+
 // Up close, names stop growing: a realm's at 42 px and a sea's at three times its size on the whole map (they were 166
 // and 115 px tall at the closest zoom). A sea name is clicked and dragged where it is drawn, not where its old size
 // reached.

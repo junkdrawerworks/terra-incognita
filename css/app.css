@@ -143,6 +143,8 @@ textarea{width:100%;min-height:130px;font:14px/1.55 var(--f-ui);border:1px solid
 .swatches{display:flex;gap:6px;flex-wrap:wrap}
 .swatches button{width:24px;height:24px;border-radius:6px;border:2px solid transparent;cursor:pointer;padding:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)}
 .swatches button[aria-pressed="true"]{border-color:var(--ink)}
+/* The picked colour's name, for anyone who can't tell two of them apart by eye; a screen reader has it from the button. */
+.swatch-name{align-self:center;font-size:12.5px;color:var(--muted);margin-left:2px}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .draft{border:1px dashed var(--accent);border-radius:9px;padding:12px 13px;font-family:var(--f-display);font-size:15.5px;line-height:1.5;white-space:pre-wrap;background:var(--accent-soft);color:var(--ink)}
 .draft.busy{color:var(--muted);font-style:italic}

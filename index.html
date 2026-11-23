@@ -70,14 +70,14 @@
       <section class="pane" id="pane-inspect" role="tabpanel" aria-labelledby="tab-inspect"></section>
       <section class="pane" id="pane-codex" role="tabpanel" aria-labelledby="tab-codex" hidden>
         <label class="sr" for="codexQ">Search</label>
-        <input id="codexQ" class="search" type="search" placeholder="Search places, waters and notes" autocomplete="off">
+        <input id="codexQ" class="search" type="search" enterkeyhint="search" placeholder="Search places, waters and notes" autocomplete="off">
         <div id="codexList"></div>
       </section>
       <section class="pane" id="pane-world" role="tabpanel" aria-labelledby="tab-world" hidden>
         <div class="section">
           <h3>Generate</h3>
           <div class="grid2">
-            <label for="wSeed">Seed<input id="wSeed" type="number" inputmode="numeric" min="1" max="999999"></label>
+            <label for="wSeed">Seed<input id="wSeed" type="number" inputmode="numeric" enterkeyhint="go" min="1" max="999999"></label>
             <label for="wShape">Shape<select id="wShape"></select></label>
           </div>
           <div class="row">

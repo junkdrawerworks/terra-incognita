@@ -2761,6 +2761,8 @@ function bindWorldTab() {
   $('#wShape').innerHTML = Object.entries(SHAPES).filter(([, v]) => !v.blank).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
   const generate = s => { newWorld(s, $('#wShape').value); syncWorldTab(); markDirty(); toast(`Generated world ${s}.`, { label: 'Undo', fn: undo }); };
   $('#wGen').onclick = () => generate(clamp(parseInt($('#wSeed').value, 10) || 1, 1, 999999));
+  // Enter in Seed generates it, as the button does; on a touch screen the keyboard goes, so the map and Undo show.
+  $('#wSeed').addEventListener('keydown', e => { if (e.key !== 'Enter' || e.isComposing) return; e.preventDefault(); $('#wGen').click(); if (TOUCH) e.target.blur(); });
   $('#wBlank').onclick = startBlank;
   // Random seed grows a world from a new seed in one go, in the shape chosen, as Generate from seed does; Undo brings
   // back the one before.
@@ -2951,6 +2953,12 @@ function init() {
     e.preventDefault(); items[(to + items.length) % items.length].focus();
   });
   $('#codexQ').addEventListener('input', renderCodex);
+  // Enter in the search opens the one entry it found, or with more, puts the phone's keyboard away from over them.
+  $('#codexQ').addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.isComposing) return;
+    e.preventDefault(); const rows = $('#codexList').querySelectorAll('.crow');
+    if (rows.length === 1) rows[0].click(); else e.target.blur();
+  });
   syncOldSave();
   if (firstRun) {
     const kept = unreadable !== null;

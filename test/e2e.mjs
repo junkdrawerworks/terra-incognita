@@ -412,6 +412,15 @@ ok(Math.abs(eyebrowLine.swatch - eyebrowLine.name) <= 4 && eyebrowLine.showTop -
   await codexRows('Lainho');
   await desk.click('#codexList .crow[data-label]');
   ok(await desk.inputValue('#lText') === 'Sea of Lainho', 'and a sea found there opens its label');
+  // Enter in the search opens the one entry found, and with more than one puts the keyboard away (it did nothing, and
+  // a phone's keyboard stayed up over half the results).
+  await desk.click('#tab-codex');
+  await desk.fill('#codexQ', noted.name); await desk.press('#codexQ', 'Enter');
+  const enterOne = await desk.evaluate(() => document.getElementById('pName')?.value);
+  await desk.click('#tab-codex');
+  await desk.fill('#codexQ', 'a'); await desk.press('#codexQ', 'Enter');
+  const enterMany = await desk.evaluate(() => [document.querySelectorAll('#codexList .crow').length, document.activeElement.id, !document.getElementById('pane-codex').hidden]);
+  ok(enterOne === noted.name && enterMany[0] > 1 && enterMany[1] !== 'codexQ' && enterMany[2] && await desk.getAttribute('#codexQ', 'enterkeyhint') === 'search', `Enter in the Codex search opens the one place found (${enterOne}), and with ${enterMany[0]} found leaves the box and the list in view`);
   await desk.evaluate(() => { const i = document.getElementById('codexQ'); i.value = ''; i.dispatchEvent(new Event('input')); window.terra.select(null); window.terra.fitView(); });
 }
 
@@ -654,8 +663,15 @@ for (const reducedMotion of ['no-preference', 'reduce']) {
   await c.close();
 }
 
-// Shortcuts still work straight after using a slider: Ctrl+Z takes back the sea level it set.
+// Enter in Seed generates that world, as Generate from seed does, with its Undo.
 await desk.click('#tab-world');
+const seedWas = (await desk.evaluate(() => window.terra.state())).seed;
+await desk.fill('#wSeed', '4242'); await desk.press('#wSeed', 'Enter');
+const seedSaid = await desk.textContent('#toast span');
+ok((await desk.evaluate(() => window.terra.state())).seed === 4242 && seedSaid === 'Generated world 4242.' && await desk.locator('#toast button', { hasText: 'Undo' }).isVisible() && await desk.getAttribute('#wSeed', 'enterkeyhint') === 'go', `Enter in Seed generates world 4242, with Undo ("${seedSaid}")`);
+await desk.click('#toast button:has-text("Undo")');
+ok((await desk.evaluate(() => window.terra.state())).seed === seedWas, 'and Undo brings back the world before');
+// Shortcuts still work straight after using a slider: Ctrl+Z takes back the sea level it set.
 const landBefore = (await desk.evaluate(() => window.terra.state())).land;
 const seaBox = await desk.locator('#wSea').boundingBox();
 await desk.locator('#wSea').click({ position: { x: seaBox.width * 0.15, y: seaBox.height / 2 } });

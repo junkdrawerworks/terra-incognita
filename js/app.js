@@ -1307,7 +1307,7 @@ let stroke = null;
 function startStroke(sx, sy) {
   // What the Undo step about to go on displaces, so a stroke taken back by cancelStroke leaves no trace at all.
   const kept = { redo: redoStack.slice(), dropped: undoStack.length >= 30 ? undoStack[0] : null };
-  pushUndo(ui.tool === 'rain' || ui.tool === 'drought' ? { m: true } : { h: true });
+  pushUndo(ui.tool === 'rain' || ui.tool === 'drought' ? { m: true } : { h: true, meta: true });
   stroke = { tool: ui.tool, x: sx, y: sy, lx: sx, ly: sy, sx, sy, far: 0, t0: performance.now(), kept, dry: dryPlaces() };
   requestAnimationFrame(strokeFrame);
 }
@@ -1355,7 +1355,8 @@ function dab(tool, cx, cy, r, amt) {
   }
 }
 function endStroke() {
-  if (!stroke) return; const dry = stroke.dry; stroke = null;
+  if (!stroke) return; const dry = stroke.dry, tool = stroke.tool; stroke = null;
+  if (tool !== 'rain' && tool !== 'drought') dropDrownedSprings();
   recomputeAll(); markDirty();
   const wet = drowned(dry); if (wet.length) toast(`${someWet(wet)} ${wet.length === 1 ? 'is' : 'are'} under water now.`, { label: 'Undo', fn: undo });
 }
@@ -1432,7 +1433,7 @@ function sketchLoop(pts, mode) {
     for (let y = 0; y < bh && !floods; y++) for (let x = 0; x < bw; x++) { const gx = bx0 + x, gy = by0 + y; if (h[gy * W + gx] >= sea && depth(y * bw + x, gx, gy) > 0) { floods = true; break; } }
     if (!floods) { toast('Nothing to flood there. Draw the loop over land.'); return; }
   }
-  pushUndo({ h: true });
+  pushUndo({ h: true, meta: true });
   const dry = dryPlaces();
   // The ground crosses sea level at the drawn line itself, so the coast is as smooth as the line.
   for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
@@ -1463,7 +1464,7 @@ function sketchRange(raw) {
   for (let k = 0; k < n; k++) { minX = Math.min(minX, pts[2 * k]); maxX = Math.max(maxX, pts[2 * k]); minY = Math.min(minY, pts[2 * k + 1]); maxY = Math.max(maxY, pts[2 * k + 1]); }
   const bx0 = clamp(Math.floor(minX - sh) - 1, 0, W - 1), bx1 = clamp(Math.ceil(maxX + sh) + 1, 0, W - 1), by0 = clamp(Math.floor(minY - sh) - 1, 0, H - 1), by1 = clamp(Math.ceil(maxY + sh) + 1, 0, H - 1);
   const nz1 = sketchNoise(4), nz2 = sketchNoise(5), taper = Math.min(Wd * 1.2, L / 3);
-  pushUndo({ h: true });
+  pushUndo({ h: true, meta: true });
   for (let gy = by0; gy <= by1; gy++) for (let gx = bx0; gx <= bx1; gx++) {
     const px = gx + 0.5, py = gy + 0.5; let bd = Infinity, bs = 0;
     for (let k = 0; k < n - 1; k++) {
@@ -1694,7 +1695,13 @@ function settleSketch(x0, y0, x1, y1) {
   }
   hydrology();
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const i = y * W + x; if (h[i] >= sea && h[i] !== prev[i] && D.filled[i] > h[i]) h[i] = D.filled[i]; }
+  dropDrownedSprings();
   recomputeAll(); markDirty();
+}
+// A river drawn on land goes with the land: once a sketch or a brush puts its source under the sea, it's gone, and land
+// raised there later doesn't bring it back. (The sea-level slider leaves sources be, so the sea can go back down.)
+function dropDrownedSprings() {
+  if (world.springs) world.springs = world.springs.filter(sp => world.h[cellAt(sp.x, sp.y)] >= world.sea);
 }
 function finishSketch() {
   const d = sketchDraft; sketchDraft = null; if (!d) return;
@@ -2438,7 +2445,7 @@ window.terra = {
   state: () => {
     let land = 0, rivers = 0, lakes = 0;
     for (let i = 0; i < N; i++) { if (world.h[i] >= world.sea) land++; if (D.isR[i]) rivers++; if (D.lake[i]) lakes++; }
-    return { name: world.name, seed: world.seed, shape: world.shape, land, rivers, lakes, realms: D.realms.length, places: world.places.length, labels: world.labels.length, undo: undoStack.length };
+    return { name: world.name, seed: world.seed, shape: world.shape, land, rivers, lakes, realms: D.realms.length, places: world.places.length, labels: world.labels.length, springs: (world.springs || []).length, undo: undoStack.length };
   },
   toScreen: (x, y) => ({ x: view.ox + x * view.s, y: view.oy + y * view.s }),
   mapImage: (S = 2, allNames = true) => renderMapImage(S, allNames).toDataURL('image/png'),

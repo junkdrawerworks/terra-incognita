@@ -16,7 +16,8 @@
 // surprise: a pinch that paints nothing, a drag a pinch cuts short, a page left mid-stroke, Undo mid-stroke, a toast's
 // Undo, Undo naming the places it takes, Found new realms and Clear naming the notes they take, a refused file, and two
 // tabs on one world. And sketches that keep what's on the map: rivers drawn into and beside lakes, a range across a
-// lake's way out, a river line across an inlet, and figure-8s and loops drawn twice round.
+// lake's way out, a river line across an inlet, figure-8s and loops drawn twice round, and a drawn river's source
+// going under the sea.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -786,6 +787,22 @@ await oldCtx.close();
   const lobes = await landFrom(ring(0, Math.PI, eight), ring(Math.PI, 2 * Math.PI, eight)), figure8 = await landFrom(ring(0, 2 * Math.PI, eight));
   const once = await landFrom(ring(0, 2 * Math.PI, oval)), twice = await landFrom(ring(0, 4 * Math.PI, oval));
   ok(lobes > 2000 && Math.abs(figure8 - lobes) < lobes * 0.1 && once > 2000 && Math.abs(twice - once) < once * 0.1, `a figure-8 raises both its lobes (${figure8} land cells, against ${lobes} for the lobes drawn one at a time), and a loop drawn twice round raises one loop's land (${twice} cells, against ${once})`);
+  // A drawn river goes with its land. Its source used to stay in the world for good, so a river ran from that spot again
+  // wherever land came back. Flooding the island takes it; Undo brings it back with the island, and Redo takes it again.
+  await E(() => window.terra.startBlank());
+  const island = [[180, 100], [260, 100], [260, 180], [180, 180], [180, 100]];
+  await drag(island, 8, pg);
+  await pg.click('.chip[data-v="river"]');
+  await drag([[215, 125], [230, 150], [258, 175], [275, 190]], 8, pg);
+  const drawn = await E(() => [window.terra.state().springs, window.terra.riverNear(215, 125, 1.5)]);
+  await pg.click('.chip[data-v="sea"]');
+  await drag([[160, 80], [290, 80], [290, 210], [160, 210], [160, 80]], 8, pg);
+  const drowned = await E(() => [window.terra.state().springs, window.terra.state().land]);
+  await pg.click('#btnUndo'); const undone = await E(() => window.terra.state().springs);
+  await pg.click('#btnRedo'); const redone = await E(() => window.terra.state().springs);
+  await pg.click('.chip[data-v="land"]');
+  await drag(island, 8, pg);
+  ok(drawn.join() === '1,true' && drowned.join() === '0,0' && undone === 1 && redone === 0 && (await E(() => window.terra.state().springs)) === 0, `a drawn river's source goes when its island is flooded, comes back with an Undo, and stays gone when land is raised there again`);
   await c.close();
 }
 

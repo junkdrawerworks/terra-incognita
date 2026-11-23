@@ -364,6 +364,13 @@ const cdp = await ctx.newCDPSession(page);
 const { installabilityErrors } = await cdp.send('Page.getInstallabilityErrors');
 ok(installabilityErrors.length === 0, 'Chromium says it can be installed' + (installabilityErrors.length ? ': ' + JSON.stringify(installabilityErrors) : ''));
 
+// A link to it previews with a picture: the four properties the Open Graph protocol requires of every page (ogp.me,
+// Basic Metadata: og:title, og:type, og:image, og:url), the picture's size as og.png has it, and words for the picture.
+const og = await S(() => Object.fromEntries([...document.querySelectorAll('meta[property^="og:"], meta[name^="twitter:"]')].map((m) => [m.getAttribute('property') || m.name, m.content])));
+const ogPng = await readFile(join(root, 'og.png'));
+ok(og['og:title'] && og['og:type'] === 'website' && og['og:image'] && og['og:url'] && +og['og:image:width'] === ogPng.readUInt32BE(16) && +og['og:image:height'] === ogPng.readUInt32BE(20) && og['og:image:alt'] && og['twitter:image:alt'] === og['og:image:alt'],
+  `a link to it previews with og:title, og:type, og:image and og:url, the picture's size (${og['og:image:width']} x ${og['og:image:height']}) and its alt text`);
+
 // Every file the page loads is in the offline copy, and every file in it exists.
 const sw = await readFile(join(root, 'sw.js'), 'utf8');
 const shell = [...sw.match(/const SHELL = \[([\s\S]*?)\];/)[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);

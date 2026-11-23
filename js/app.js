@@ -1614,6 +1614,24 @@ function breach(pit, keep) {
     c = down[c];
   }
 }
+// Give a lake from before a sketch back its old way out, where the sketch raised ground across it: that ground goes
+// back to the height it had, in a gorge, so the lake drains as it did and stands where it stood. The way out is the
+// old overflow route (down, as it was before the sketch), from each of the lake's cells past its shore to the sea.
+function reopen(comp, oldLake, oldDown, prev) {
+  const h = world.h, seen = new Uint8Array(N);
+  for (const s of comp) {
+    if (!oldLake[s]) continue;
+    for (let c = s, guard = 0; c >= 0 && !seen[c] && guard++ < 4000; c = oldDown[c]) {
+      seen[c] = 1;
+      if (h[c] <= prev[c]) continue;
+      const cut = prev[c], cx = c % W, cy = (c / W) | 0; h[c] = cut;
+      for (let k = 0; k < 8; k++) {
+        const nx = cx + NBX[k], ny = cy + NBY[k]; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const n = ny * W + nx; if (h[n] > prev[n] && h[n] > cut) h[n] = Math.max(prev[n], Math.min(h[n], cut + (h[n] - cut) * 0.55 + 0.0005));
+      }
+    }
+  }
+}
 // The lakes that were there before a sketch, as they stand now: their water, and beside it the level of that water.
 function oldWater(oldLake, keep) {
   const h = world.h, sea = world.sea, water = keep.water, shore = keep.shore, q = D.q;
@@ -1635,7 +1653,7 @@ function oldWater(oldLake, keep) {
 // After a sketch, let the land drain: shallow basins it created are filled, deep ones get a gorge through
 // their lowest pass. Lakes that existed before the sketch are left alone.
 function settleSketch(x0, y0, x1, y1) {
-  const h = world.h, sea = world.sea, prev = undoStack[undoStack.length - 1].h, oldLake = D.lake.slice();
+  const h = world.h, sea = world.sea, prev = undoStack[undoStack.length - 1].h, oldLake = D.lake.slice(), oldLevel = D.filled.slice(), oldDown = D.down.slice();
   const X0 = Math.max(0, x0 - 24), X1 = Math.min(W - 1, x1 + 24), Y0 = Math.max(0, y0 - 24), Y1 = Math.min(H - 1, y1 + 24);
   const inBasin = i => h[i] >= sea && D.filled[i] - h[i] > 1e-4;
   const keep = { water: new Uint8Array(N), shore: new Float32Array(N) };
@@ -1644,16 +1662,18 @@ function settleSketch(x0, y0, x1, y1) {
     const seen = new Uint8Array(N), stack = []; let touched = 0;
     for (let y = Y0; y <= Y1; y++) for (let x = X0; x <= X1; x++) {
       const s0 = y * W + x; if (seen[s0] || !inBasin(s0)) continue;
-      const comp = []; let pit = s0, deep = 0, old = false;
+      const comp = []; let pit = s0, deep = 0, old = false, was = Infinity, now = 0;
       seen[s0] = 1; stack.push(s0);
       while (stack.length) {
         const c = stack.pop(); comp.push(c);
-        if (oldLake[c]) old = true;
+        if (oldLake[c]) { old = true; was = Math.min(was, oldLevel[c]); now = Math.max(now, D.filled[c]); }
         const dd = D.filled[c] - h[c]; if (dd > deep) deep = dd; if (h[c] < h[pit]) pit = c;
         const cx = c % W, cy = (c / W) | 0;
         for (let k = 0; k < 8; k++) { const nx = cx + NBX[k], ny = cy + NBY[k]; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; const n = ny * W + nx; if (!seen[n] && inBasin(n)) { seen[n] = 1; stack.push(n); } }
       }
-      if (old) continue;
+      // A lake from before the sketch keeps its shore. If the sketch dammed its way out, so it would rise, a gorge
+      // through the dam lets it down to where it stood.
+      if (old) { if (now - was > 1e-4) { reopen(comp, oldLake, oldDown, prev); touched++; } continue; }
       if (deep < 0.02) for (const c of comp) h[c] = D.filled[c];
       else breach(pit, keep);
       touched++;

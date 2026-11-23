@@ -15,7 +15,8 @@
 // same worlds, and a world file from an earlier build that must keep opening. Then nothing lost and nothing undone by
 // surprise: a pinch that paints nothing, a drag a pinch cuts short, a page left mid-stroke, Undo mid-stroke, a toast's
 // Undo, Undo naming the places it takes, Found new realms and Clear naming the notes they take, a refused file, and two
-// tabs on one world. And sketches that keep what's on the map: rivers drawn into and beside lakes.
+// tabs on one world. And sketches that keep what's on the map: rivers drawn into and beside lakes, and a range across
+// a lake's way out.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -752,6 +753,14 @@ await oldCtx.close();
     const left = await still(lake);
     ok(lake.length > 200 && left >= lake.length * 0.9, `a river drawn ${what} leaves the lake (${lake.length} cells before, ${left} after)`);
   }
+  // A Mountain range across the way out of a lake: the lake's river cuts a gorge through it, and the lake stays the size
+  // it was. The lake used to rise behind the range, from 1,382 lake cells on the map to 2,002.
+  await fresh();
+  const lakesBefore = (await E(() => window.terra.state())).lakes;
+  await pg.click('.chip[data-v="range"]');
+  await drag([[150, 90], [200, 130], [260, 160], [300, 170]], 10, pg);
+  const lakesAfter = (await E(() => window.terra.state())).lakes;
+  ok(lakesAfter <= lakesBefore * 1.05, `a range across a lake's way out leaves the lake be (${lakesBefore} lake cells before, ${lakesAfter} after)`);
   await c.close();
 }
 

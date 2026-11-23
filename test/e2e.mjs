@@ -873,6 +873,26 @@ await oldCtx.close();
   await c.close();
 }
 
+// Backspace on a button on a place's page (Suggest another name) leaves the place be; some screen reader users press
+// it for Back. Delete after clicking the place on the map still removes it.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => window.terra.newWorld(20417, 'continent'));
+  const nin = await pg.evaluate(() => window.terra.places().find((p) => p.name === 'Ninten'));
+  await pg.evaluate((id) => window.terra.select({ type: 'place', id }), nin.id);
+  await pg.focus('#pReroll');
+  await pg.keyboard.press('Backspace');
+  const kept = await pg.evaluate((id) => window.terra.places().some((p) => p.id === id), nin.id);
+  const b = await pg.locator('#map').boundingBox(), at = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), [nin.x, nin.y]);
+  await pg.mouse.click(b.x + at.x, b.y + at.y);
+  await pg.keyboard.press('Delete');
+  const gone = await pg.evaluate((id) => !window.terra.places().some((p) => p.id === id), nin.id);
+  ok(kept && gone, `Backspace on a button on a place's page leaves the place, and Delete after clicking it on the map removes it (kept ${kept}, then removed ${gone})`);
+  await c.close();
+}
+
 // A world file saved by an earlier build (with notes, a label, a drawn river's spring and a renamed, recolored realm)
 // still opens, every field intact: saving it again gives back the same file.
 {

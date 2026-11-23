@@ -2506,7 +2506,12 @@ window.addEventListener('keydown', e => {
     if (sketchDraft) { sketchDraft = null; gesture = null; requestDraw(); return; }
     select(null); return;
   }
-  if ((e.key === 'Delete' || e.key === 'Backspace') && ui.selected && ui.selected.type !== 'loc') { e.preventDefault(); removeSel(ui.selected); return; }
+  // Delete and Backspace remove what is selected from the map or the tools, not from a button on the side panel (some
+  // screen reader users press Backspace there for Back), the New world menu or a toast; the place page has its Remove.
+  if ((e.key === 'Delete' || e.key === 'Backspace') && ui.selected && ui.selected.type !== 'loc') {
+    if (el && el.closest && el.closest('.panel, .menu, .toast')) return;
+    e.preventDefault(); removeSel(ui.selected); return;
+  }
   if (e.key === '[' || e.key === ']') { ui.brush.size = clamp(ui.brush.size + (e.key === ']' ? 2 : -2), 2, 40); renderToolOpts(); requestDraw(); savePrefs(); return; }
   if (e.key === 'f' || e.key === 'F') { fitView(); return; }
   if (e.key === '+' || e.key === '=') { zoomAt(view.cw / 2, view.ch / 2, 1.3); return; }

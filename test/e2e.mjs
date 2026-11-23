@@ -15,7 +15,7 @@
 // same worlds, and a world file from an earlier build that must keep opening. Then nothing lost and nothing undone by
 // surprise: a pinch that paints nothing, a drag a pinch cuts short, a page left mid-stroke, Undo mid-stroke, a toast's
 // Undo, Undo naming the places it takes, Found new realms and Clear naming the notes they take, a refused file, and two
-// tabs on one world.
+// tabs on one world. And sketches that keep what's on the map: rivers drawn into and beside lakes.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -720,6 +720,38 @@ await oldCtx.close();
   ok(opened === `Opened ${old.name}.` && lost.length === 0, `a world file from an earlier build opens with every field intact (${old.places.length} places, ${old.labels.length} labels, ${old.springs.length} spring)` + (lost.length ? ': changed ' + lost.join(', ') : ''));
   const cap = old.places.find((p) => p.lore);
   ok(await pg.evaluate((id) => { window.terra.select({ type: 'place', id }); return document.getElementById('pLore').value; }, cap.id) === cap.lore, 'and its notes are there');
+  await c.close();
+}
+
+// Sketches that keep what's on the map, on the starting world. A River drawn into a lake ends there, and one drawn
+// down beside a long lake passes it by: both lakes keep their water. (They were drained, from 252 cells to 29 and
+// from 257 to 6.)
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const E = (fn, arg) => pg.evaluate(fn, arg);
+  const fresh = () => E(() => window.terra.newWorld(20417, 'continent'));
+  // The cells of the lake at a point, and how many of them are still lake.
+  const lakeAt = (x, y) => E(([x0, y0]) => {
+    const seen = new Set(), st = [[x0, y0]], out = [];
+    while (st.length) {
+      const [x, y] = st.pop(), k = x + ',' + y; if (seen.has(k) || x < 0 || y < 0 || x >= 480 || y >= 300) continue; seen.add(k);
+      if (!window.terra.cell(x + 0.5, y + 0.5).lake) continue;
+      out.push([x, y]); for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) st.push([x + dx, y + dy]);
+    }
+    return out;
+  }, [x, y]);
+  const still = (cells) => E((cells) => cells.filter(([x, y]) => window.terra.cell(x + 0.5, y + 0.5).lake).length, cells);
+  await pg.click('.tool[data-tool="sketch"]');
+  await pg.click('.chip[data-v="river"]');
+  for (const [what, line, at] of [['into a lake', [[150, 140], [170, 160], [185, 172]], [185, 172]], ['down beside a long lake', [[262, 95], [262, 150], [262, 200], [262, 260]], [262, 122]]]) {
+    await fresh();
+    const lake = await lakeAt(...at);
+    await drag(line, 10, pg);
+    const left = await still(lake);
+    ok(lake.length > 200 && left >= lake.length * 0.9, `a river drawn ${what} leaves the lake (${lake.length} cells before, ${left} after)`);
+  }
   await c.close();
 }
 

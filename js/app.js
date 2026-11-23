@@ -1490,14 +1490,8 @@ function sketchRiver(raw) {
   let pts = resample(raw, 0.7);
   const h = world.h, sea = world.sea;
   let n = pts.length / 2;
-  const hAt = k => h[cellAt(pts[2 * k], pts[2 * k + 1])];
+  const at = k => cellAt(pts[2 * k], pts[2 * k + 1]), hAt = k => h[at(k)];
   if (n < 4) { toast('Draw a longer river, from its source toward the sea.'); return; }
-  // Water runs toward the end that touches the sea, or else toward the lower end.
-  const wet0 = hAt(0) < sea, wet1 = hAt(n - 1) < sea;
-  if ((wet0 && !wet1) || (!wet0 && !wet1 && hAt(0) < hAt(n - 1))) { const r = []; for (let k = n - 1; k >= 0; k--) r.push(pts[2 * k], pts[2 * k + 1]); pts = r; }
-  let first = 0; while (first < n && hAt(first) < sea) first++;
-  if (first >= n - 2) { toast('Rivers need dry land to run across. Start the line on land.'); return; }
-  let last = n - 1; for (let k = first; k < n; k++) if (hAt(k) < sea) { last = k; break; }
   // Lakes keep their water. A lake stands at the height of the pass it spills over (D.filled creeps up a hair across a
   // lake, so follow the water down to that pass), and a basin is any hollow deeper than a hair.
   const basin = i => D.filled[i] - h[i] > 1e-4, spillAt = new Map();
@@ -1508,6 +1502,30 @@ function sketchRiver(raw) {
     for (const p of path) spillAt.set(p, s);
     return s;
   };
+  // Water runs toward the end that touches the sea, or else toward the lower end, going by a lake's surface rather than
+  // its bed. A line drawn into a lake keeps its way round: the river ends there.
+  const surf = k => D.lake[at(k)] ? spill(at(k)) : hAt(k);
+  const wet0 = hAt(0) < sea, wet1 = hAt(n - 1) < sea;
+  if ((wet0 && !wet1) || (!wet0 && !wet1 && !D.lake[at(n - 1)] && surf(0) < surf(n - 1))) { const r = []; for (let k = n - 1; k >= 0; k--) r.push(pts[2 * k], pts[2 * k + 1]); pts = r; }
+  let first = 0; while (first < n && hAt(first) < sea) first++;
+  if (first >= n - 2) { toast('Rivers need dry land to run across. Start the line on land.'); return; }
+  let last = n - 1; for (let k = first; k < n; k++) if (hAt(k) < sea) { last = k; break; }
+  // A river drawn into a lake ends at its shore, and the lake keeps its level.
+  const endLake = hAt(last) >= sea && D.lake[at(last)] ? spill(at(last)) : 0;
+  if (endLake) while (last - 1 > first + 2 && D.lake[at(last - 1)] && spill(at(last - 1)) === endLake) last--;
+  // Which lakes on the line are big: more than 40 cells, and more than twice the channel through them would take (it's
+  // about three cells wide). A big lake the line runs along or across keeps its water, even when the line would have
+  // to climb into it past lower ground.
+  const big = new Map(), inLake = new Map();
+  for (let k = first; k < last; k++) { const c = at(k); if (D.lake[c]) { const s = spill(c); if (!inLake.has(s)) inLake.set(s, new Set()); inLake.get(s).add(c); } }
+  for (const [s, cells] of inLake) {
+    const c0 = cells.values().next().value, seen = new Set([c0]), q = [c0];
+    while (q.length && seen.size <= Math.max(40, cells.size * 6)) {
+      const c = q.pop(), cx = c % W, cy = (c / W) | 0;
+      for (let j = 0; j < 8; j++) { const nx = cx + NBX[j], ny = cy + NBY[j]; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; const m = ny * W + nx; if (D.lake[m] && !seen.has(m)) { seen.add(m); q.push(m); } }
+    }
+    big.set(s, seen.size > Math.max(40, cells.size * 6));
+  }
   // A bed that only ever runs downhill and sits below the lowest ground on either side of the line, so the water
   // can't spill out of the valley sideways. It never goes below sea level on land. Where the line crosses a lake the
   // bed is the lake's surface, and it reaches a lake no lower than that, so the lake drains only down the drawn river.
@@ -1521,29 +1539,33 @@ function sketchRiver(raw) {
     }
     return Math.max(lo, sea);
   };
-  // A lake the line comes down to keeps its level. One it would have to climb into, past lower ground, is cut down.
+  // A lake the line comes down to keeps its level, and so does the lake the line ends in. A small one the line would
+  // have to climb into, past lower ground, is cut down so the water follows the line. A big one keeps its level too:
+  // the river leaves it down the drawn line, and the stretch before it, too low to climb in, is left to find its own way.
   // Lower ground beside the line counts too, except right at a lake's shore, where the far side of its rim is lower.
   const ahead = new Float64Array(n).fill(Infinity);
   for (let k = last - 1, d = Infinity; k >= first; k--) ahead[k] = d = D.lake[cellAt(pts[2 * k], pts[2 * k + 1])] ? 0 : d + 0.7;
-  const bed = new Float32Array(n), lakeAt = new Float64Array(n), cut = new Set(); let prev = Infinity, dip = Infinity;
+  const bed = new Float32Array(n), lakeAt = new Float64Array(n), cut = new Set(), climbIn = new Map(); let prev = Infinity, dip = Infinity;
   for (let k = first; k <= last; k++) {
     if (hAt(k) < sea) { bed[k] = sea + 0.0003; continue; }
     const c = cellAt(pts[2 * k], pts[2 * k + 1]);
     if (D.lake[c]) {
       const s = spill(c);
-      if (dip >= s && !cut.has(s)) { lakeAt[k] = s; bed[k] = prev = s - 3e-5; dip = s; continue; }
+      if (s === endLake || (dip >= s && !cut.has(s))) { lakeAt[k] = s; bed[k] = prev = s - 3e-5; dip = s; continue; }
+      if (big.get(s)) { if (!climbIn.has(s)) climbIn.set(s, k); lakeAt[k] = -s; bed[k] = prev = s - 3e-5; dip = s; continue; } // no climbing in
       cut.add(s);
     }
     const b = Math.max(Math.min(prev - 2e-5, lowAround(k) - 0.004), sea + 0.0004 + 2e-6 * (last - k));
     bed[k] = b; prev = b; dip = Math.min(dip, ahead[k] > reach + 2 ? dry : basin(c) ? Infinity : h[c]);
   }
-  for (let k = last, lv = 0; k >= first; k--) { if (lakeAt[k]) lv = lakeAt[k]; else if (bed[k] < lv) bed[k] = lv; }
+  // Above a lake it comes down to, the bed reaches the lake no lower than its water, still running downhill.
+  for (let k = last, lv = 0; k >= first; k--) { if (lakeAt[k]) lv = Math.max(0, lakeAt[k]); else if (lv) { lv += 2e-6; if (bed[k] < lv) bed[k] = lv; } }
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (let k = first; k <= last; k++) { minX = Math.min(minX, pts[2 * k]); maxX = Math.max(maxX, pts[2 * k]); minY = Math.min(minY, pts[2 * k + 1]); maxY = Math.max(maxY, pts[2 * k + 1]); }
   const bx0 = clamp(Math.floor(minX - Wv) - 1, 0, W - 1), bx1 = clamp(Math.ceil(maxX + Wv) + 1, 0, W - 1), by0 = clamp(Math.floor(minY - Wv) - 1, 0, H - 1), by1 = clamp(Math.ceil(maxY + Wv) + 1, 0, H - 1);
   // A lake keeps its cells, and the ground beside a lake or hollow is cut no lower than its water, so it keeps its
-  // shore; only the channel's own bed goes a hair under, which makes the drawn river the way out. Worked out before
-  // anything is cut.
+  // shore; only the channel's own bed goes a hair under, which makes the drawn river the way out (but not on the near
+  // side of a big lake the line climbs into, or it would drain back that way). Worked out before anything is cut.
   const bw = bx1 - bx0 + 1, keep = new Float32Array(bw * (by1 - by0 + 1));
   for (let gy = by0; gy <= by1; gy++) for (let gx = bx0; gx <= bx1; gx++) {
     let kv = 0;
@@ -1554,17 +1576,17 @@ function sketchRiver(raw) {
   pushUndo({ h: true, meta: true });
   for (let gy = by0; gy <= by1; gy++) for (let gx = bx0; gx <= bx1; gx++) {
     const gi = gy * W + gx, kv = keep[(gy - by0) * bw + gx - bx0]; if (h[gi] < sea || kv < 0) continue;
-    const px = gx + 0.5, py = gy + 0.5; let bd = Infinity, bb = 0;
+    const px = gx + 0.5, py = gy + 0.5; let bd = Infinity, bb = 0, bk = 0;
     for (let k = first; k < last; k++) {
       const ax = pts[2 * k], ay = pts[2 * k + 1], vx = pts[2 * k + 2] - ax, vy = pts[2 * k + 3] - ay, ll = vx * vx + vy * vy;
       const t = ll ? clamp(((px - ax) * vx + (py - ay) * vy) / ll, 0, 1) : 0;
       const d = Math.hypot(px - ax - vx * t, py - ay - vy * t);
-      if (d < bd) { bd = d; bb = lerp(bed[k], bed[k + 1], t); }
+      if (d < bd) { bd = d; bb = lerp(bed[k], bed[k + 1], t); bk = k; }
     }
     if (bd < Wv) {
       // A flat channel about two cells wide at the bed, then banks rising to the old ground at the valley's edge.
       const f = bd <= 1 ? 0 : Math.pow((bd - 1) / Math.max(1, Wv - 1), 1.4);
-      const target = Math.max(bb + (h[gi] - bb) * f, kv ? kv - (bd <= 1 ? 3e-5 : 0) : sea + 0.0003);
+      const target = Math.max(bb + (h[gi] - bb) * f, kv ? kv - (bd <= 1 && !(bk < climbIn.get(kv)) ? 3e-5 : 0) : sea + 0.0003);
       if (target < h[gi]) h[gi] = target;
     }
   }

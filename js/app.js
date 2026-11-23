@@ -19,6 +19,9 @@ const UNREADABLE_KEY = 'terra-incognita/world/unreadable';
 const F_DISPLAY = '"IM Fell English", Georgia, serif';
 const F_SC = '"IM Fell English SC", "IM Fell English", Georgia, serif';
 const F_MONO = '"IBM Plex Mono", ui-monospace, Menlo, monospace';
+// A touch screen is the main way in (a phone or a tablet), so the page says Tap, shows the brush where a finger is,
+// and leaves out the keyboard shortcuts.
+const TOUCH = window.matchMedia('(pointer: coarse)').matches;
 
 // ------------------------------------------------------------------ utils
 const $ = (s, el = document) => el.querySelector(s);
@@ -1136,14 +1139,21 @@ function drawSelection(c, v, atlas) {
     c.beginPath(); c.arc(X, Y, 5, 0, Math.PI * 2); c.stroke();
   }
 }
+// The brush's ring: under the mouse, or on a touch screen under the finger while it paints, and for a moment in the
+// middle of the map when the Brush slider moves, so a finger far bigger than the brush can see how far it reaches.
+let ringShown = null, sizePreview = 0;
 function drawCursor(c, v) {
-  if (!hover || !BRUSH_TOOLS.has(ui.tool)) return;
+  ringShown = null;
+  if (!BRUSH_TOOLS.has(ui.tool)) return;
+  const at = hover || (stroke && { x: stroke.x, y: stroke.y }) || (performance.now() < sizePreview && { x: view.cw / 2, y: view.ch / 2 });
+  if (!at) return;
   const R = ui.brush.size * v.s;
-  c.beginPath(); c.arc(hover.x, hover.y, R, 0, Math.PI * 2); c.lineWidth = 3; c.strokeStyle = 'rgba(255,255,255,0.75)'; c.stroke();
+  ringShown = { x: at.x, y: at.y, r: R };
+  c.beginPath(); c.arc(at.x, at.y, R, 0, Math.PI * 2); c.lineWidth = 3; c.strokeStyle = 'rgba(255,255,255,0.75)'; c.stroke();
   c.setLineDash([5, 4]); c.lineWidth = 1.3; c.strokeStyle = 'rgba(15,25,32,0.9)'; c.stroke(); c.setLineDash([]);
   const sym = { raise: '+', lower: '−', smooth: '~', rain: '≈', drought: '☼' }[ui.tool];
   c.font = `600 14px ${F_MONO}`; c.textAlign = 'center'; c.textBaseline = 'middle';
-  haloText(c, sym, hover.x, hover.y, 'rgba(15,25,32,0.95)', 'rgba(255,255,255,0.85)', 3);
+  haloText(c, sym, at.x, at.y, 'rgba(15,25,32,0.95)', 'rgba(255,255,255,0.85)', 3);
 }
 function drawCompass(c, X, Y, R, ink, halo) {
   c.save(); c.translate(X, Y);
@@ -1280,7 +1290,7 @@ function renderToolOpts() {
     h += `<span class="hint">Drag to pan. Scroll or pinch to zoom. Click a place or any spot to read about it.</span>`;
   }
   el.innerHTML = h;
-  const sz = $('#optSize'); if (sz) { sz.oninput = () => { ui.brush.size = +sz.value; $('#optSizeOut').textContent = sz.value; savePrefs(); }; }
+  const sz = $('#optSize'); if (sz) { sz.oninput = () => { ui.brush.size = +sz.value; $('#optSizeOut').textContent = sz.value; savePrefs(); if (TOUCH) showBrushSize(); }; }
   const st = $('#optStr'); if (st) { st.oninput = () => { ui.brush.strength = +st.value; $('#optStrOut').textContent = st.value; savePrefs(); }; }
   el.querySelectorAll('.chip').forEach(b => b.onclick = () => {
     const g = b.dataset.g, v = b.dataset.v;
@@ -1294,6 +1304,7 @@ function renderToolOpts() {
   const va = $('#optValley'); if (va) va.oninput = () => { ui.sketch.valley = +va.value; $('#optValleyOut').textContent = va.value; savePrefs(); };
   const wd = $('#optWidth'); if (wd) wd.oninput = () => { ui.sketch.width = +wd.value; $('#optWidthOut').textContent = wd.value; savePrefs(); };
 }
+function showBrushSize() { sizePreview = performance.now() + 700; requestDraw(); setTimeout(requestDraw, 720); }
 function updateCursor() {
   if (gesture && (gesture.type === 'pan' || (gesture.type === 'click' && gesture.moved))) canvas.style.cursor = 'grabbing';
   else if (spaceDown) canvas.style.cursor = 'grab';
@@ -1360,7 +1371,7 @@ function dab(tool, cx, cy, r, amt) {
   }
 }
 function endStroke() {
-  if (!stroke) return; const { dry, tool, kept, box } = stroke; stroke = null;
+  if (!stroke) return; const { dry, tool, kept, box } = stroke; stroke = null; requestDraw();
   // A stroke that changed nothing leaves no Undo step. Nor does one that only raised the sea floor, or moved the rain
   // over open sea, which changes nothing you can see; those say why.
   const rain = tool === 'rain' || tool === 'drought', step = undoStack[undoStack.length - 1], was = rain ? step.m : step.h, now = rain ? world.m : world.h;
@@ -2492,6 +2503,8 @@ window.terra = {
     return { name: world.name, seed: world.seed, shape: world.shape, land, rivers, lakes, realms: D.realms.length, places: world.places.length, labels: world.labels.length, springs: (world.springs || []).length, undo: undoStack.length };
   },
   toScreen: (x, y) => ({ x: view.ox + x * view.s, y: view.oy + y * view.s }),
+  // The brush's ring as last drawn, in CSS pixels on the map, or null when none shows.
+  ring: () => ringShown && { ...ringShown },
   mapImage: (S = 2, allNames = true) => renderMapImage(S, allNames).toDataURL('image/png'),
   // What lies at a map cell: its height against sea level (below zero in the sea), whether it holds a lake or a river,
   // its rain (m, 0 to 1) and its kind of land.

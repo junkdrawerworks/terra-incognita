@@ -17,7 +17,7 @@
 // Undo, Undo naming the places it takes, Found new realms and Clear naming the notes they take, a refused file, and two
 // tabs on one world. And sketches that keep what's on the map: rivers drawn into and beside lakes, a range across a
 // lake's way out, a river line across an inlet, figure-8s and loops drawn twice round, a drawn river's source going
-// under the sea, edits that change nothing saying so, and each brush.
+// under the sea, edits that change nothing saying so, and each brush, with its ring under a finger.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -863,6 +863,52 @@ await oldCtx.close();
   const greener = await E(() => window.terra.cell(121.5, 142.5).kind);
   ok(grass === 'Grassland' && /forest/.test(greener), `Wetter turns grassland into forest (${grass}, then ${greener})`);
   await c.close();
+}
+
+// On a touch screen the brush's ring shows under the finger while it paints, and goes when it lifts; moving the Brush
+// slider shows the ring at its real size in the middle of the map for a moment. With a mouse the ring follows the
+// pointer as before, and the slider shows nothing.
+{
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const pg = watch(await c.newPage());
+  const cdp = await c.newCDPSession(pg);
+  await pg.goto(base);
+  await pg.click('.tool[data-tool="raise"]');
+  await pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const b = await pg.locator('#map').boundingBox();
+  const p = await pg.evaluate(() => window.terra.toScreen(200, 150)), q = await pg.evaluate(() => window.terra.toScreen(206, 153));
+  const frames = () => pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const ring = () => pg.evaluate(() => window.terra.ring());
+  const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y]) => ({ x: b.x + x, y: b.y + y })) });
+  ok((await ring()) === null, 'no brush ring shows on a touch screen before a finger is down');
+  await touch('touchStart', [[p.x, p.y]]);
+  for (let k = 1; k <= 4; k++) await touch('touchMove', [[p.x + (q.x - p.x) * k / 4, p.y + (q.y - p.y) * k / 4]]);
+  await frames();
+  const held = await ring(), size = await pg.evaluate(() => +document.getElementById('optSize').value), s = (q.x - p.x) / 6;
+  ok(held && Math.abs(held.x - q.x) < 1 && Math.abs(held.y - q.y) < 1 && Math.abs(held.r - size * s) < 0.5, `a finger painting with Raise shows the brush's ring under it (${held && held.r.toFixed(1)} px from the middle for a ${size}-cell brush)`);
+  await touch('touchEnd', []);
+  await pg.waitForTimeout(300); await frames();
+  ok((await ring()) === null, 'and the ring goes when the finger lifts');
+  await pg.evaluate(() => { const r = document.getElementById('optSize'); r.value = '30'; r.dispatchEvent(new Event('input')); });
+  await frames();
+  const shown = await ring(), mid = await pg.evaluate(() => { const r = document.getElementById('map').getBoundingClientRect(); return [r.width / 2, r.height / 2]; });
+  ok(shown && Math.abs(shown.x - mid[0]) < 1 && Math.abs(shown.y - mid[1]) < 1 && Math.abs(shown.r - 30 * s) < 0.5, `moving the Brush slider shows the ring at its size in the middle of the map (${shown && shown.r.toFixed(1)} px)`);
+  await pg.waitForTimeout(900); await frames();
+  ok((await ring()) === null, 'for a moment');
+  await c.close();
+  const m = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const mp = watch(await m.newPage());
+  await mp.goto(base);
+  await mp.click('.tool[data-tool="raise"]');
+  await mp.evaluate(() => { const r = document.getElementById('optSize'); r.value = '30'; r.dispatchEvent(new Event('input')); });
+  await mp.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const quiet = await mp.evaluate(() => window.terra.ring());
+  const mb = await mp.locator('#map').boundingBox();
+  await mp.mouse.move(mb.x + 300, mb.y + 300);
+  await mp.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const follow = await mp.evaluate(() => window.terra.ring());
+  ok(quiet === null && follow && Math.round(follow.x) === 300 && Math.round(follow.y) === 300, 'with a mouse the ring follows the pointer, and the slider shows nothing');
+  await m.close();
 }
 
 // A pinch with a brush picked zooms and paints nothing. Every pinch starts with one finger, which used to start a stroke

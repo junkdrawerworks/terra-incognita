@@ -2351,6 +2351,8 @@ function select(sel) {
   if (sel) showTab('inspect');
   if (!sel || sel.type !== 'place' || draft.placeId !== sel.id) dropDraft();
   renderInspector(); requestDraw();
+  // The first visit's hint says to tap a town; once a place or a spot has been read, it gives the usual one.
+  if (sel && firstHint) { firstHint = false; if (ui.tool === 'select') renderToolOpts(); }
 }
 function renderInspector() {
   const pane = $('#pane-inspect'); const sel = ui.selected; const o = findSel(sel);

@@ -373,6 +373,48 @@ const rolled = await desk.evaluate(() => {
 const midBroken = rolled.filter(([, t]) => midBreak.test(t)), townish = rolled.filter(([k, t]) => k === 'landmark' && /oldest well|Woodcutters|A stranger in|toll|caravan/.test(t));
 ok(rolled.length > 300 && !midBroken.length && !townish.length, `landmarks read right mid-sentence and have rumors of their own (${rolled.length} lines${midBroken.length ? '; broken: ' + midBroken[0][1] : ''}${townish.length ? '; a town\'s rumor on a landmark: ' + townish[0][1] : ''})`);
 
+// Rumors that read right: envoys hunt for maps of the range nearest the place (or "the high country" with none
+// within about 800 km), a toll is never on "river trade", Roll a rumor never gives the same one twice running.
+const rangeOk = await desk.evaluate(() => {
+  const ranges = window.terra.labels().filter((l) => l.kind === 'range'), bad = []; let envoys = 0, repeats = 0, tolls = 0;
+  for (const p of window.terra.places().filter((q) => q.kind !== 'landmark')) {
+    let best = null, bd = 80 * 80; for (const l of ranges) { const d = (l.x - p.x) ** 2 + (l.y - p.y) ** 2; if (d < bd) { bd = d; best = l; } }
+    const want = best ? best.text.replace(/^The /, 'the ') : 'the high country';
+    window.terra.select({ type: 'place', id: p.id }); let last = '';
+    for (let k = 0; k < 12; k++) {
+      document.getElementById('pRumor').click(); const t = document.getElementById('draftBox').textContent;
+      if (t === last) repeats++; last = t;
+      if (/^Envoys/.test(t)) { envoys++; if (!t.includes(`every map of ${want} they`)) bad.push(t + ' (wanted ' + want + ')'); }
+      if (/toll on/.test(t)) { tolls++; if (/toll on river trade/.test(t)) bad.push(t); }
+    }
+  }
+  window.terra.select(null);
+  return { envoys, tolls, repeats, bad };
+});
+ok(rangeOk.envoys > 10 && rangeOk.tolls > 10 && !rangeOk.repeats && !rangeOk.bad.length, `envoys look for the nearest range, tolls are on goods, and no rumor comes twice running (${JSON.stringify({ ...rangeOk, bad: rangeOk.bad.slice(0, 2) })})`);
+// A realm called the Free Cities takes "the" and a plural verb, and its capital's rumors give it a First Consul and a
+// council, not an heir and a palace.
+{
+  const cap = (await desk.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
+  await desk.evaluate((id) => window.terra.select({ type: 'place', id }), cap.id);
+  await desk.selectOption('#rTitle', 'Free Cities');
+  const said = await desk.evaluate(() => { const out = []; for (let k = 0; k < 60; k++) { document.getElementById('pRumor').click(); out.push(document.getElementById('draftBox').textContent); } return [document.querySelector('#pane-inspect .eyebrow [data-realm]').textContent, out]; });
+  const free = said[1].filter((t) => /Free Cities/.test(t));
+  ok(/^The Free Cities of /.test(said[0]) && free.some((t) => /Free Cities of \w+ have doubled|First Consul of the Free Cities of/.test(t)) && !said[1].some((t) => /(?<![Tt]he )Free Cities of|Free Cities of \w+ has doubled|heir of the Free Cities/.test(t)),
+    `the Free Cities read as plural, with a First Consul ("${said[0]}"; "${free[0]}")`);
+  await desk.click('#btnUndo');
+}
+// A town founded a few kilometres from another is 1 league from it, not "1 leagues".
+{
+  const town = (await desk.evaluate(() => window.terra.places())).find((p) => p.kind === 'town');
+  await desk.evaluate((t) => window.terra.select({ type: 'loc', x: t.x + 0.4, y: t.y }), town);
+  await desk.click('#locTown');
+  const lines = await desk.evaluate(() => { const out = []; for (let k = 0; k < 80; k++) { document.getElementById('pRumor').click(); out.push(document.getElementById('draftBox').textContent); } return out; });
+  const caravan = lines.find((t) => /caravan/.test(t));
+  ok(caravan && /found 1 league out/.test(caravan), `one league is singular ("${caravan}")`);
+  await desk.click('#btnUndo');
+}
+
 // A rumor that wasn't kept stays with its place, not with whatever has its id in a new world.
 const firstCap = (await desk.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
 await desk.evaluate((id) => window.terra.select({ type: 'place', id }), firstCap.id);

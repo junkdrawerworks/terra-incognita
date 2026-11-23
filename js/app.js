@@ -136,8 +136,12 @@ const LANDMARKS = {
   monument: { label: 'Monument', fmt: ['The % Stone', '% Obelisk', 'Pillar of %'] },
 };
 const landmarkName = (sub, tg, rng) => pick(rng, LANDMARKS[sub].fmt).replace('%', makeName(tg, rng, { bare: true }));
-const realmDisplay = r => r.title === 'Free Cities' ? `Free Cities of ${r.name}` : `The ${r.title} of ${r.name}`;
+const realmDisplay = r => `The ${r.title} of ${r.name}`;
 const realmMid = r => r.display.replace(/^The /, 'the ');
+// 'The Free Cities of Thafethas have', 'The Holds of Gromdur are': the titles that take a plural verb.
+const realmPlural = r => r.title === 'Free Cities' || r.title === 'Holds';
+// Who a rumor says runs a realm: an heir and a palace, a First Consul and a council, or a high priest and a temple.
+const ELECTED = new Set(['Republic', 'League', 'Confederacy', 'Free Cities', 'Commonwealth']);
 const kindLabel = p => p.kind === 'landmark' ? (LANDMARKS[p.sub] || LANDMARKS.ruin).label : KINDS[p.kind].label;
 // A place's name in the middle of a sentence: a landmark called 'The Veol Deep' or 'Tower of Ithigwial' reads 'the Veol
 // Deep' and 'the Tower of Ithigwial' there; 'Viheo Obelisk' and every town stay as they are.
@@ -1989,7 +1993,7 @@ function handleClick(sx, sy) {
     world.places.push(p);
     if (p.kind !== 'landmark') recomputePolitics();
     select({ type: 'place', id: p.id });
-    toast(p.kind === 'capital' ? `Founded ${p.name}, capital of ${realmDisplay(p.realm).replace(/^The /, 'the ')}.` : p.kind === 'landmark' ? `Marked ${p.name}.` : `Founded ${p.name}.`);
+    toast(p.kind === 'capital' ? `Founded ${p.name}, capital of ${realmMid(p.realm)}.` : p.kind === 'landmark' ? `Marked ${p.name}.` : `Founded ${p.name}.`);
     markDirty(); refreshCodex(); return;
   }
   if (t === 'label') addLabel(w.x, w.y, ui.labelKind, ui.labelText.trim());
@@ -2105,10 +2109,11 @@ function storyCtx(p) {
   const nearby = world.places.filter(q => q !== p).map(q => ({ q, d: Math.hypot(q.x - p.x, q.y - p.y) })).sort((a, b) => a.d - b.d).slice(0, 6);
   const lm = nearby.find(n => n.q.kind === 'landmark');
   const others = D.realms.filter(r => !f.realm || r.idx !== f.realm.idx);
-  const range = world.labels.find(l => l.kind === 'range');
+  // The nearest range within about 800 km, so envoys hunt for maps of mountains near the place, not the first range drawn.
+  let range = null, rd = 80 * 80; for (const l of world.labels) { const d = (l.x - p.x) ** 2 + (l.y - p.y) ** 2; if (l.kind === 'range' && d < rd) { rd = d; range = l; } }
   return {
     f, name: p.name, at: placeIn(p), lm: p.kind === 'landmark' ? p.sub : null, realm: f.realm, near: f.near ? { name: placeIn(f.near.p), leagues: f.near.leagues, dir: f.near.dir } : null,
-    landmark: lm ? lm.q : null, other: others.length ? others[Math.floor(Math.random() * others.length)] : null, range: range ? range.text.replace(/^The /, '') : null,
+    landmark: lm ? lm.q : null, other: others.length ? others[Math.floor(Math.random() * others.length)] : null, range: range ? range.text.replace(/^The /, 'the ') : 'the high country',
     coastal: f.coastal, river: f.river, cold: f.temp < 3, dry: f.b === B.DESERT || f.b === B.STEPPE, forest: [B.TFOREST, B.TRAIN, B.TAIGA, B.TROP, B.JUNGLE].includes(f.b), high: f.E > 1100, capital: p.kind === 'capital', nearby,
   };
 }
@@ -2121,27 +2126,32 @@ const LANDMARK_RUMORS = {
   battle: [n => `Farmers who plough beside ${n} still turn up arrowheads. This spring they turned up a banner nobody can put a realm to.`, n => `On the night of the old battle, campfires are seen across ${n}, though nobody has camped there in living memory.`],
   monument: [n => `The carvings on ${n} have changed. The few who can read them say the new lines are a warning.`, n => `Someone leaves fresh flowers at the foot of ${n}, though the name carved on it belongs to nobody remembered.`],
 };
+// The last rumor rolled for each place, so Roll a rumor never gives the same one twice running.
+const lastRumor = new Map();
 function rumor(p) {
-  const c = storyCtx(p), g = c.f.goods[0] || 'grain', town = !c.lm;
+  // A toll is on goods: never on 'river trade'.
+  const c = storyCtx(p), g = c.f.goods.find(x => x !== 'river trade'), town = !c.lm, R = c.realm;
   const T = [
     () => c.coastal && `Fishermen ${town ? 'in' : 'near'} ${c.at} swear ${c.f.sea || 'the sea'} glows green on moonless nights, and the catch has doubled since it started.`,
-    () => town && c.near && `A caravan bound for ${c.near.name} never arrived. Its cold campfire was found ${c.near.leagues} leagues out, every crate still sealed.`,
-    () => town && c.realm && `${c.realm.display} has doubled the toll on ${g} leaving ${c.name}, and the tax collectors will not say why.`,
+    () => town && c.near && `A caravan bound for ${c.near.name} never arrived. Its cold campfire was found ${c.near.leagues} league${c.near.leagues === 1 ? '' : 's'} out, every crate still sealed.`,
+    () => town && R && g && `${R.display} ${realmPlural(R) ? 'have' : 'has'} doubled the toll on ${g} leaving ${c.name}, and the tax collectors will not say why.`,
     () => town && c.river && `Every seventh spring ${c.river.on} runs the color of rust for a day. The elders of ${c.name} have been counting, and this is the seventh spring.`,
     () => town && c.landmark && `Children in ${c.name} sing a rhyme about ${placeIn(c.landmark)} that no adult admits to teaching them.`,
     () => town && `The oldest well in ${c.name} has started bringing up coins instead of water. They are stamped with a face nobody recognizes.`,
-    () => town && c.other && `Envoys from ${realmMid(c.other)} were seen in ${c.name}, buying every map of ${c.range ? 'the ' + c.range : 'the high country'} they could find.`,
+    () => town && c.other && `Envoys from ${realmMid(c.other)} were seen in ${c.name}, buying every map of ${c.range} they could find.`,
     () => c.high && `Shepherds above ${c.at} report a new pass through the peaks, one that was not there last winter.`,
     () => town && c.cold && `A hunter walked into ${c.name} at midsummer with frost still on their coat and no memory of the last three weeks.`,
     () => c.dry && `A buried street has surfaced in the sands outside ${c.at}. Its lamps are still lit.`,
     () => town && c.forest && `Woodcutters from ${c.name} refuse to fell any tree carved with a spiral. Each morning there are more spirals.`,
-    () => c.capital && `The heir of ${realmMid(c.realm)} has not appeared in public for forty days. The palace says it is a fever.`,
+    () => c.capital && R && (ELECTED.has(R.title) ? `The First Consul of ${realmMid(R)} has not appeared in public for forty days. The council says it is a fever.`
+      : R.title === 'Theocracy' ? `The high priest of ${realmMid(R)} has not appeared in public for forty days. The temple says it is a fever.`
+      : `The heir of ${realmMid(R)} has not appeared in public for forty days. The palace says it is a fever.`),
     () => town && `A stranger in ${c.name} pays in gold for anyone who can read an old map. On the map, ${c.name} is drawn as a lake.`,
     () => town && !c.realm && `No realm claims ${c.name}, but someone has been collecting its taxes all the same.`,
     ...(c.lm ? (LANDMARK_RUMORS[c.lm] || LANDMARK_RUMORS.ruin).map(fn => () => fn(c.at)) : []),
   ];
-  const opts = T.map(fn => fn()).filter(Boolean);
-  return opts[Math.floor(Math.random() * opts.length)];
+  const all = T.map(fn => fn()).filter(Boolean), opts = all.length > 1 ? all.filter(t => t !== lastRumor.get(p.id)) : all;
+  const t = opts[Math.floor(Math.random() * opts.length)]; lastRumor.set(p.id, t); return t;
 }
 function buildPrompt(p) {
   const c = storyCtx(p), f = c.f;
@@ -2382,7 +2392,7 @@ function changeKind(p, val) {
   pushUndo({ meta: true });
   const [kind, sub] = val.split(':'), i = cellAt(p.x, p.y);
   const ended = p.kind === 'capital' && kind !== 'capital' && p.realm ? D.realms.find(r => r.place === p) : null;
-  const held = ended ? world.places.filter(q => D.owner[cellAt(q.x, q.y)] === ended.idx) : [], display = ended && ended.display;
+  const held = ended ? world.places.filter(q => D.owner[cellAt(q.x, q.y)] === ended.idx) : [], display = ended && ended.display, plural = ended && realmPlural(ended);
   if (kind === 'capital') { if (!p.realm) p.realm = p.oldRealm || newRealm(p.tongue, Math.random); delete p.oldRealm; }
   else if (p.realm) { p.oldRealm = p.realm; delete p.realm; }
   if (kind === 'landmark') { p.kind = 'landmark'; p.sub = sub; p.pop = 0; }
@@ -2392,7 +2402,7 @@ function changeKind(p, val) {
     if (!(p.pop >= r[0] * f * 0.95 && p.pop <= r[1] * f * 1.05)) p.pop = rollPop(kind, i, mulberry32(hash3(world.seed, p.id, 41 + Object.keys(POP).indexOf(kind))));
   }
   recomputePolitics(); renderInspector(); refreshCodex(); requestDraw(); markDirty();
-  if (ended) toast(`${display} is no longer a realm. ${whereTheyWent(held)}`, { label: 'Undo', fn: undo }, 10000);
+  if (ended) toast(`${display} ${plural ? 'are' : 'is'} no longer a realm. ${whereTheyWent(held)}`, { label: 'Undo', fn: undo }, 10000);
 }
 // Where the places a realm held went when it ended: 'Its 9 places now belong to the Republic of Seraora.'
 function whereTheyWent(held) {

@@ -2807,6 +2807,11 @@ function init() {
   if (MAC) { $('#btnUndo').title = 'Undo (⌘Z)'; $('#btnRedo').title = 'Redo (⇧⌘Z)'; $('#keyUndo').textContent = '⌘ Z'; }
   $('#worldName').addEventListener('focus', () => { renaming = false; });
   $('#worldName').addEventListener('input', e => { if (!renaming) { pushUndo({ meta: true }); renaming = true; } world.name = e.target.value; markDirty(); if (!ui.selected) renderInspector(); });
+  // Left empty, the name is Untitled world, as a reload would make it, in the same Undo step; spaces round it go.
+  $('#worldName').addEventListener('change', e => {
+    const name = e.target.value.trim() || 'Untitled world'; e.target.value = name;
+    if (name !== world.name) { world.name = name; markDirty(); if (!ui.selected) renderInspector(); }
+  });
   $('#btnUndo').onclick = undo; $('#btnRedo').onclick = redo;
   $('#btnNew').onclick = () => $('#newMenu').hidden ? openNewMenu() : closeNewMenu();
   $('#mnRandom').onclick = () => { closeNewMenu(); const s = 1 + Math.floor(Math.random() * 999998); newWorld(s, world.shape && world.shape !== 'blank' ? world.shape : 'continent'); syncWorldTab(); markDirty(); toast(`Generated world ${s}.`, { label: 'Undo', fn: undo }); };

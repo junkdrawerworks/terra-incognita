@@ -2121,6 +2121,24 @@ await oldCtx.close();
   await c.close();
 }
 
+// A world's name emptied out becomes Untitled world when you leave it, as a reload would make it, with spaces round a
+// name trimmed. It left an empty gap in the header with nothing to tap back into, and an empty Gazetteer heading.
+{
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const undoBefore = (await pg.evaluate(() => window.terra.state())).undo;
+  await pg.fill('#worldName', '');
+  const hint = await pg.getAttribute('#worldName', 'placeholder');
+  await pg.locator('#worldName').blur();
+  const field = await pg.inputValue('#worldName'), heading = await pg.textContent('#pane-inspect .welcome h2');
+  ok(hint === 'Name your world' && field === 'Untitled world' && heading === 'Untitled world' && (await pg.evaluate(() => window.terra.state())).undo === undoBefore + 1, `a world's name emptied out says "${hint}" while empty, and becomes "${field}" when left, in the Gazetteer too ("${heading}"), in one Undo step`);
+  await pg.fill('#worldName', '  Far Shores ');
+  await pg.locator('#worldName').blur();
+  ok((await pg.evaluate(() => window.terra.state())).name === 'Far Shores', 'and spaces round a name are trimmed');
+  await c.close();
+}
+
 // A rumor rolled for a town that Undo then took away goes with it. The next town founded gets the same number, and
 // used to open with the old town's rumor and Keep in notes, which wrote it into the new town's notes.
 {

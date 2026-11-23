@@ -777,7 +777,7 @@ function applySnap(s) {
   }
   return inv;
 }
-function undo() { settleGesture(); dropActionToast(); const s = undoStack.pop(); if (!s) return; const was = world.places; redoStack.push(applySnap(s)); afterRestore(s.world); if (!s.world) tellPlaces(was, true); }
+function undo() { if (settleGesture()) return; dropActionToast(); const s = undoStack.pop(); if (!s) return; const was = world.places; redoStack.push(applySnap(s)); afterRestore(s.world); if (!s.world) tellPlaces(was, true); }
 function redo() { settleGesture(); dropActionToast(); const s = redoStack.pop(); if (!s) return; const was = world.places; undoStack.push(applySnap(s)); afterRestore(s.world); if (!s.world) tellPlaces(was, false); }
 // Undo and Redo say so when places go or come back, and when notes go with them, since notes aren't part of Undo:
 // undoing the founding of a town takes the notes written in it since.
@@ -801,11 +801,14 @@ function tellPlaces(was, undid) {
 }
 // Undo or Redo in the middle of a brush stroke or a drag (Ctrl+Z, or a second finger on the button) ends it first, so
 // the whole stroke or drag is one step, and the rest of it can't carry on with no step to take it back. A half-drawn
-// sketch goes.
+// sketch goes. A drag let go of over water goes back where it was and takes its own step back: true then, and Undo
+// stops there rather than taking back the step before it too.
 function settleGesture() {
+  let back = false;
   if (stroke) { endStroke(); gesture = null; }
-  else if (gesture && gesture.type === 'drag' && gesture.moved) { finishDrag(gesture); gesture = null; }
+  else if (gesture && gesture.type === 'drag' && gesture.moved) { back = finishDrag(gesture); gesture = null; }
   if (sketchDraft) { sketchDraft = null; if (gesture && gesture.type === 'sketch') gesture = null; requestDraw(); }
+  return back;
 }
 function afterRestore(otherWorld) {
   renaming = false;
@@ -876,7 +879,7 @@ function saveNow() { clearTimeout(saveTimer); saveTimer = 0; if (stroke) { markD
 // stroke or a drag under way is finished first so it goes in too; a half-drawn sketch doesn't.
 function saveBeforeLeaving() {
   if (stroke) endStroke();
-  if (gesture && gesture.type === 'drag' && gesture.moved) finishDrag(gesture);
+  if (gesture && gesture.type === 'drag' && gesture.moved) { finishDrag(gesture); gesture = null; }
   if (saveTimer) saveNow();
 }
 let saveWarned = false; // the first time an autosave fails, say so over the map too, not only in the World tab
@@ -1913,7 +1916,7 @@ canvas.addEventListener('pointerdown', e => {
   if (BRUSH_TOOLS.has(ui.tool)) { if (w.x >= 0 && w.y >= 0 && w.x < W && w.y < H) { startStroke(pt.x, pt.y); gesture = { type: 'stroke' }; } else gesture = { type: 'pan', lx: pt.x, ly: pt.y }; return; }
   if (ui.tool === 'select') {
     const hit = hitTest(pt.x, pt.y);
-    if (hit) { select(hit); const o = findSel(hit); gesture = { type: 'drag', hit, sx: pt.x, sy: pt.y, gx: w.x - o.x, gy: w.y - o.y, moved: false }; return; }
+    if (hit) { select(hit); const o = findSel(hit); gesture = { type: 'drag', hit, sx: pt.x, sy: pt.y, gx: w.x - o.x, gy: w.y - o.y, ox: o.x, oy: o.y, moved: false, kept: null }; return; }
   }
   gesture = { type: 'click', sx: pt.x, sy: pt.y, lx: pt.x, ly: pt.y, moved: false };
 });
@@ -1936,7 +1939,7 @@ canvas.addEventListener('pointermove', e => {
       if (Math.hypot(wx - P[P.length - 2], wy - P[P.length - 1]) >= 0.6) { P.push(wx, wy); requestDraw(); }
     }
     else if (g.type === 'drag') {
-      if (!g.moved && Math.hypot(pt.x - g.sx, pt.y - g.sy) > 3) { g.moved = true; pushUndo({ meta: true }); }
+      if (!g.moved && Math.hypot(pt.x - g.sx, pt.y - g.sy) > 3) { g.moved = true; g.kept = stepRoom(); pushUndo({ meta: true }); }
       if (g.moved) { const o = findSel(g.hit); if (o) { const w = toWorld(pt.x, pt.y); o.x = clamp(w.x - g.gx, 0.5, W - 0.5); o.y = clamp(w.y - g.gy, 0.5, H - 0.5); requestDraw(); } }
     }
   } else if (ui.tool === 'select' && e.pointerType !== 'touch') {
@@ -1959,10 +1962,21 @@ function endPointer(e) {
   updateCursor();
 }
 // A place or label dragged somewhere new: the borders follow a settlement, its page shows where it is, and it's saved.
+// A place let go of over the sea or a lake goes back where it was, and its Undo step goes, as founding one there is
+// refused. True when it went back.
 function finishDrag(g) {
   const o = findSel(g.hit);
-  if (g.hit.type === 'place' && o && o.kind !== 'landmark') recomputePolitics();
+  if (g.hit.type === 'place' && o) {
+    const i = cellAt(o.x, o.y);
+    if (!isLand(i) || D.lake[i]) {
+      o.x = g.ox; o.y = g.oy; takeBackStep(g.kept); requestDraw(); renderInspector();
+      toast(`${o.kind === 'landmark' ? 'Landmarks' : 'Settlements'} need dry land. ${o.name} is back where it was.`);
+      return true;
+    }
+    if (o.kind !== 'landmark') recomputePolitics();
+  }
   requestDraw(); renderInspector(); markDirty();
+  return false;
 }
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);

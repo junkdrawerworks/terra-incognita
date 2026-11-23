@@ -13,12 +13,13 @@
 // Back mid-sketch taken for a slip, a browser that won't keep the autosave, and saved worlds the page can't read or
 // that a newer version wrote, kept aside and given back by Download the old save. Five seeds that must keep growing the
 // same worlds, and a world file from an earlier build that must keep opening. Then nothing lost and nothing undone by
-// surprise: a pinch that paints nothing, a drag a pinch cuts short, a page left mid-stroke, an autosave mid-stroke,
-// Undo mid-stroke, a toast's Undo, Undo naming the places it takes (and the rumor rolled for one), Found new realms and
-// Clear naming the notes they take, a refused file, and two tabs on one world. And sketches that keep what's on the
-// map: rivers drawn into and beside lakes, a range across a lake's way out, a river line across an inlet, figure-8s and
-// loops drawn twice round, a drawn river's source going under the sea, edits that change nothing saying so, and each
-// brush, with its ring under a finger. The single-file copy for Claude's viewer, from a file and over http.
+// surprise: a pinch that paints nothing, a drag a pinch cuts short, a town dragged into the sea, a page left
+// mid-stroke, an autosave mid-stroke, Undo mid-stroke, a toast's Undo, Undo naming the places it takes (and the rumor
+// rolled for one), Found new realms and Clear naming the notes they take, a refused file, and two tabs on one world.
+// And sketches that keep what's on the map: rivers drawn into and beside lakes, a range across a lake's way out, a
+// river line across an inlet, figure-8s and loops drawn twice round, a drawn river's source going under the sea, edits
+// that change nothing saying so, and each brush, with its ring under a finger. The single-file copy for Claude's
+// viewer, from a file and over http.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -1747,6 +1748,38 @@ await oldCtx.close();
   ok(moved.x > cap.x + 5 && back.x === moved.x && back.y === moved.y, `${cap.name}, dragged and then pinched, keeps its new place after a reload (${cap.x} across, then ${moved.x.toFixed(1)}, then ${back.x.toFixed(1)})`);
   ok(shown === fresh, `and its page shows where it is now (${shown})`);
   ok(areasBefore === await areas(), 'and the borders followed it');
+  await c.close();
+}
+
+// A settlement dragged into the sea goes back where it was, as founding one there is refused. A capital could be left
+// in open ocean, 3,166 m deep, ruling a realm of 0 km² while its towns went to a neighbour.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const realms = () => pg.evaluate(() => {
+    document.getElementById('tab-codex').click();
+    const rows = [...document.querySelector('#codexList .clist').querySelectorAll('.crow')].map((r) => r.textContent).join('|');
+    document.getElementById('tab-inspect').click();
+    return rows;
+  });
+  const cap = (await pg.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
+  const before = { realms: await realms(), undo: (await pg.evaluate(() => window.terra.state())).undo };
+  await drag([[cap.x, cap.y], [cap.x - 30, cap.y - 40], [20, 20]], 8, pg);
+  const said = await pg.evaluate(() => document.getElementById('toast').hidden ? '' : document.querySelector('#toast span').textContent), now = (await pg.evaluate(() => window.terra.places())).find((p) => p.id === cap.id);
+  ok(now.x === cap.x && now.y === cap.y && (await pg.evaluate(() => window.terra.state())).undo === before.undo && await realms() === before.realms && said === `Settlements need dry land. ${cap.name} is back where it was.`,
+    `${cap.name} dragged out to sea goes back where it was, with no Undo step and the realms as they were ("${said}")`);
+  // Ctrl+Z with the place still over the sea takes back the drag and nothing before it.
+  await pg.click('#tab-world');
+  await pg.fill('#worldName', 'Dragged');
+  await pg.click('.tool[data-tool="select"]');
+  const b = await pg.locator('#map').boundingBox(), s = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), [cap.x, cap.y]), t = await pg.evaluate(() => window.terra.toScreen(20, 20));
+  await pg.mouse.move(b.x + s.x, b.y + s.y); await pg.mouse.down();
+  for (let k = 1; k <= 8; k++) await pg.mouse.move(b.x + s.x + (t.x - s.x) * k / 8, b.y + s.y + (t.y - s.y) * k / 8);
+  await pg.keyboard.press('Control+z');
+  await pg.mouse.up();
+  const after = (await pg.evaluate(() => window.terra.places())).find((p) => p.id === cap.id);
+  ok(after.x === cap.x && (await pg.evaluate(() => window.terra.state())).name === 'Dragged', 'and Ctrl+Z with it over the sea takes back the drag, not the rename before it');
   await c.close();
 }
 

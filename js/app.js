@@ -2364,6 +2364,9 @@ function bindGotos(pane) {
   pane.querySelectorAll('[data-goto]').forEach(b => b.onclick = () => { const p = world.places.find(q => q.id === +b.dataset.goto); if (p) { select({ type: 'place', id: p.id }); centerOn(p.x, p.y); refocus('#pTitle'); } });
   // A tool named in the text picks that tool, and on a phone brings the map up to use it on.
   pane.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => { if (b.dataset.kind) ui.settleKind = b.dataset.kind; setTool(b.dataset.tool); mapIntoView(); });
+  // Found new realms does what the World tab's button does, and shows the map it filled; focus goes to the capital the
+  // new welcome offers to start with.
+  pane.querySelectorAll('[data-act="populate"]').forEach(b => b.onclick = () => { populateRealms(); mapIntoView(); refocus('#pane-inspect [data-goto]'); });
   // Show on map centres the map on what this page is about, and on a phone, where the map can be scrolled away above
   // the page, brings it into view.
   const show = $('#showOnMap', pane); if (show) show.onclick = () => { const o = findSel(ui.selected); if (o) { centerOn(o.x, o.y); mapIntoView(); } };
@@ -2382,6 +2385,8 @@ function mapIntoView() {
 }
 // A tool's name as a button that picks it, with its icon, as on the toolbar.
 const toolLink = (id, text, kind) => `<button class="link tool-link" type="button" data-tool="${id}"${kind ? ` data-kind="${kind}"` : ''}>${svgIcon(ICONS[id], 15)}${text}</button>`;
+// Found new realms as a button that does it, with a banner for an icon: in the welcome, on land with no places yet.
+const REALMS_LINK = `<button class="link tool-link" type="button" data-act="populate">${svgIcon('<path d="M5 17.5V2.5"/><path d="M5 3h10.5l-2.5 3.5 2.5 3.5H5"/>', 15)}Found new realms</button>`;
 const SHOW_ON_MAP = '<button class="link show-on-map" id="showOnMap" type="button">Show on map</button>';
 const JD_FOOT = `<footer class="jd-foot">  <a href="https://junkdrawer.works/">Part of junkdrawer.works</a>  <span aria-hidden="true">·</span>  <a href="https://junkdrawer.works/privacy.html">Privacy</a></footer>`;
 // How many settlements and landmarks the world has, and how many cells of land.
@@ -2407,6 +2412,8 @@ function mapLabel() {
 }
 let mapLabelSaid = '';
 function syncMapLabel() { const t = mapLabel(); if (t !== mapLabelSaid) canvas.setAttribute('aria-label', mapLabelSaid = t); }
+// The welcome's last tip, on keeping the world.
+const keepTip = () => '<li>The World tab keeps it: <b>Save map image</b> makes a picture to show someone, and <b>Save world file</b> a copy that lasts.</li>';
 function welcomeHTML() {
   const { settl, lms, land } = tally();
   const cap = world.places.find(p => p.kind === 'capital');
@@ -2416,7 +2423,7 @@ function welcomeHTML() {
     <ul class="tips">
       <li>With ${toolLink('sketch', 'Sketch')} and <b>Land</b> picked, draw a loop on the sea. Land rises inside it, with hills and a natural coast.</li>
       <li>Choose <b>Sea</b> to carve bays, straits and inland seas, <b>Mountain range</b> to draw a ridge line, or <b>River</b> to run water from a source to the coast. Other rivers and lakes form on their own.</li>
-      <li>When the land looks right, <b>Found new realms</b> in the World tab fills it with towns, borders and names.</li>
+      <li>When the land looks right, <b>Found new realms</b> in the World tab fills it with towns, borders and names.</li>${keepTip()}
     </ul></div>${JD_FOOT}`;
   // A generated world says what this is, in the README's words; one drawn by hand says so instead.
   const made = world.shape !== 'blank';
@@ -2431,10 +2438,10 @@ function welcomeHTML() {
   return `<div class="welcome">${head}${lede}
     <p>${stats}${origin}</p>
     <ul class="tips">
-      ${world.places.length ? `<li>${TAP} any place or patch of ground to read about it${cap ? `, or start with <button class="link" data-goto="${cap.id}">${esc(cap.name)}</button>` : ''}.</li>` : `<li><b>Found new realms</b> in the World tab fills this land with towns, borders and names. Do it before you found your own: it replaces every place.</li>`}
+      ${world.places.length ? `<li>${TAP} any place or patch of ground to read about it${cap ? `, or start with <button class="link" data-goto="${cap.id}">${esc(cap.name)}</button>` : ''}. The <b>Codex</b> lists every place by realm, with a search.</li>` : `<li>${REALMS_LINK} fills this land with towns, borders and names. Do it before you found your own: it replaces every place.</li>`}
       <li>Use ${toolLink('sketch', 'Sketch')} to draw new coastlines, carve bays, add a mountain range or run a river. ${toolLink('raise', 'Raise')} and ${toolLink('lower', 'Lower')} paint the details. Rivers, lakes and borders follow the terrain.</li>
       <li>${capitalTip}</li>
-      <li>Every place has a page for notes. ${CL ? 'Roll a rumor, or ask Claude to draft a history from the geography.' : 'Roll a rumor for a story to start from.'}</li>
+      <li>Every place has a page for notes. ${CL ? 'Roll a rumor, or ask Claude to draft a history from the geography.' : 'Roll a rumor for a story to start from.'}</li>${keepTip()}
     </ul>
   </div>${JD_FOOT}`;
 }
@@ -2722,6 +2729,26 @@ function savePng() {
   const cv = renderMapImage(4);
   cv.toBlob(blob => { if (blob) saveFile(slug() + '.png', blob, 'Map image saved.'); else toast('The image could not be made.'); }, 'image/png');
 }
+// Found new realms (the World tab's button, and the welcome's on land with no places yet): a fresh set of realms and
+// places grown from the terrain. It replaces places that may have notes in them, so the toast names what went, and
+// stays up longer when notes did.
+function populateRealms() {
+  if (!landShare()) { toast('New realms need dry land. Sketch some first.'); return; }
+  const noted = world.places.filter(p => p.lore.trim()).map(p => p.name);
+  pushUndo({ meta: true }); populate(1 + Math.floor(Math.random() * 999998)); ui.selected = null; recomputePolitics(); refreshPanels(); requestDraw(); markDirty();
+  const lost = noted.length === 1 ? ` ${noted[0]} and its notes were replaced.` : noted.length === 2 ? ` ${noted[0]} and ${noted[1]} and their notes were replaced.` : noted.length ? ` ${noted.length} places with notes were replaced, ${noted[0]} and ${noted[1]} among them.` : '';
+  toast(foundedSay() + lost, { label: 'Undo', fn: undo }, noted.length ? 10000 : 0);
+}
+// The realms just founded, by name: 'Founded the Republic of Tiassium and the Commonwealth of Lenma, with 18
+// settlements.', or with four or more, how many and the largest.
+function foundedSay() {
+  const rs = D.realms.slice().sort((a, b) => b.area - a.area), n = world.places.filter(p => p.kind !== 'landmark').length;
+  const towns = `${n} settlement${n === 1 ? '' : 's'}`;
+  if (!rs.length) return `Founded ${towns}, with no realm among them.`;
+  const names = rs.map(realmMid);
+  const which = rs.length >= 4 ? `${rs.length} realms, ${names[0]} the largest` : names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+  return `Founded ${which}, with ${towns}.`;
+}
 function bindWorldTab() {
   $('#wShape').innerHTML = Object.entries(SHAPES).filter(([, v]) => !v.blank).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
   const generate = s => { newWorld(s, $('#wShape').value); syncWorldTab(); markDirty(); toast(`Generated world ${s}.`, { label: 'Undo', fn: undo }); };
@@ -2741,24 +2768,9 @@ function bindWorldTab() {
     const wet = seaDry ? drowned(seaDry) : []; seaDry = null;
     if (wet.length) toast(`The sea rose over ${someWet(wet)}.`, { label: 'Undo', fn: undo });
   });
-  // Both replace places that may have notes in them, so the toast names what went, and stays up longer when notes did.
-  $('#wPopulate').onclick = () => {
-    if (!landShare()) { toast('New realms need dry land. Sketch some first.'); return; }
-    const noted = world.places.filter(p => p.lore.trim()).map(p => p.name);
-    pushUndo({ meta: true }); populate(1 + Math.floor(Math.random() * 999998)); ui.selected = null; recomputePolitics(); refreshPanels(); requestDraw(); markDirty();
-    const lost = noted.length === 1 ? ` ${noted[0]} and its notes were replaced.` : noted.length === 2 ? ` ${noted[0]} and ${noted[1]} and their notes were replaced.` : noted.length ? ` ${noted.length} places with notes were replaced, ${noted[0]} and ${noted[1]} among them.` : '';
-    toast(foundedSay() + lost, { label: 'Undo', fn: undo }, noted.length ? 10000 : 0);
-  };
-  // The realms just founded, by name: 'Founded the Republic of Tiassium and the Commonwealth of Lenma, with 18
-  // settlements.', or with four or more, how many and the largest.
-  const foundedSay = () => {
-    const rs = D.realms.slice().sort((a, b) => b.area - a.area), n = world.places.filter(p => p.kind !== 'landmark').length;
-    const towns = `${n} settlement${n === 1 ? '' : 's'}`;
-    if (!rs.length) return `Founded ${towns}, with no realm among them.`;
-    const names = rs.map(realmMid);
-    const which = rs.length >= 4 ? `${rs.length} realms, ${names[0]} the largest` : names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
-    return `Founded ${which}, with ${towns}.`;
-  };
+  $('#wPopulate').onclick = populateRealms;
+  // Clear, like Found new realms, takes places that may have notes in them, so its toast names what went, and stays up
+  // longer when notes did.
   $('#wClear').onclick = () => {
     const np = world.places.length, nl = world.labels.length, noted = world.places.filter(p => p.lore.trim()).length;
     if (!np && !nl) { toast('There are no places or labels to clear.'); return; }

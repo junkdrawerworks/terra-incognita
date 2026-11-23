@@ -165,6 +165,8 @@ ok(await S(() => document.querySelector('.tool[aria-pressed="true"]').dataset.to
 // The tools are a row above the map on a phone and a column beside it on a laptop, so the tip doesn't say where.
 const tip = await page.textContent('#pane-inspect .tips li');
 ok(tip.includes('Sketch') && !/on the (left|right)|above|below/.test(tip), `the first tip on open water names Sketch without saying which side it is on ("${tip.slice(0, 40)}...")`);
+const lastTip = () => S(() => [...document.querySelectorAll('#pane-inspect .tips li')].pop().textContent);
+ok((await lastTip()) === 'The World tab keeps it: Save map image makes a picture to show someone, and Save world file a copy that lasts.', 'the welcome ends on how to keep the world: a picture, and a file');
 
 // On open water there are no realms to found and nothing to flood, so nothing changes and it says so.
 await page.click('#tab-world');
@@ -255,14 +257,21 @@ const islet = await page.textContent('#toast span');
 await page.click('#btnUndo'); await page.waitForTimeout(300);
 ok(islet === 'Land raised. Rivers have been redrawn.' && (await state()).land === st.land, `a second Land loop before there are realms says the rivers have been redrawn ("${islet}")`);
 
-// New realms fill the island.
-await page.click('#tab-world');
-await page.click('#wPopulate');
-await page.waitForTimeout(300);
+// New realms fill the island, from the welcome's own Found new realms, which does what the World tab's button does and
+// brings the map back up on a phone. It was bold text pointing to a button four sections down the World tab.
+await page.click('#tab-inspect');
+const realmsLink = page.locator('#pane-inspect .welcome button[data-act="populate"]');
+ok(await realmsLink.isVisible() && (await realmsLink.textContent()).trim() === 'Found new realms', 'on land with no places the welcome offers Found new realms as a button');
+await S(() => window.scrollTo(0, document.documentElement.scrollHeight));
+await realmsLink.click();
+await page.waitForTimeout(800);
 st = await state();
 ok(st.realms >= 1 && st.places >= 8, `new realms fill the island (${st.realms} realms, ${st.places} places)`);
+const mapShown = await S(() => { const r = document.getElementById('mapwrap').getBoundingClientRect(); return r.top >= -1 && r.bottom <= innerHeight + 1; });
+ok(mapShown && await S(() => document.activeElement && document.activeElement.matches('#pane-inspect [data-goto]')), 'and the map comes up to show them, with focus on the capital the welcome offers next');
 const foundedSaid = await page.textContent('#toast span'), islandRealms = (await realmRows()).map((r) => r.replace(/ [\d,]+ km²$/, '').replace(/^The /, 'the '));
 ok(st.realms > 3 || (foundedSaid.startsWith('Founded the ') && islandRealms.every((r) => foundedSaid.includes(r)) && foundedSaid.endsWith(` settlements.`)), `and the toast names them ("${foundedSaid}")`);
+ok((await page.textContent('#pane-inspect .tips li')).includes('The Codex lists every place by realm, with a search.') && (await lastTip()).startsWith('The World tab keeps it'), 'the welcome on a world with places says what the Codex is, and still ends on keeping the world');
 
 // Open a town's page and roll a rumor into its notes.
 await page.keyboard.press('v');

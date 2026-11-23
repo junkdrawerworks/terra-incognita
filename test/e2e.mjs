@@ -202,9 +202,9 @@ st = await state();
 ok(st.land > 15000, `a sketched loop becomes land (${st.land} cells)`);
 // The first land out of open sea is named as such, with its area and rivers, and what to do next; there are no borders
 // to redraw yet. It used to say 'Land raised. Rivers and borders have been redrawn.'
-const risen = await page.textContent('#toast span');
-const risenArea = risen.match(/^Land rises from the sea: ([\d,]+) km², with (\d+) rivers\. Found new realms in the World tab fills it with towns\.$/);
-ok(risenArea && +risenArea[1].replace(/,/g, '') === st.land * 100 && +risenArea[2] > 1, `the first land out of the sea says how big it is and how many rivers it has ("${risen}")`);
+const firstLand = await page.textContent('#toast span');
+const firstLandSays = firstLand.match(/^Land rises from the sea: ([\d,]+) km², with (\d+) rivers\. Found new realms in the World tab fills it with towns\.$/);
+ok(firstLandSays && +firstLandSays[1].replace(/,/g, '') === st.land * 100 && +firstLandSays[2] > 1, `the first land out of the sea says how big it is and how many rivers it has ("${firstLand}")`);
 
 // A sea loop across its coast floods some of it.
 await page.click('.chip[data-v="sea"]');

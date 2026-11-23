@@ -2493,8 +2493,9 @@ window.terra = {
   },
   toScreen: (x, y) => ({ x: view.ox + x * view.s, y: view.oy + y * view.s }),
   mapImage: (S = 2, allNames = true) => renderMapImage(S, allNames).toDataURL('image/png'),
-  // What lies at a map cell: its height against sea level (below zero in the sea), and whether it holds a lake or a river.
-  cell: (x, y) => { const i = cellAt(x, y); return { h: world.h[i] - world.sea, lake: !!D.lake[i], river: !!D.isR[i] }; },
+  // What lies at a map cell: its height against sea level (below zero in the sea), whether it holds a lake or a river,
+  // its rain (m, 0 to 1) and its kind of land.
+  cell: (x, y) => { const i = cellAt(x, y); return { h: world.h[i] - world.sea, lake: !!D.lake[i], river: !!D.isR[i], m: world.m[i], kind: BIOME_NAME[D.biome[i]] }; },
   // Where the scale bar's box, the sea names and the latitude labels sit on the screen, as drawn: [left, top, right,
   // bottom] in CSS pixels.
   boxes: () => {

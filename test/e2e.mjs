@@ -17,7 +17,7 @@
 // Undo, Undo naming the places it takes, Found new realms and Clear naming the notes they take, a refused file, and two
 // tabs on one world. And sketches that keep what's on the map: rivers drawn into and beside lakes, a range across a
 // lake's way out, a river line across an inlet, figure-8s and loops drawn twice round, a drawn river's source going
-// under the sea, and edits that change nothing saying so.
+// under the sea, edits that change nothing saying so, and each brush.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -826,6 +826,27 @@ await oldCtx.close();
   const highToast = await pg.textContent('#toast span');
   ok(JSON.stringify(await quiet()) === JSON.stringify(peaks) && highToast === 'That ground is already higher than a Low coast would make it. Use Raise, a higher Height, or a Mountain range to build it up.', `a Low Land loop over mountains changes nothing and takes no Undo step, and says why ("${highToast}")`);
   await pg.click('.chip[data-v="medium"]');
+  // Each brush changes what it says under the stroke, and Undo puts it back exactly: Raise and Smooth the ground (on
+  // the high ground the Low loop left alone), Wetter and Drier the rain. And Wetter turns grassland into forest, as the
+  // README says.
+  const under = () => E(() => { const o = []; for (let y = 132; y <= 140; y++) for (let x = 298; x <= 310; x++) { const c = window.terra.cell(x + 0.5, y + 0.5); o.push([c.h, c.m]); } return o; });
+  const brushed = [];
+  for (const [t, k] of [['raise', 0], ['smooth', 0], ['rain', 1], ['drought', 1]]) {
+    await pg.click(`.tool[data-tool="${t}"]`);
+    const before = await under();
+    await drag([[300, 136], [308, 136], [300, 136]], 6, pg);
+    const after = await under();
+    await pg.click('#btnUndo');
+    const changed = after.filter((c, i) => c[k] !== before[i][k]).length, other = after.filter((c, i) => c[1 - k] !== before[i][1 - k]).length;
+    brushed.push([t, changed, other, JSON.stringify(await under()) === JSON.stringify(before)]);
+  }
+  ok(brushed.every(([, changed, other, back]) => changed > 20 && !other && back), `each brush changes the ground or the rain under it, and Undo puts it back (${brushed.map(([t, n]) => `${t} ${n} cells`).join(', ')})`);
+  await pg.click('.tool[data-tool="rain"]');
+  await E(() => { for (const [id, v] of [['optSize', '6'], ['optStr', '10']]) { const r = document.getElementById(id); r.value = v; r.dispatchEvent(new Event('input')); } });
+  const grass = await E(() => window.terra.cell(121.5, 142.5).kind);
+  for (let k = 0; k < 4; k++) await drag([[117, 142], [126, 142], [117, 142]], 6, pg);
+  const greener = await E(() => window.terra.cell(121.5, 142.5).kind);
+  ok(grass === 'Grassland' && /forest/.test(greener), `Wetter turns grassland into forest (${grass}, then ${greener})`);
   await c.close();
 }
 

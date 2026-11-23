@@ -843,6 +843,7 @@ let saveWarned = false; // the first time an autosave fails, say so over the map
 // Another tab can have the same world open. The autosave this tab last wrote or read is lastSavedAt (its savedAt); one
 // stored with any other savedAt came from another tab, and this tab doesn't save over it without asking (otherClash).
 let lastSavedAt = null, otherClash = false;
+const savedNote = () => setSaveNote('Autosaved in this browser at ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.');
 const stampOf = s => { if (s == null) return null; const m = /"savedAt":"([^"]*)"\}\s*$/.exec(s.slice(-120)); return m ? m[1] : ''; };
 function saveLocal() {
   if (otherClash) return false;
@@ -851,8 +852,7 @@ function saveLocal() {
     if (unreadable !== null) { localStorage.setItem(UNREADABLE_KEY, unreadable); unreadable = null; syncOldSave(); }
     else if (stampOf(localStorage.getItem(STORE_KEY)) !== lastSavedAt) { askAboutOtherTab(); return false; }
     const at = new Date().toISOString();
-    localStorage.setItem(STORE_KEY, serialize(at)); lastSavedAt = at;
-    setSaveNote('Autosaved in this browser at ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.');
+    localStorage.setItem(STORE_KEY, serialize(at)); lastSavedAt = at; savedNote();
     return true;
   } catch (e) {
     const msg = 'This browser would not keep an autosave. Use Save world file to keep your work.';
@@ -876,7 +876,7 @@ window.addEventListener('storage', e => {
 function bringIn(text) {
   let parsed; try { parsed = checkWorld(JSON.parse(text)); } catch (e) { return false; }
   const sel = ui.selected;
-  pushUndo({ h: true, m: true, meta: true, world: true }); applyWorld(parsed); lastSavedAt = stampOf(text);
+  pushUndo({ h: true, m: true, meta: true, world: true }); applyWorld(parsed); lastSavedAt = stampOf(text); savedNote();
   if (sel && sel.type !== 'loc' && !findSel(sel)) { ui.selected = null; dropDraft(); }
   recomputeAll(); syncWorldTab(); updateStatus();
   toast('Brought in the changes from another tab.', { label: 'Undo', fn: undo });

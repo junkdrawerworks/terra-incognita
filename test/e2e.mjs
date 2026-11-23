@@ -1049,8 +1049,8 @@ await oldCtx.close();
   // Load theirs.
   await clash('Dropped in tab A.', 'Kept from tab B');
   await A.click('#toast button:has-text("Load theirs")');
-  const loaded = { name: await A.evaluate(() => window.terra.state().name), notes: await notes(A), said: await said(A) };
-  ok(loaded.name === 'Kept from tab B' && loaded.notes === 'Kept from tab A.' && loaded.said === 'Brought in the changes from another tab. | Undo', `Load theirs brings in tab B's world ("${loaded.said}")`);
+  const loaded = { name: await A.evaluate(() => window.terra.state().name), notes: await notes(A), said: await said(A), note: await A.textContent('#wSaveNote') };
+  ok(loaded.name === 'Kept from tab B' && loaded.notes === 'Kept from tab A.' && loaded.said === 'Brought in the changes from another tab. | Undo' && loaded.note.startsWith('Autosaved'), `Load theirs brings in tab B's world ("${loaded.said}")`);
   await rename(A, 'Saved from tab A');
   await A.waitForTimeout(1300);
   await A.reload(); await B.reload();

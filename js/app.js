@@ -781,8 +781,9 @@ function applySnap(s) {
   }
   return inv;
 }
-function undo() { if (settleGesture()) return; dropActionToast(); const s = undoStack.pop(); if (!s) return; const was = world.places; redoStack.push(applySnap(s)); afterRestore(s.world); if (!s.world) tellPlaces(was, true); }
-function redo() { settleGesture(); dropActionToast(); const s = redoStack.pop(); if (!s) return; const was = world.places; undoStack.push(applySnap(s)); afterRestore(s.world); if (!s.world) tellPlaces(was, false); }
+// A whole world brought back (from New world, Generate or Open) is named, as it was when it came.
+function undo() { if (settleGesture()) return; dropActionToast(); const s = undoStack.pop(); if (!s) return; const was = world.places; redoStack.push(applySnap(s)); afterRestore(s.world); if (s.world) toast(`Back to ${world.name}.`, { label: 'Redo', fn: redo }, 6000); else tellPlaces(was, true); }
+function redo() { settleGesture(); dropActionToast(); const s = redoStack.pop(); if (!s) return; const was = world.places; undoStack.push(applySnap(s)); afterRestore(s.world); if (s.world) toast(`${world.name} again.`, { label: 'Undo', fn: undo }, 6000); else tellPlaces(was, false); }
 // Undo and Redo say so when places go or come back, and when notes go with them, since notes aren't part of Undo:
 // undoing the founding of a town takes the notes written in it since.
 function tellPlaces(was, undid) {

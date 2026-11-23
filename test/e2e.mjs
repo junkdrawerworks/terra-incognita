@@ -525,6 +525,13 @@ ok(rangeOk.envoys > 10 && rangeOk.tolls > 10 && !rangeOk.repeats && !rangeOk.bad
   const back = await desk.evaluate(() => window.terra.state());
   ok(rolled[0].seed !== before.seed && String(rolled[0].seed) === rolled[1] && rolled[2].includes(`Generated world ${rolled[0].seed}.`) && back.seed === before.seed && back.places === before.places && back.name === before.name,
     `Random seed grows a new world, and Undo brings ${before.name} back (${before.seed} to ${rolled[0].seed} and back to ${back.seed})`);
+  // Undo and Redo of a whole world say which world it is now. They said nothing, though the map and its name changed.
+  const toastSays = () => desk.evaluate(() => [...document.getElementById('toast').children].map((e) => e.textContent).join(' | '));
+  const backSaid = await toastSays();
+  await desk.click('#toast button:has-text("Redo")');
+  const againSaid = await toastSays();
+  await desk.click('#toast button:has-text("Undo")');
+  ok(backSaid === `Back to ${before.name}. | Redo` && againSaid === `${rolled[0].name} again. | Undo` && (await desk.evaluate(() => window.terra.state())).seed === before.seed, `Undo and Redo of a new world name the world they bring ("${backSaid}", "${againSaid}")`);
   await desk.click('#tab-inspect');
 }
 

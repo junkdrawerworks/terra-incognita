@@ -13,7 +13,12 @@ let css = await read('css/app.css');
 for (const [, file] of css.matchAll(/url\(\.\.\/(fonts\/[^)]+\.woff2)\)/g)) css = css.replace(`url(../${file})`, `url(${await dataUri(file, 'font/woff2')})`);
 // The page's one import, js/edge-guard.js, goes in ahead of the app, as plain code.
 const guard = (await read('js/edge-guard.js')).replace(/^export function/m, 'function');
-const js = (await read('js/app.js')).replace("import { guardEdges } from './edge-guard.js';\n", () => guard).replace(/<\/script/gi, '<\\/script');
+// It has no sw.js beside it, so the offline copy's registration comes out too: hosted on its own, it would ask for a
+// sw.js that isn't there and log the 404.
+const SW = /\/\/ Offline copy, on the real site only[^\n]*\n[\s\S]*?navigator\.serviceWorker\.register\('sw\.js'\)[^\n]*\n\}\n/;
+const app = await read('js/app.js');
+if (!SW.test(app)) throw new Error('scripts/build.mjs: the service worker registration in js/app.js has moved; update SW to match it');
+const js = app.replace(SW, '').replace("import { guardEdges } from './edge-guard.js';\n", () => guard).replace(/<\/script/gi, '<\\/script');
 const icon = await dataUri('icon.svg', 'image/svg+xml');
 const html = (await read('index.html'))
   .replace(/<link rel="(manifest|apple-touch-icon|preload)"[^>]*>\n/g, '')

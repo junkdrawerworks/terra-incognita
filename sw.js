@@ -26,7 +26,8 @@ self.addEventListener('install', e => {
 
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys()
-    .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+    // Only this app's older copies, by their exact names, as the house kit does: never another cache on the origin.
+    .then(keys => Promise.all(keys.filter(k => k !== CACHE && /^terra-incognita-v[0-9]+$/.test(k)).map(k => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 

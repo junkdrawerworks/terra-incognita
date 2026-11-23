@@ -17,7 +17,8 @@
 // Undo, Undo naming the places it takes, Found new realms and Clear naming the notes they take, a refused file, and two
 // tabs on one world. And sketches that keep what's on the map: rivers drawn into and beside lakes, a range across a
 // lake's way out, a river line across an inlet, figure-8s and loops drawn twice round, a drawn river's source going
-// under the sea, edits that change nothing saying so, and each brush, with its ring under a finger.
+// under the sea, edits that change nothing saying so, and each brush, with its ring under a finger. The single-file
+// copy for Claude's viewer, from a file and over http.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -271,6 +272,17 @@ const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#wSav
 const saved = JSON.parse(await readFile(await dl.path(), 'utf8'));
 ok(dl.suggestedFilename().endsWith('.json') && saved.format === 'terra-incognita' && saved.places.length === st.places, 'Save world file downloads the world');
 ok(await page.locator('#pane-world .jd-foot').isVisible(), 'the World tab links back to the drawer');
+
+// Save map image downloads a picture of the whole map: 4 pixels a cell and a 30-pixel margin, in colour.
+const [pngDl] = await Promise.all([page.waitForEvent('download'), page.click('#wSavePng')]);
+const png = await readFile(await pngDl.path());
+const pngColours = await S((b64) => new Promise((done) => {
+  const img = new Image();
+  img.onload = () => { const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const g = c.getContext('2d'); g.drawImage(img, 0, 0); const d = g.getImageData(0, 0, c.width, c.height).data, seen = new Set(); for (let i = 0; i < d.length; i += 4 * 97) seen.add((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]); done(seen.size); };
+  img.src = 'data:image/png;base64,' + b64;
+}), png.toString('base64'));
+ok(pngDl.suggestedFilename() === st.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '.png' && png.subarray(1, 4).toString() === 'PNG' && png.readUInt32BE(16) === 1980 && png.readUInt32BE(20) === 1260 && pngColours > 3,
+  `Save map image downloads the map as ${pngDl.suggestedFilename()}, ${png.readUInt32BE(16)} x ${png.readUInt32BE(20)}, in ${pngColours} colours or more`);
 
 // Nothing scrolls sideways on a phone.
 ok(await S(() => document.documentElement.scrollWidth <= window.innerWidth), 'nothing scrolls sideways at 390px');
@@ -1428,6 +1440,53 @@ await oldCtx.close();
   await c.close();
 }
 
+// The single-file copy for Claude's Artifact viewer (scripts/build.mjs): opened from a file with the viewer's
+// window.claude, it draws the world, a town's page drafts a history with Claude, and Save world file goes through the
+// viewer's downloads. Served on its own over http it logs no error: it doesn't look for a sw.js that isn't there.
+{
+  execSync('node scripts/build.mjs', { cwd: root, stdio: 'pipe' });
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  await c.addInitScript(() => {
+    window.claude = { use: async (n) => {
+      if (n === 'sample') return async (prompt, o) => { o.onText && o.onText({ text: 'Founded' }); window.asked = prompt; return { text: 'Founded on salt and old quarrels.\nHook: a door nobody opens.' }; };
+      if (n === 'downloads') return { save: async (f) => { window.savedFile = { filename: f.filename, size: String(f.data).length }; } };
+      throw Object.assign(new Error('no'), { code: 'not_declared' });
+    } };
+  });
+  const pg = await c.newPage();
+  const errors = [];
+  pg.on('pageerror', (e) => errors.push(e.message)); pg.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  await pg.goto('file://' + join(root, 'dist/terra-incognita.html'));
+  await pg.waitForFunction(() => window.terra && window.terra.state().places > 0);
+  const drawn = await pg.evaluate(() => { const cv = document.getElementById('map'), d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data, seen = new Set(); for (let i = 0; i < d.length; i += 4 * 101) seen.add((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]); return seen.size; });
+  ok(drawn > 50, `the single-file copy draws the world from a file (${drawn} colours on the map)`);
+  const cap = (await pg.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
+  await pg.evaluate((id) => window.terra.select({ type: 'place', id }), cap.id);
+  ok(await pg.locator('#pWrite').isVisible(), "in Claude's viewer a town's page offers Write its history");
+  await pg.click('#pWrite');
+  await pg.waitForFunction(() => !document.getElementById('draftActions').hidden);
+  const draft = await pg.evaluate(() => [document.getElementById('draftBox').textContent, (window.asked || '').includes('Write a short history')]);
+  ok(draft[0].startsWith('Founded on salt') && draft[1], 'and Claude drafts it from the map');
+  await pg.click('#tab-world');
+  await pg.click('#wSaveFile');
+  await pg.waitForFunction(() => window.savedFile);
+  const savedFile = await pg.evaluate(() => window.savedFile);
+  ok(savedFile.filename.endsWith('.json') && savedFile.size > 100000, `Save world file goes through the viewer's downloads (${savedFile.filename})`);
+  ok(errors.length === 0, 'with no errors' + (errors.length ? ': ' + errors.join('; ') : ''));
+  await c.close();
+  const h = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const hp = await h.newPage();
+  const herrors = [];
+  hp.on('pageerror', (e) => herrors.push(e.message)); hp.on('console', (m) => { if (m.type() === 'error') herrors.push(m.text()); });
+  hp.on('requestfailed', (r) => herrors.push('failed: ' + r.url()));
+  hp.on('response', (r) => { if (r.status() >= 400) herrors.push(r.status() + ' ' + r.url()); });
+  await hp.goto(base + 'dist/terra-incognita.html');
+  await hp.waitForFunction(() => window.terra && window.terra.state().places > 0);
+  await hp.waitForTimeout(800);
+  ok(herrors.length === 0 && await hp.evaluate(async () => !(await navigator.serviceWorker.getRegistration())), 'served on its own over http, it registers no offline copy and logs no error' + (herrors.length ? ': ' + herrors.join('; ') : ''));
+  await h.close();
+}
+
 const real = problems.filter((p) => !/ERR_INTERNET_DISCONNECTED|net::ERR_FAILED/.test(p));
 ok(real.length === 0, 'no errors and nothing loaded from elsewhere' + (real.length ? ':\n' + real.join('\n') : ''));
 
@@ -1488,17 +1547,26 @@ ok(real.length === 0, 'no errors and nothing loaded from elsewhere' + (real.leng
   const took = Date.now() - t0;
   assert.ok(took < 8000, `the page took ${took} ms to open on a stalled connection`);
   assert.equal(await page.title(), title, 'the page did not open on a stalled connection');
+  assert.ok(await page.evaluate(() => window.terra.state().places) > 0, 'the page opened on a stalled connection with no world');
+  assert.ok(await page.evaluate(async () => { await document.fonts.ready; return document.fonts.check('16px "IM Fell English"') && document.fonts.check('14px "Instrument Sans"'); }), 'the fonts did not load on a stalled connection');
   net = 'up';
   for (const [req, res] of held.splice(0)) serve(req, res);
 
   // A new release: every file in the new copy comes from the server, though the browser still has its own copies of
   // the old ones for ten minutes. (The next release changes index.html, and so FILES in sw.js, as a real one does.)
+  // The new release's worker clears out this app's older copies by name, and leaves any other cache on the site alone.
+  await page.evaluate(async () => { await caches.open('terra-incognita-v1'); await caches.open('someone-else'); });
   release = true;
   await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).update());
   for (const end = Date.now() + 10000; !(await page.evaluate(async () => !!(await (await caches.match('index.html'))?.text())?.includes('<!-- the next release -->')));) {
     assert.ok(Date.now() < end, "the new release's offline copy kept the old index.html");
     await new Promise(r => setTimeout(r, 100));
   }
+  for (const end = Date.now() + 10000; await page.evaluate(() => caches.has('terra-incognita-v1'));) {
+    assert.ok(Date.now() < end, "the new release's worker kept the app's older copy");
+    await new Promise(r => setTimeout(r, 100));
+  }
+  assert.ok(await page.evaluate(() => caches.has('someone-else')), "the new release's worker deleted a cache that wasn't the app's");
   assert.deepEqual(problems, [], 'problems while offline or on a stalled connection');
   await ctx.close();
   server.close();

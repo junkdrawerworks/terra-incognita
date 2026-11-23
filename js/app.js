@@ -2180,7 +2180,14 @@ function rumor(p) {
 // The notes that go to Claude: all of them up to 2,500 characters; past that, the start (often who rules and what the
 // place is) and the latest (Keep in notes adds each history at the end), so what was written last is never cut.
 const NOTES_MAX = 2500, NOTES_HEAD = 800;
-const notesSent = lore => { const t = lore.trim(); return t.length <= NOTES_MAX ? t : t.slice(0, NOTES_HEAD).trimEnd() + ' … ' + t.slice(t.length - (NOTES_MAX - NOTES_HEAD)).trimStart(); };
+// The cut falls between words.
+function notesSent(lore) {
+  const t = lore.trim(); if (t.length <= NOTES_MAX) return t;
+  let head = t.slice(0, NOTES_HEAD), tail = t.slice(t.length - (NOTES_MAX - NOTES_HEAD));
+  if (/\S/.test(t[NOTES_HEAD] || '')) head = head.replace(/\S+$/, '');
+  if (/\S/.test(t[t.length - (NOTES_MAX - NOTES_HEAD) - 1] || '')) tail = tail.replace(/^\S+/, '');
+  return head.trimEnd() + ' … ' + tail.trimStart();
+}
 const leagues = d => { const n = Math.max(1, Math.round(d * KM / LEAGUE)); return `${n} league${n === 1 ? '' : 's'}`; };
 function buildPrompt(p) {
   const c = storyCtx(p), f = c.f;

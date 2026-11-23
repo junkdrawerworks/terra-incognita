@@ -122,7 +122,8 @@ const BIOME_NAME = ['Open sea', 'Lake', 'Ice sheet', 'Snowfield', 'Tundra', 'Bor
 const TER = [[0, 0, 0], [74, 128, 154], [232, 238, 240], [245, 246, 243], [163, 167, 146], [76, 104, 82], [194, 183, 126], [151, 175, 99], [88, 133, 72], [58, 110, 72], [221, 197, 146], [190, 176, 103], [86, 143, 70], [44, 111, 64], [139, 133, 121], [102, 132, 104]];
 const ATL = [[0, 0, 0], [184, 205, 199], [244, 240, 228], [248, 245, 236], [220, 212, 182], [196, 196, 158], [229, 212, 164], [222, 213, 166], [206, 204, 156], [194, 198, 152], [237, 214, 164], [228, 208, 156], [204, 204, 150], [188, 196, 142], [212, 200, 176], [204, 206, 172]];
 const FERT = [0, 0, 0, 0, 0.1, 0.35, 0.5, 1, 0.85, 0.6, 0.1, 0.7, 0.75, 0.45, 0, 0.3];
-const GOODS = { 4: ['furs', 'walrus ivory'], 5: ['furs', 'pitch', 'timber'], 6: ['horses', 'wool'], 7: ['grain', 'wool', 'cheese'], 8: ['timber', 'honey', 'apples'], 9: ['timber', 'amber'], 10: ['salt', 'glass', 'dates'], 11: ['cattle', 'hides'], 12: ['dyes', 'cane sugar'], 13: ['spices', 'rare woods'], 14: ['silver', 'slate'], 15: ['peat', 'eels', 'reeds'], 2: ['whale oil'], 3: ['ice'] };
+// What the land itself yields. A coast adds a catch from the sea in facts(): walrus ivory and whale oil on a cold one.
+const GOODS = { 4: ['furs', 'reindeer hides'], 5: ['furs', 'pitch', 'timber'], 6: ['horses', 'wool'], 7: ['grain', 'wool', 'cheese'], 8: ['timber', 'honey', 'apples'], 9: ['timber', 'amber'], 10: ['salt', 'glass', 'dates'], 11: ['cattle', 'hides'], 12: ['dyes', 'cane sugar'], 13: ['spices', 'rare woods'], 14: ['silver', 'slate'], 15: ['peat', 'eels', 'reeds'], 2: ['ice'], 3: ['ice'] };
 
 const KINDS = { capital: { label: 'Capital', claim: 0 }, city: { label: 'City', claim: 0.22 }, town: { label: 'Town', claim: 0.42 }, village: { label: 'Village', claim: 0.6 }, landmark: { label: 'Landmark' } };
 const POP = { capital: [60000, 240000], city: [16000, 70000], town: [2500, 14000], village: [180, 1600] };
@@ -2008,7 +2009,7 @@ function facts(x, y, self) {
   if (!water) {
     const rng = mulberry32(hash3(i, world.seed, 31)); const pool = (GOODS[f.b] || []).slice();
     if (E > 900) pool.push(pick(rng, ['iron', 'copper', 'tin', 'marble']));
-    if (f.coastal) pool.push(pick(rng, ['salted fish', 'pearls', 'sea salt']));
+    if (f.coastal) pool.push(pick(rng, f.b === B.TUNDRA || f.b === B.ICE || f.temp < 3 ? ['walrus ivory', 'whale oil', 'salted fish'] : ['salted fish', 'pearls', 'sea salt']));
     if (f.river) pool.push('river trade');
     shuffle(pool, rng); f.goods = pool.slice(0, 3);
   }
@@ -2018,7 +2019,8 @@ function factsHTML(f, p) {
   const rows = [];
   rows.push(['Position', `<span class="mono">${fmtPos(f.x, f.y)}</span>`]);
   if (f.water && !f.lake) rows.push(['Depth', `<span class="mono">${fmtInt(-f.E)} m</span>`]);
-  else rows.push(['Elevation', `<span class="mono">${fmtInt(Math.max(0, f.E))} m</span>`]);
+  // A few metres above the sea reads as a missing figure when it rounds to '0 m'.
+  else rows.push(['Elevation', f.E < 5 ? 'At sea level' : `<span class="mono">${fmtInt(f.E)} m</span>`]);
   // Out at sea too, this is the climate's mean air temperature, not the water's.
   rows.push(['Climate', `<span class="mono">${Math.round(f.temp)} °C</span> mean` + (f.water && !f.lake ? '' : `<span class="sep" aria-hidden="true">·</span><span class="mono">${fmtInt(f.precip)} mm</span> a year`)]);
   if (!f.water || f.lake) rows.push(['Land', esc(f.biome)]);

@@ -494,6 +494,26 @@ await M(() => window.terra.newWorld(857490, 'twin'));
 const ends = []; for (const [x, y] of [[372.5, 184.5], [368.5, 189.5]]) ends.push(await M(([x, y]) => window.terra.cell(x, y).lake, [x, y]) && parseInt((await readAt(x, y, 'Elevation')).replace(/,/g, ''), 10));
 ok(ends[0] > 0 && ends[0] === ends[1], `a lake reads one height from end to end (${ends[0]} m and ${ends[1]} m)`);
 
+// Walrus ivory and whale oil come from the sea, so only a cold coast lists them: tundra and ice sheet far from the sea
+// offered them too. And a coastal town a few metres above the sea says it is at sea level rather than '0 m'.
+await M(() => window.terra.newWorld(20417, 'continent'));
+const cold = await M(() => {
+  const out = { inland: [], coast: [] }, sea = (x, y) => { for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) if (window.terra.cell(x + dx, y + dy).h < 0) return true; return false; };
+  for (let y = 2.5; y < 298; y += 3) for (let x = 2.5; x < 478; x += 3) {
+    const c = window.terra.cell(x, y); if (c.h < 0 || c.lake || (c.kind !== 'Tundra' && c.kind !== 'Ice sheet')) continue;
+    const near = sea(x, y), far = !near && !sea(x - 3, y) && !sea(x + 3, y);
+    if (far && out.inland.length < 40) out.inland.push([x, y]); else if (near && out.coast.length < 40) out.coast.push([x, y]);
+  }
+  return out;
+});
+const goodsAt = async (list) => { const g = []; for (const [x, y] of list) { const s = await readAt(x, y, 'Setting'), gd = await readAt(x, y, 'Goods'); g.push([s, gd]); } return g; };
+const inlandGoods = await goodsAt(cold.inland), coastGoods = await goodsAt(cold.coast);
+ok(cold.inland.length >= 10 && inlandGoods.every(([s, g]) => s.startsWith('Inland') && !/walrus|whale/.test(g)), `tundra and ice sheet inland list no walrus ivory or whale oil (${cold.inland.length} spots: ${[...new Set(inlandGoods.flatMap(([, g]) => g.split(', ')))].join(', ')})`);
+ok(coastGoods.some(([s, g]) => s.startsWith('On the coast') && /walrus|whale/.test(g)) && coastGoods.every(([, g]) => !/pearls/.test(g)), 'a cold coast can list them, and no pearls');
+const ninten = await M(() => window.terra.places().find((p) => p.name === 'Ninten').id);
+await M((id) => window.terra.select({ type: 'place', id }), ninten);
+ok(await row('Elevation') === 'At sea level', `a coastal capital a few metres up reads At sea level (Ninten: "${await row('Elevation')}")`);
+
 // An island with a sea inside it: a town on the inner sea is on the coast of that sea, not the ocean outside, even
 // when the ocean's name is the only one on the map.
 await M(() => window.terra.startBlank());

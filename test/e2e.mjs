@@ -480,6 +480,20 @@ ok(rangeOk.envoys > 10 && rangeOk.tolls > 10 && !rangeOk.repeats && !rangeOk.bad
   ok(sea[0] !== 'Open sea' && sea[1] === 'Rename this water' && seaLabel === sea[0], `a named sea's page opens its label to rename it ("${sea[0]}")`);
 }
 
+// Random seed grows a world from a new seed, as Generate from seed does: the map, the seed box and the saved seed
+// agree, and the toast's Undo brings the old world back. It used to type a number in the box and change nothing else.
+{
+  await desk.click('#tab-world');
+  const before = await desk.evaluate(() => window.terra.state());
+  await desk.click('#wDice');
+  const rolled = await desk.evaluate(() => [window.terra.state(), document.getElementById('wSeed').value, document.getElementById('toast').textContent]);
+  await desk.click('#toast button:has-text("Undo")');
+  const back = await desk.evaluate(() => window.terra.state());
+  ok(rolled[0].seed !== before.seed && String(rolled[0].seed) === rolled[1] && rolled[2].includes(`Generated world ${rolled[0].seed}.`) && back.seed === before.seed && back.places === before.places && back.name === before.name,
+    `Random seed grows a new world, and Undo brings ${before.name} back (${before.seed} to ${rolled[0].seed} and back to ${back.seed})`);
+  await desk.click('#tab-inspect');
+}
+
 // A rumor that wasn't kept stays with its place, not with whatever has its id in a new world.
 const firstCap = (await desk.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
 await desk.evaluate((id) => window.terra.select({ type: 'place', id }), firstCap.id);

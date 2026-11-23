@@ -2580,9 +2580,12 @@ function savePng() {
 }
 function bindWorldTab() {
   $('#wShape').innerHTML = Object.entries(SHAPES).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
-  $('#wGen').onclick = () => { const s = clamp(parseInt($('#wSeed').value, 10) || 1, 1, 999999); newWorld(s, $('#wShape').value); syncWorldTab(); markDirty(); toast(`Generated world ${s}.`, { label: 'Undo', fn: undo }); };
+  const generate = s => { newWorld(s, $('#wShape').value); syncWorldTab(); markDirty(); toast(`Generated world ${s}.`, { label: 'Undo', fn: undo }); };
+  $('#wGen').onclick = () => generate(clamp(parseInt($('#wSeed').value, 10) || 1, 1, 999999));
   $('#wBlank').onclick = startBlank;
-  $('#wDice').onclick = () => { $('#wSeed').value = 1 + Math.floor(Math.random() * 999998); };
+  // Random seed grows a world from a new seed in one go, in the shape chosen, as Generate from seed does; Undo brings
+  // back the one before.
+  $('#wDice').onclick = () => generate(1 + Math.floor(Math.random() * 999998));
   let seaEditing = false, seaDry = null;
   $('#wSea').addEventListener('input', e => {
     if (!seaEditing) { pushUndo({ meta: true }); seaEditing = true; seaDry = dryPlaces(); }

@@ -368,7 +368,7 @@ ok(installabilityErrors.length === 0, 'Chromium says it can be installed' + (ins
 const sw = await readFile(join(root, 'sw.js'), 'utf8');
 const shell = [...sw.match(/const SHELL = \[([\s\S]*?)\];/)[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
 for (const f of shell) assert.ok(f === './' || existsSync(join(root, f)), `sw.js lists ${f}, which exists`);
-const missing = [...loaded].filter((f) => !shell.includes(f) && !['sw.js', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'icon-512-maskable.png'].includes(f));
+const missing = [...loaded].filter((f) => !shell.includes(f) && f !== 'sw.js');
 ok(missing.length === 0, 'sw.js keeps every file the page loads' + (missing.length ? ': missing ' + missing.join(', ') : ''));
 
 // It loads with the network off.
@@ -2750,6 +2750,10 @@ ok(real.length === 0, 'no errors and nothing loaded from elsewhere' + (real.leng
   await ctx.setOffline(true);
   await page.reload();
   assert.equal(await page.title(), title, 'the page did not open offline');
+  // After that one visit, a file the copy keeps comes from it as itself (the icons were left out of it), and one it
+  // doesn't keep fails. Both used to come back as the app's page, with a 200.
+  const offlineFiles = await page.evaluate(() => Promise.all(['icon-192.png', 'icon-512-maskable.png', 'og.png'].map((f) => fetch(f).then((r) => `${r.status} ${r.headers.get('content-type')}`, () => 'failed'))));
+  ok(JSON.stringify(offlineFiles) === JSON.stringify(['200 image/png', '200 image/png', 'failed']), `offline after one visit, the icons come from the copy and a file it doesn't keep fails (${offlineFiles.join(', ')})`);
   await ctx.setOffline(false);
 
   // On a connection that's up but not answering, it opens from the copy too, after the worker's few seconds' wait for

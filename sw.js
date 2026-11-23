@@ -8,10 +8,11 @@
 // refreshed only when a page that loads it is visited online, and the copy could mix two releases. So FILES is a
 // fingerprint of every file in SHELL: change any of them and test/e2e.mjs fails until FILES is changed to match (it
 // says what to), which changes this file, so every copy is made whole again at once.
-const CACHE = 'terra-incognita-v2'; // bump the number when the file list changes
-const FILES = '8c582301'; // test/e2e.mjs checks this
+const CACHE = 'terra-incognita-v3'; // bump the number when the file list changes
+const FILES = '5d346ef5'; // test/e2e.mjs checks this
 const SHELL = [
   './', 'index.html', 'css/app.css', 'js/app.js', 'js/edge-guard.js', 'manifest.webmanifest', 'icon.svg',
+  'icon-180.png', 'icon-192.png', 'icon-512.png', 'icon-512-maskable.png',
   'fonts/im-fell-english.woff2', 'fonts/im-fell-english-italic.woff2', 'fonts/im-fell-english-sc.woff2',
   'fonts/instrument-sans.woff2', 'fonts/ibm-plex-mono-400.woff2', 'fonts/ibm-plex-mono-500.woff2',
 ];
@@ -85,8 +86,9 @@ function network(e, keep = () => true) {
 // A file from the copy, marked like the network's (see askAgainNextTime() below), so a reload once the network is
 // back asks again rather than reusing it.
 const kept = request => caches.match(request, { ignoreSearch: true }).then(r => r && askAgainNextTime(r));
-// With no network: the file from the copy, or for anything it hasn't got, the app's page.
-const offline = request => kept(request).then(r => r || caches.match('index.html'));
+// With no network: the file from the copy. For a page it hasn't got, the app's page; for any other file it hasn't got,
+// a plain failure, not the app's page passed off as a picture or a script.
+const offline = request => kept(request).then(r => r || (request.mode === 'navigate' ? caches.match('index.html') : Response.error()));
 
 // GitHub Pages lets browsers keep files for ten minutes, so without this an update can take that long to show up.
 // Ask the server every time instead; a file that hasn't changed comes back as a quick "not modified".

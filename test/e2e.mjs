@@ -441,6 +441,9 @@ const rolled = await desk.evaluate(() => {
 });
 const midBroken = rolled.filter(([, t]) => midBreak.test(t)), townish = rolled.filter(([k, t]) => k === 'landmark' && /oldest well|Woodcutters|A stranger in|toll|caravan/.test(t));
 ok(rolled.length > 300 && !midBroken.length && !townish.length, `landmarks read right mid-sentence and have rumors of their own (${rolled.length} lines${midBroken.length ? '; broken: ' + midBroken[0][1] : ''}${townish.length ? '; a town\'s rumor on a landmark: ' + townish[0][1] : ''})`);
+// The Nearest row gives km beside its leagues (a league is 4.8 km), which it never explained.
+const nearest = rolled.filter(([k]) => k === 'nearest').map(([, t]) => t), badNear = nearest.filter((t) => { const m = t.match(/^(\d+) leagues? \(([\d,]+) km\) (north|south)?(east|west)? of /); return !m || Math.abs(+m[2].replace(/,/g, '') - m[1] * 4.8) > Math.max(5, m[1] * 4.8 * 0.08); });
+ok(nearest.length > 20 && !badNear.length, `a place's Nearest row gives km beside its leagues ("${nearest[0]}"${badNear.length ? '; not: ' + badNear[0] : ''})`);
 
 // Rumors that read right: envoys hunt for maps of the range nearest the place (or "the high country" with none
 // within about 800 km), a toll is never on "river trade", Roll a rumor never gives the same one twice running.

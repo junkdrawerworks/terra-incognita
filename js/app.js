@@ -2209,7 +2209,7 @@ function facts(x, y, self) {
   f.river = null;
   if (!water) { let best = -1, ba = RIVER_T; const cx = i % W, cy = (i / W) | 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const nx = cx + dx, ny = cy + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; const j = ny * W + nx; if (D.isR[j] && D.acc[j] > ba) { ba = D.acc[j]; best = j; } } if (best >= 0) f.river = riverName(mouthOf(best)); }
   let nb = null, nd = Infinity; for (const p of world.places) { if (p === self) continue; const d = Math.hypot(p.x - x, p.y - y); if (d < nd) { nd = d; nb = p; } }
-  f.near = nb ? { p: nb, leagues: Math.max(1, Math.round(nd * KM / LEAGUE)), dir: compass(x - nb.x, y - nb.y) } : null;
+  f.near = nb ? { p: nb, leagues: Math.max(1, Math.round(nd * KM / LEAGUE)), km: roundSig(nd * KM, 2), dir: compass(x - nb.x, y - nb.y) } : null;
   const seaName = f.coastal && nearestSeaLabel(x, y, bodiesNear(i, 2)); f.sea = seaName ? seaInText(seaName) : null;
   // A lake under the spot, or within two cells of dry land, and its name if it has one.
   const lk = water ? null : lakesNear(i, lake ? 0 : 2, x, y);
@@ -2243,7 +2243,8 @@ function factsHTML(f, p) {
   const rname = f.realm && `<span data-realm="${f.realm.place.id}">${esc(f.realm.display)}</span>`;
   rows.push([f.water || f.lake ? 'Waters of' : 'Realm', f.realm ? `<span class="swatch" style="background:${f.realm.color}"></span> ${p === f.realm.place ? rname : `<button class="link" data-goto="${f.realm.place.id}">${rname}</button>`}` : (f.water || f.lake ? 'No realm' : 'Unclaimed')]);
   if (p && p.pop) rows.push(['Population', `<span class="mono">~${fmtInt(p.pop)}</span>`]);
-  if (f.near) rows.push(['Nearest', `${f.near.leagues} league${f.near.leagues === 1 ? '' : 's'} ${f.near.dir} of ${placeIn(f.near.p) !== f.near.p.name ? 'the ' : ''}<button class="link" data-goto="${f.near.p.id}">${esc(f.near.p.name.replace(/^The /, ''))}</button>`]);
+  // In leagues, as the scale bar has it, with km beside them, as the rest of the page measures.
+  if (f.near) rows.push(['Nearest', `${f.near.leagues} league${f.near.leagues === 1 ? '' : 's'} (${fmtInt(f.near.km)} km) ${f.near.dir} of ${placeIn(f.near.p) !== f.near.p.name ? 'the ' : ''}<button class="link" data-goto="${f.near.p.id}">${esc(f.near.p.name.replace(/^The /, ''))}</button>`]);
   if (f.goods.length) rows.push(['Goods', esc(f.goods.join(', '))]);
   return `<dl class="facts">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>`;
 }

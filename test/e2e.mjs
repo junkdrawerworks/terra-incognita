@@ -980,8 +980,10 @@ await oldCtx.close();
     for (let t = 0; t <= 8; t++) loop.push([cx + Math.cos(t * Math.PI / 4) * 14, cy + Math.sin(t * Math.PI / 4) * 10]);
     await drag(loop, 3, pg);
     const sketched = await look();
+    // A loop over ground already higher than its coast would be changes nothing and takes no step, and says so.
+    if (sketched === start) { if (!(await pg.textContent('#toast span')).startsWith('That ground is already higher')) differ.push(k + 1); continue; }
     await pg.click('#btnUndo');
-    if (sketched === start || await look() !== start) differ.push(k + 1);
+    if (await look() !== start) differ.push(k + 1);
   }
   ok(differ.length === 0, 'thirty Land sketches, each taken back by Undo, each leave the world as it was' + (differ.length ? ': not after ' + differ.join(', ') : ''));
   await c.close();

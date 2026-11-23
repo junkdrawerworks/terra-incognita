@@ -609,10 +609,17 @@ ok(rangeOk.envoys > 10 && rangeOk.tolls > 10 && !rangeOk.repeats && !rangeOk.bad
   await c.close();
 }
 
-// A rumor that wasn't kept stays with its place, not with whatever has its id in a new world.
+// A rumor that wasn't kept stays with its place while other places are looked at (it went as soon as another place
+// was tapped), but not with whatever has its id in a new world.
 const firstCap = (await desk.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
 await desk.evaluate((id) => window.terra.select({ type: 'place', id }), firstCap.id);
 await desk.click('#pRumor');
+const rolledRumor = await desk.textContent('#draftBox');
+const otherPlace = (await desk.evaluate(() => window.terra.places())).find((p) => p.kind === 'town');
+await desk.evaluate((id) => window.terra.select({ type: 'place', id }), otherPlace.id);
+const otherBox = await desk.evaluate(() => document.getElementById('draftBox').hidden);
+const cameBack = await desk.evaluate((id) => { window.terra.select({ type: 'place', id }); return [document.getElementById('draftBox').textContent, document.getElementById('draftActions').hidden]; }, firstCap.id);
+ok(otherBox && cameBack[0] === rolledRumor && !cameBack[1], 'an unkept rumor waits on its own place\'s page while another place is open');
 await desk.click('#btnNew');
 await desk.click('#mnRandom');
 await desk.waitForTimeout(300);
@@ -2637,7 +2644,7 @@ await oldCtx.close();
   const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   await c.addInitScript(() => {
     window.claude = { use: async (n) => {
-      if (n === 'sample') return async (prompt, o) => { if (window.refuse) { window.asked = prompt; throw Object.assign(new Error('no'), { code: 'refused' }); } o.onText && o.onText({ text: 'Founded' }); window.asked = prompt; return { text: 'Founded on salt and old quarrels.\nHook: a door nobody opens.', truncated: !!window.cutShort }; };
+      if (n === 'sample') return async (prompt, o) => { if (window.slow) await new Promise((r) => { window.release = r; }); if (window.refuse) { window.asked = prompt; throw Object.assign(new Error('no'), { code: 'refused' }); } o.onText && o.onText({ text: 'Founded' }); window.asked = prompt; return { text: 'Founded on salt and old quarrels.\nHook: a door nobody opens.', truncated: !!window.cutShort }; };
       if (n === 'downloads') return { save: async (f) => { window.savedFile = { filename: f.filename, size: String(f.data).length }; } };
       throw Object.assign(new Error('no'), { code: 'not_declared' });
     } };
@@ -2688,6 +2695,19 @@ await oldCtx.close();
   const [lp, lnote] = await ask(lm.id, '');
   ok(/^Realm: The /m.test(lp) && !/tongue/.test(lp) && !/Its capital/.test(lp) && lnote === 'Claude declined to write this one. Try again, or add a note to steer it.', `a landmark's prompt has no tongue line, and a refusal with no notes says to add one ("${lnote}")`);
   await pg.evaluate(() => { window.refuse = false; });
+  // A history Claude is still writing carries on while another place's page is open, and waits on its own place's
+  // page until it is kept or discarded, as the village's from before does. Tapping another place threw it away.
+  await pg.evaluate(() => { window.slow = true; });
+  await pg.evaluate((id) => window.terra.select({ type: 'place', id }), cap.id);
+  await pg.click('#dDiscard');
+  await pg.click('#pWrite');
+  await pg.evaluate((id) => window.terra.select({ type: 'place', id }), village.id);
+  const elsewhere = await pg.evaluate(() => [document.getElementById('draftBox').textContent, document.getElementById('pWrite').textContent]);
+  await pg.evaluate(() => { window.slow = false; window.release(); });
+  await pg.waitForTimeout(200);
+  await pg.evaluate((id) => window.terra.select({ type: 'place', id }), cap.id);
+  const waited = await pg.evaluate(() => [document.getElementById('draftBox').textContent, document.getElementById('draftActions').hidden]);
+  ok(elsewhere[0].startsWith('Founded on salt') && elsewhere[1] === 'Write another' && waited[0].startsWith('Founded on salt') && !waited[1], `a history Claude writes while another page is open waits on its own place's page, and the village keeps its own ("${waited[0].slice(0, 24)}…")`);
   await pg.click('#tab-world');
   await pg.click('#wSaveFile');
   await pg.waitForFunction(() => window.savedFile);

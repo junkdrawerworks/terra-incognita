@@ -2341,7 +2341,10 @@ function buildPrompt(p) {
 }
 
 // ------------------------------------------------------------------ inspector
-const draft = { placeId: null, text: '', busy: false, kind: '', note: '', ctl: null };
+// Each place's rumor or history that hasn't been kept yet, by the place's id: { text, busy, kind, note, ctl }.
+const drafts = new Map();
+const draftFor = id => drafts.get(id) || { text: '', busy: false, kind: '', note: '', ctl: null };
+function setDraft(id, d) { const o = Object.assign(draftFor(id), d); drafts.set(id, o); return o; }
 function kindGlyph(p, sz = 16) {
   const c = p.realm ? p.realm.color : 'currentColor';
   if (p.kind === 'capital') return `<svg width="${sz}" height="${sz}" viewBox="-8 -8 16 16" aria-hidden="true"><path d="M0-7 1.8-2.4 6.7-2.2 2.9 1 4.1 5.7 0 3 -4.1 5.7 -2.9 1 -6.7-2.2 -1.8-2.4Z" fill="${c}" stroke="currentColor" stroke-width="1"/></svg>`;
@@ -2351,15 +2354,15 @@ function kindGlyph(p, sz = 16) {
   const lm = LM_PATHS[p.sub] || LM_PATHS.ruin;
   return `<svg width="${sz}" height="${sz}" viewBox="-8 -8 16 16" aria-hidden="true"><path d="${lm.d}" ${lm.fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"'}/>${lm.inner ? `<path d="${lm.inner}" style="fill:var(--panel)"/>` : ''}</svg>`;
 }
-// A rumor or history that hasn't been kept belongs to one place; it goes when that place is left or the world changes.
-function dropDraft() { if (draft.ctl) draft.ctl.abort(); Object.assign(draft, { placeId: null, text: '', busy: false, kind: '', note: '', ctl: null }); }
+// A rumor or history that hasn't been kept belongs to its place, and waits on its page while you look at other places
+// (one Claude is writing carries on meanwhile), until it is kept or discarded, or the world changes.
+function dropDraft(id) { for (const [k, d] of drafts) if (id === undefined || k === id) { if (d.ctl) d.ctl.abort(); drafts.delete(k); } }
 // A place Undo or Remove takes away takes its rumor or history with it, and stops one Claude is still writing: the
 // next place founded gets the same id, and would otherwise open with the old place's draft.
-function dropOrphanDraft() { if (draft.placeId != null && !world.places.some(p => p.id === draft.placeId)) dropDraft(); }
+function dropOrphanDraft() { const ids = new Set(world.places.map(p => p.id)); for (const k of [...drafts.keys()]) if (!ids.has(k)) dropDraft(k); }
 function select(sel) {
   ui.selected = sel;
   if (sel) showTab('inspect');
-  if (!sel || sel.type !== 'place' || draft.placeId !== sel.id) dropDraft();
   renderInspector(); requestDraw();
   // The first visit's hint says to tap a town; once a place or a spot has been read, it gives the usual one.
   if (sel && firstHint) { firstHint = false; if (ui.tool === 'select') renderToolOpts(); }
@@ -2473,7 +2476,7 @@ function placeHTML(p) {
       <p class="note">${f.realm ? `<span class="mono">${fmtInt(f.realm.area * KM * KM)}</span> km², ${f.realm.count} settlement${f.realm.count === 1 ? '' : 's'}, about <span class="mono">${fmtInt(roundSig(f.realm.pop, 2))}</span> people.` : ''} New places founded here take their names from its tongue.</p>
     </div>`;
   }
-  const busy = draft.busy && draft.placeId === p.id;
+  const busy = draftFor(p.id).busy;
   // The page's heading is the place's name, for a screen reader to find; on screen the name is the field under it.
   return `<div class="place-head"><h2 class="sr" id="pTitle" tabindex="-1">${esc(p.name)}</h2>
       <p class="eyebrow"><span class="glyph">${kindGlyph(p, 15)}</span><span class="eb-text">${esc(kindLabel(p))}${f.realm ? ` · <span class="swatch" style="background:${f.realm.color}"></span><span data-realm="${f.realm.place.id}">${esc(f.realm.display)}</span>` : ''}</span>${SHOW_ON_MAP}</p>
@@ -2501,8 +2504,8 @@ function placeHTML(p) {
 const draftNoteCopy = () => sampleFn ? 'Claude drafts a history from the geography and your notes. Nothing is added until you keep it.' : 'Rumors come from the map around this place. Keep the ones you like.';
 function renderDraft() {
   const box = $('#draftBox'), act = $('#draftActions'), note = $('#draftNote'), wb = $('#pWrite');
-  if (!box || !ui.selected || draft.placeId !== ui.selected.id) return;
-  const has = draft.busy || draft.text;
+  if (!box || !ui.selected || ui.selected.type !== 'place') return;
+  const draft = draftFor(ui.selected.id), has = draft.busy || draft.text;
   box.hidden = !has; box.classList.toggle('busy', draft.busy && !draft.text);
   box.textContent = draft.busy && !draft.text ? 'Claude is thinking about this place…' : draft.text;
   act.hidden = draft.busy || !draft.text;
@@ -2522,10 +2525,12 @@ function sampleCopy(code, noted) {
   }
 }
 async function writeHistory(p) {
-  if (draft.busy && draft.kind === 'claude') { draft.ctl && draft.ctl.abort(); return; }
+  const was = draftFor(p.id);
+  if (was.busy && was.kind === 'claude') { was.ctl && was.ctl.abort(); return; }
   if (!sampleFn) return;
   const ctl = new AbortController(), partial = p.lore.trim().length > NOTES_MAX ? 'Only part of your notes fits: the start and the latest are sent.' : '';
-  Object.assign(draft, { placeId: p.id, text: '', busy: true, kind: 'claude', note: partial, ctl });
+  // Kept by its place's id: the place object itself is replaced by an Undo while Claude writes.
+  const draft = setDraft(p.id, { text: '', busy: true, kind: 'claude', note: partial, ctl });
   renderDraft();
   try {
     const res = await sampleFn(buildPrompt(p), { signal: ctl.signal, cache: false, onText: ({ text }) => { if (draft.ctl === ctl) { draft.text = text; renderDraft(); } } });
@@ -2557,11 +2562,11 @@ function bindPlace(p) {
   $('#pKind').onchange = e => { changeKind(p, e.target.value); refocus('#pKind'); };
   $('#pLore').addEventListener('input', e => { once(); p.lore = e.target.value; markDirty(); });
   $('#pDelete').onclick = () => removeSel({ type: 'place', id: p.id });
-  $('#pRumor').onclick = () => { if (draft.busy) return; Object.assign(draft, { placeId: p.id, text: rumor(p), busy: false, kind: 'rumor', note: '', ctl: null }); renderDraft(); };
+  $('#pRumor').onclick = () => { if (draftFor(p.id).busy) return; setDraft(p.id, { text: rumor(p), busy: false, kind: 'rumor', note: '', ctl: null }); renderDraft(); };
   const wb = $('#pWrite'); if (wb) wb.onclick = () => writeHistory(p);
   // Keeping a rumor or history is a step of its own, so Undo takes back just what was added.
-  $('#dKeep').onclick = () => { pushUndo({ meta: true }); const ta = $('#pLore'); p.lore = (p.lore.trim() ? p.lore.trimEnd() + '\n\n' : '') + draft.text.trim(); ta.value = p.lore; Object.assign(draft, { text: '', kind: '', note: '' }); renderDraft(); markDirty(); toast('Added to the notes.'); };
-  $('#dDiscard').onclick = () => { Object.assign(draft, { text: '', kind: '', note: '' }); renderDraft(); };
+  $('#dKeep').onclick = () => { pushUndo({ meta: true }); const ta = $('#pLore'); p.lore = (p.lore.trim() ? p.lore.trimEnd() + '\n\n' : '') + draftFor(p.id).text.trim(); ta.value = p.lore; dropDraft(p.id); renderDraft(); markDirty(); toast('Added to the notes.'); };
+  $('#dDiscard').onclick = () => { dropDraft(p.id); renderDraft(); };
   if (p.kind === 'capital' && p.realm) {
     // The realm's name and title change where the page shows them, without building the page again, which took away
     // the field being left (or the control clicked next) along with its focus.

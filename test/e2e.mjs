@@ -2229,6 +2229,8 @@ await oldCtx.close();
   // A sketch, then a town dragged before its toast is gone: the toast goes with the drag, and the town stays put.
   await drag(loop, 3, pg);
   await pg.keyboard.press('v');
+  // Select's options are shorter than Sketch's, so the map grows; let it take its new size before finding the town on it.
+  await T(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   const first = (await T(() => window.terra.places()))[0];
   const b = await pg.locator('#map').boundingBox(), f = await T(([x, y]) => window.terra.toScreen(x, y), [first.x, first.y]);
   await pg.mouse.move(b.x + f.x, b.y + f.y); await pg.mouse.down();

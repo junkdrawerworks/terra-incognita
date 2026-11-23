@@ -13,12 +13,12 @@
 // Back mid-sketch taken for a slip, a browser that won't keep the autosave, and saved worlds the page can't read or
 // that a newer version wrote, kept aside and given back by Download the old save. Five seeds that must keep growing the
 // same worlds, and a world file from an earlier build that must keep opening. Then nothing lost and nothing undone by
-// surprise: a pinch that paints nothing, a drag a pinch cuts short, a page left mid-stroke, Undo mid-stroke, a toast's
-// Undo, Undo naming the places it takes (and the rumor rolled for one), Found new realms and Clear naming the notes
-// they take, a refused file, and two tabs on one world. And sketches that keep what's on the map: rivers drawn into and
-// beside lakes, a range across a lake's way out, a river line across an inlet, figure-8s and loops drawn twice round, a
-// drawn river's source going under the sea, edits that change nothing saying so, and each brush, with its ring under a
-// finger. The single-file copy for Claude's viewer, from a file and over http.
+// surprise: a pinch that paints nothing, a drag a pinch cuts short, a page left mid-stroke, an autosave mid-stroke,
+// Undo mid-stroke, a toast's Undo, Undo naming the places it takes (and the rumor rolled for one), Found new realms and
+// Clear naming the notes they take, a refused file, and two tabs on one world. And sketches that keep what's on the
+// map: rivers drawn into and beside lakes, a range across a lake's way out, a river line across an inlet, figure-8s and
+// loops drawn twice round, a drawn river's source going under the sea, edits that change nothing saying so, and each
+// brush, with its ring under a finger. The single-file copy for Claude's viewer, from a file and over http.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -1758,6 +1758,55 @@ await oldCtx.close();
   await pg.mouse.up();
   ok(midStroke.h !== before.h && midDrag.ninten > first.x, 'leaving the page mid-stroke or mid-drag saves it');
   await c.close();
+}
+
+// The autosave never keeps half a brush stroke. The save timer from the edit before could fire mid-stroke and write
+// what was painted so far; a stroke then taken back (by a pinch, or Wetter over open sea) was never saved again, so a
+// reload brought it back: about 2,000 m of ground under the finger, and the lake and border beside it moved.
+{
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const pg = watch(await c.newPage());
+  const cdp = await c.newCDPSession(pg);
+  await pg.goto(base);
+  // The saved heights and rain against the world on screen.
+  const agree = () => pg.evaluate(async () => {
+    const sha = async (s) => [...new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(s)))].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 12);
+    const w = JSON.parse(localStorage.getItem('terra-incognita/world/v1')), now = await window.terra.fingerprint();
+    return w.name === window.terra.state().name && await sha(w.h) === now.h && await sha(w.m) === now.m;
+  });
+  const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
+  await pg.click('.tool[data-tool="raise"]');
+  await pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const b = await pg.locator('#map').boundingBox(), s = await pg.evaluate(() => window.terra.toScreen(204, 146)), a = [b.x + s.x, b.y + s.y];
+  const undoBefore = (await pg.evaluate(() => window.terra.state())).undo;
+  await pg.evaluate(() => { const n = document.getElementById('worldName'); n.value = 'Held'; n.dispatchEvent(new Event('input')); });
+  await pg.waitForTimeout(300);
+  await touch('touchStart', [a]);
+  await pg.waitForTimeout(750);
+  await touch('touchStart', [a, [a[0] + 60, a[1] + 60]]);
+  await touch('touchEnd', []);
+  await pg.waitForTimeout(1500);
+  const pinched = await agree(), undoAfter = (await pg.evaluate(() => window.terra.state())).undo;
+  ok(pinched && undoAfter === undoBefore + 1, 'a stroke a pinch takes back, after the save timer ran mid-stroke, is not in the autosave');
+  await c.close();
+  const d = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const dp = watch(await d.newPage());
+  await dp.goto(base);
+  await dp.click('.tool[data-tool="rain"]');
+  await dp.evaluate(() => { const n = document.getElementById('worldName'); n.value = 'Rained'; n.dispatchEvent(new Event('input')); });
+  const db = await dp.locator('#map').boundingBox(), ds = await dp.evaluate(() => window.terra.toScreen(30, 30));
+  await dp.mouse.move(db.x + ds.x, db.y + ds.y); await dp.mouse.down();
+  await dp.waitForTimeout(1300);
+  await dp.mouse.up();
+  const rainToast = await dp.textContent('#toast span');
+  await dp.waitForTimeout(1500);
+  const ok2 = await dp.evaluate(async () => {
+    const sha = async (s) => [...new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(s)))].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 12);
+    const w = JSON.parse(localStorage.getItem('terra-incognita/world/v1')), now = await window.terra.fingerprint();
+    return await sha(w.m) === now.m;
+  });
+  ok(rainToast === 'Rain only changes the land.' && ok2, 'and nor is Wetter held over open sea, which it takes back');
+  await d.close();
 }
 
 // Ctrl+Z in the middle of a brush stroke or a drag takes back the whole of it, and the rest of the stroke paints

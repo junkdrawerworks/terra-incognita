@@ -870,7 +870,8 @@ function markDirty() {
   const now = Date.now(); if (!saveTimer) saveBy = now + 5000;
   clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, Math.max(0, Math.min(900, saveBy - now)));
 }
-function saveNow() { clearTimeout(saveTimer); saveTimer = 0; saveLocal(); }
+// Never in the middle of a brush stroke, which may yet be taken back: the save waits for it to end.
+function saveNow() { clearTimeout(saveTimer); saveTimer = 0; if (stroke) { markDirty(); return; } saveLocal(); }
 // Leaving the page saves straight away: a phone may never run the timer once the app is in the background. A brush
 // stroke or a drag under way is finished first so it goes in too; a half-drawn sketch doesn't.
 function saveBeforeLeaving() {
@@ -1408,7 +1409,7 @@ function startStroke(sx, sy) {
 function cancelStroke() {
   if (!stroke) return; const kept = stroke.kept; stroke = null;
   applySnap(undoStack[undoStack.length - 1]); takeBackStep(kept);
-  computeClimate(); renderBase(); buildCoast(); buildContours(); buildGlyphs(); requestDraw(); updateStatus();
+  computeClimate(); renderBase(); buildCoast(); buildContours(); buildGlyphs(); requestDraw(); updateStatus(); markDirty();
 }
 function strokeFrame() {
   if (!stroke) return;
@@ -1461,7 +1462,7 @@ function endStroke() {
     if (rain) { world.m.set(step.m); computeClimate(box[0] - 2, box[1] - 2, box[2] + 2, box[3] + 2); renderBase(box[0] - 2, box[1] - 2, box[2] + 2, box[3] + 2); buildGlyphs(); requestDraw(); }
     takeBackStep(kept, rain);
     toast(rain ? 'Rain only changes the land.' : 'The sea floor rose, but not above the waves yet. Keep painting, or use Sketch > Land to raise a coast in one loop.');
-    if (!rain) markDirty();
+    markDirty();
     return;
   }
   if (!rain) dropDrownedSprings();

@@ -911,6 +911,58 @@ await oldCtx.close();
   await m.close();
 }
 
+// A touch screen says Tap, tells you two fingers move the map, and leaves out the keyboard shortcuts; a mouse says Click
+// and lists them, with ⌘ on a Mac. A Land loop's hint says how high it rises.
+{
+  const hints = async (pg) => {
+    const out = {};
+    for (const t of ['select', 'sketch', 'raise', 'settle', 'landmark', 'label', 'erase']) {
+      await pg.click(`.tool[data-tool="${t}"]`);
+      if (t === 'settle') await pg.click('.chip[data-v="town"]');
+      out[t] = await pg.textContent('#toolOpts .hint');
+    }
+    await pg.click('.tool[data-tool="sketch"]');
+    out.land = [];
+    for (const h of ['low', 'medium', 'high']) { await pg.click(`.chip[data-v="${h}"]`); out.land.push(await pg.textContent('#toolOpts .hint')); }
+    await pg.click('.tool[data-tool="select"]');
+    await pg.click('#tab-world');
+    out.keys = await pg.locator('.keys-section').isVisible();
+    out.twoFingers = await pg.locator('.touch-only').isVisible();
+    out.rows = await pg.evaluate(() => [...document.querySelectorAll('.keys dt')].map((d) => d.textContent));
+    out.grid = await pg.evaluate(() => document.getElementById('lyGrid').parentElement.textContent);
+    out.undo = await pg.evaluate(() => [document.getElementById('btnUndo').title, document.getElementById('btnRedo').title]);
+    out.tool = await pg.evaluate(() => document.querySelector('.tool[data-tool="sketch"]').getAttribute('aria-label'));
+    await pg.click('#tab-inspect');
+    out.welcome = await pg.textContent('#pane-inspect .tips li');
+    return out;
+  };
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const t = await hints(pg);
+  ok(t.select === 'Drag to pan. Pinch to zoom. Tap a place or any spot to read about it.', `on a touch screen the Select hint says Tap ("${t.select}")`);
+  ok(t.settle === 'Tap dry land to found it.' && t.erase.startsWith('Tap a place or label') && t.landmark === 'Tap dry land to mark it.' && t.label === 'Tap the map to place it.' && t.welcome.startsWith('Tap any place'), 'and so do the settle, landmark, label and remove hints and the welcome, and landmark and label say what to do');
+  ok(t.sketch.endsWith('Two fingers move the map.') && t.raise.endsWith('Two fingers move the map.'), 'the sketch and brush hints say two fingers move the map');
+  ok(!t.keys && t.twoFingers, 'the keyboard shortcuts give way to one line on moving the map');
+  await c.close();
+  const m = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const mp = watch(await m.newPage());
+  await mp.goto(base);
+  const d = await hints(mp);
+  ok(d.select.startsWith('Drag to pan. Scroll or pinch to zoom. Click') && d.settle === 'Click dry land to found it.' && d.landmark === 'Click dry land to mark it.' && d.label === 'Click the map to place it.' && !/Two fingers/.test(d.sketch + d.raise), 'with a mouse the hints say Click');
+  ok(d.keys && !d.twoFingers && d.rows.includes('+ −') && d.rows.includes('Esc') && d.rows.includes('Ctrl Z') && d.undo[0] === 'Undo (Ctrl+Z)', `with a mouse the shortcuts show, zoom and Esc among them (${d.rows.join(', ')})`);
+  ok(JSON.stringify(d.land) === JSON.stringify(['400', '1,000', '2,500'].map((m) => `Draw a loop. Land rises inside it, to about ${m} m.`)), `a Land loop's hint says how high it rises (${d.land.map((h) => h.match(/about ([\d,]+) m/)[1]).join(', ')} m)`);
+  ok(d.grid === 'Latitude and longitude lines' && d.tool === 'Sketch land, sea, ranges and rivers', 'the grid layer and the sketch tool say what they are');
+  await m.close();
+  const mac = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await mac.addInitScript(() => { for (const [k, v] of [['platform', 'MacIntel'], ['userAgentData', { platform: 'macOS' }]]) Object.defineProperty(Navigator.prototype, k, { get: () => v, configurable: true }); });
+  const macPage = watch(await mac.newPage());
+  await macPage.goto(base);
+  const undoKeys = await macPage.evaluate(() => [document.getElementById('btnUndo').title, document.getElementById('btnRedo').title, document.getElementById('keyUndo').textContent]);
+  ok(JSON.stringify(undoKeys) === JSON.stringify(['Undo (⌘Z)', 'Redo (⇧⌘Z)', '⌘ Z']), `on a Mac Undo says ⌘ (${undoKeys.join(', ')})`);
+  await mac.close();
+}
+
 // A pinch with a brush picked zooms and paints nothing. Every pinch starts with one finger, which used to start a stroke
 // that the second finger then kept: a dab of Raise, or of rain, and an Undo step nobody meant. A stroke already under
 // way when a second finger lands is kept, as before.

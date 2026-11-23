@@ -22,6 +22,9 @@ const F_MONO = '"IBM Plex Mono", ui-monospace, Menlo, monospace';
 // A touch screen is the main way in (a phone or a tablet), so the page says Tap, shows the brush where a finger is,
 // and leaves out the keyboard shortcuts.
 const TOUCH = window.matchMedia('(pointer: coarse)').matches;
+const TAP = TOUCH ? 'Tap' : 'Click';
+// On a Mac the shortcuts say ⌘ rather than Ctrl (either works).
+const MAC = /mac/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '');
 
 // ------------------------------------------------------------------ utils
 const $ = (s, el = document) => el.querySelector(s);
@@ -1244,7 +1247,7 @@ const ICONS = {
 };
 const TOOLS = [
   { id: 'select', key: 'v', label: 'Select and pan' }, 0,
-  { id: 'sketch', key: 'p', label: 'Sketch coastlines and ranges' },
+  { id: 'sketch', key: 'p', label: 'Sketch land, sea, ranges and rivers' },
   { id: 'raise', key: 'r', label: 'Raise land' }, { id: 'lower', key: 'l', label: 'Lower land' }, { id: 'smooth', key: 's', label: 'Smooth terrain' },
   { id: 'rain', key: 'w', label: 'Make wetter' }, { id: 'drought', key: 'd', label: 'Make drier' }, 0,
   { id: 'settle', key: 'c', label: 'Found a settlement' }, { id: 'landmark', key: 'm', label: 'Mark a landmark' }, { id: 'label', key: 't', label: 'Add a map label' }, 0,
@@ -1262,6 +1265,11 @@ function setTool(id) {
   renderToolOpts(); updateCursor(); requestDraw();
 }
 function chipGroup(name, opts, cur, g) { return `<div class="chips" role="group" aria-label="${name}">${opts.map(([v, l]) => `<button class="chip" data-g="${g}" data-v="${v}" aria-pressed="${v === cur}">${l}</button>`).join('')}</div>`; }
+// How high a Land loop rises at each Height, at its highest (measured on loops 4 to 23 cells across: 330-380 m,
+// 880-1,090 m and 2,320-2,410 m).
+const LAND_TOP = { low: '400', medium: '1,000', high: '2,500' };
+// On a touch screen a finger draws or paints with these tools, and two fingers move the map.
+const TWO_FINGERS = TOUCH ? ' Two fingers move the map.' : '';
 const ROUGH_WORD = ['smooth', 'gentle', 'gentle', 'gentle', 'natural', 'natural', 'natural', 'rugged', 'rugged', 'jagged', 'jagged'];
 function renderToolOpts() {
   const el = $('#toolOpts'), t = ui.tool, name = TOOLS.find(x => x && x.id === t).label;
@@ -1269,7 +1277,7 @@ function renderToolOpts() {
   if (BRUSH_TOOLS.has(t)) {
     h += `<label class="opt" for="optSize">Brush <input type="range" id="optSize" min="2" max="40" value="${ui.brush.size}"><output id="optSizeOut">${ui.brush.size}</output></label>
       <label class="opt" for="optStr">Strength <input type="range" id="optStr" min="1" max="10" value="${ui.brush.strength}"><output id="optStrOut">${ui.brush.strength}</output></label>
-      <span class="hint">${t === 'rain' || t === 'drought' ? 'Rainfall shifts forests, grassland and desert.' : 'Hold and drag. Rivers and borders settle when you let go.'}</span>`;
+      <span class="hint">${t === 'rain' || t === 'drought' ? 'Rainfall shifts forests, grassland and desert.' : 'Hold and drag. Rivers and borders settle when you let go.'}${TWO_FINGERS}</span>`;
   } else if (t === 'sketch') {
     const sk = ui.sketch;
     h += chipGroup('Sketch mode', [['land', 'Land'], ['sea', 'Sea'], ['range', 'Mountain range'], ['river', 'River']], sk.mode, 'skmode');
@@ -1277,17 +1285,17 @@ function renderToolOpts() {
     else if (sk.mode === 'range') h += `<label class="opt" for="optWidth">Width <input type="range" id="optWidth" min="3" max="24" value="${sk.width}"><output id="optWidthOut">${sk.width}</output></label>`;
     else h += `<label class="opt" for="optRough">Coast <input type="range" id="optRough" min="0" max="10" value="${sk.rough}"><output id="optRoughOut" style="min-width:6.5ch">${ROUGH_WORD[sk.rough]}</output></label>`;
     if (sk.mode === 'land' || sk.mode === 'range') h += `<span class="opt">Height ${chipGroup('Height', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], sk.height, 'skh')}</span>`;
-    h += `<span class="hint">${sk.mode === 'land' ? 'Draw a loop. Land rises inside it.' : sk.mode === 'sea' ? 'Draw a loop to flood it: bays, straits, inland seas.' : sk.mode === 'river' ? 'Draw from the source toward the sea. A valley forms so the water follows your line.' : 'Draw along the ridge line.'}</span>`;
+    h += `<span class="hint">${sk.mode === 'land' ? `Draw a loop. Land rises inside it, to about ${LAND_TOP[sk.height] || LAND_TOP.medium} m.` : sk.mode === 'sea' ? 'Draw a loop to flood it: bays, straits, inland seas.' : sk.mode === 'river' ? 'Draw from the source toward the sea. A valley forms so the water follows your line.' : 'Draw along the ridge line.'}${TWO_FINGERS}</span>`;
   } else if (t === 'settle') {
-    h += chipGroup('Settlement size', [['capital', 'Capital'], ['city', 'City'], ['town', 'Town'], ['village', 'Village']], ui.settleKind, 'settle') + `<span class="hint">${ui.settleKind === 'capital' ? 'A capital founds a new realm.' : 'Click dry land to found it.'}</span>`;
+    h += chipGroup('Settlement size', [['capital', 'Capital'], ['city', 'City'], ['town', 'Town'], ['village', 'Village']], ui.settleKind, 'settle') + `<span class="hint">${ui.settleKind === 'capital' ? 'A capital founds a new realm.' : `${TAP} dry land to found it.`}</span>`;
   } else if (t === 'landmark') {
-    h += chipGroup('Landmark kind', Object.entries(LANDMARKS).map(([k, v]) => [k, v.label]), ui.landmarkKind, 'landmark');
+    h += chipGroup('Landmark kind', Object.entries(LANDMARKS).map(([k, v]) => [k, v.label]), ui.landmarkKind, 'landmark') + `<span class="hint">${TAP} dry land to mark it.</span>`;
   } else if (t === 'label') {
-    h += chipGroup('Label style', [['region', 'Region'], ['sea', 'Sea'], ['range', 'Mountains']], ui.labelKind, 'label') + `<label class="sr" for="optLabelText">Label text</label><input class="txt" id="optLabelText" placeholder="Text (blank for a name)" value="${esc(ui.labelText)}">`;
+    h += chipGroup('Label style', [['region', 'Region'], ['sea', 'Sea'], ['range', 'Mountains']], ui.labelKind, 'label') + `<label class="sr" for="optLabelText">Label text</label><input class="txt" id="optLabelText" placeholder="Text (blank for a name)" value="${esc(ui.labelText)}"><span class="hint">${TAP} the map to place it.</span>`;
   } else if (t === 'erase') {
-    h += `<span class="hint">Click a place or label to remove it. Undo brings it back.</span>`;
+    h += `<span class="hint">${TAP} a place or label to remove it. Undo brings it back.</span>`;
   } else {
-    h += `<span class="hint">Drag to pan. Scroll or pinch to zoom. Click a place or any spot to read about it.</span>`;
+    h += `<span class="hint">${TOUCH ? 'Drag to pan. Pinch to zoom. Tap a place or any spot to read about it.' : 'Drag to pan. Scroll or pinch to zoom. Click a place or any spot to read about it.'}</span>`;
   }
   el.innerHTML = h;
   const sz = $('#optSize'); if (sz) { sz.oninput = () => { ui.brush.size = +sz.value; $('#optSizeOut').textContent = sz.value; savePrefs(); if (TOUCH) showBrushSize(); }; }
@@ -1900,7 +1908,7 @@ function handleClick(sx, sy) {
   const t = ui.tool;
   if (t === 'select') { select(inside ? { type: 'loc', x: w.x, y: w.y } : null); return; }
   if (t === 'erase') {
-    const hit = hitTest(sx, sy); if (!hit) { toast('Nothing to remove there. Click a place or a label.'); return; }
+    const hit = hitTest(sx, sy); if (!hit) { toast(`Nothing to remove there. ${TAP} a place or a label.`); return; }
     removeSel(hit); return;
   }
   if (!inside) return;
@@ -2100,7 +2108,7 @@ function welcomeHTML() {
   return `<div class="welcome">${head}
     <p>${stats} ${origin}</p>
     <ul class="tips">
-      ${world.places.length ? `<li>Click any place or patch of ground to read about it${cap ? `, or start with <button class="link" data-goto="${cap.id}">${esc(cap.name)}</button>` : ''}.</li>` : `<li><b>Found new realms</b> in the World tab fills this land with towns, borders and names. Do it before you found your own: it replaces every place.</li>`}
+      ${world.places.length ? `<li>${TAP} any place or patch of ground to read about it${cap ? `, or start with <button class="link" data-goto="${cap.id}">${esc(cap.name)}</button>` : ''}.</li>` : `<li><b>Found new realms</b> in the World tab fills this land with towns, borders and names. Do it before you found your own: it replaces every place.</li>`}
       <li>Use <b>Sketch</b> to draw new coastlines, carve bays, add a mountain range or run a river. <b>Raise</b> and <b>Lower</b> paint the details. Rivers, lakes and borders follow the terrain.</li>
       <li>Found a <b>capital</b> with the settle tool to start a realm of your own.</li>
       <li>Every place has a page for notes. ${CL ? 'Roll a rumor, or ask Claude to draft a history from the geography.' : 'Roll a rumor for a story to start from.'}</li>
@@ -2443,6 +2451,7 @@ function init() {
   if (!loadLocal()) { firstRun = true; newWorld(DEFAULT_SEED, 'continent', { noUndo: true }); }
   else recomputeAll();
   buildToolbar(); renderToolOpts(); bindWorldTab(); syncWorldTab(); updateUndoButtons(); updateCursor();
+  if (MAC) { $('#btnUndo').title = 'Undo (⌘Z)'; $('#btnRedo').title = 'Redo (⇧⌘Z)'; $('#keyUndo').textContent = '⌘ Z'; }
   let renaming = false; // one undo step per visit to the field
   $('#worldName').addEventListener('focus', () => { renaming = false; });
   $('#worldName').addEventListener('input', e => { if (!renaming) { pushUndo({ meta: true }); renaming = true; } world.name = e.target.value; markDirty(); if (!ui.selected) renderInspector(); });

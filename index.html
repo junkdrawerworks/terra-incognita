@@ -108,7 +108,7 @@
             <label><input type="checkbox" id="lyRivers">Rivers</label>
             <label><input type="checkbox" id="lyLabels">Map labels</label>
             <label><input type="checkbox" id="lyNames">Place names</label>
-            <label><input type="checkbox" id="lyGrid">Graticule</label>
+            <label class="wide"><input type="checkbox" id="lyGrid">Latitude and longitude lines</label>
           </div>
         </div>
         <div class="section">
@@ -122,7 +122,11 @@
           <p class="note" id="wSaveNote">Your world autosaves in this browser.</p>
           <p class="note" id="wOldSave" hidden>A save this page could not read is kept in this browser. <button class="link" id="wOldSaveLink" type="button">Download the old save</button></p>
         </div>
-        <div class="section">
+        <div class="section touch-only">
+          <h3>Moving the map</h3>
+          <p class="note">Two fingers move and zoom the map with any tool.</p>
+        </div>
+        <div class="section keys-section">
           <h3>Shortcuts</h3>
           <dl class="keys">
             <dt>V P</dt><dd>Select, sketch</dd>
@@ -131,9 +135,11 @@
             <dt>C M T E</dt><dd>Settle, landmark, label, erase</dd>
             <dt>[ ]</dt><dd>Brush size</dd>
             <dt>Space + drag</dt><dd>Pan with any tool</dd>
+            <dt>+ &minus;</dt><dd>Zoom in, out</dd>
             <dt>F</dt><dd>Show the whole map</dd>
-            <dt>Ctrl Z</dt><dd>Undo (add Shift to redo)</dd>
+            <dt id="keyUndo">Ctrl Z</dt><dd>Undo (add Shift to redo)</dd>
             <dt>Delete</dt><dd>Remove the selected place or label</dd>
+            <dt>Esc</dt><dd>Cancel a sketch, clear the selection</dd>
           </dl>
         </div>
         <footer class="jd-foot">

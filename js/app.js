@@ -2022,7 +2022,7 @@ canvas.addEventListener('pointermove', e => {
     else if (g.type === 'drag') {
       g.far = Math.max(g.far, Math.hypot(pt.x - g.sx, pt.y - g.sy));
       if (!g.moved && Math.hypot(pt.x - g.sx, pt.y - g.sy) > 3) { g.moved = true; g.kept = stepRoom(); pushUndo({ meta: true }); }
-      if (g.moved) { const o = findSel(g.hit); if (o) { const w = toWorld(pt.x, pt.y); o.x = clamp(w.x - g.gx, 0.5, W - 0.5); o.y = clamp(w.y - g.gy, 0.5, H - 0.5); requestDraw(); } }
+      if (g.moved) { const o = findSel(g.hit); if (o) { const w = toWorld(pt.x, pt.y); o.x = clamp(w.x - g.gx, 0.5, W - 0.5); o.y = clamp(w.y - g.gy, 0.5, H - 0.5); if (g.hit.type === 'label') keepLabelIn(o); requestDraw(); } }
     }
   } else if (ui.tool === 'select' && e.pointerType !== 'touch') {
     const hh = hitTest(pt.x, pt.y); if (!!hh !== !!hoverHit) { hoverHit = hh; updateCursor(); }
@@ -2125,7 +2125,21 @@ function addLabel(x, y, kind, text) {
   const onLake = kind === 'sea' && !!D.lake[cellAt(x, y)];
   const auto = onLake ? pick(Math.random, ['Lake %', 'Lake %', '% Mere', '% Water']) : kind === 'sea' ? pick(Math.random, ['The % Sea', 'Bay of %', 'Gulf of %', 'The % Sound']) : kind === 'range' ? pick(Math.random, ['The % Mountains', 'The % Hills', 'The % Range']) : pick(Math.random, ['The % Downs', 'The % Wold', 'The % Reach', '%', 'The % Wastes', 'The % Weald']);
   const l = { id: world.nextId++, kind, text: text || auto.replace('%', core), x, y, size: onLake ? 4.6 : kind === 'sea' ? 6 : kind === 'range' ? 4.6 : 5, angle: 0 };
-  world.labels.push(l); select({ type: 'label', id: l.id }); markDirty();
+  keepLabelIn(l); world.labels.push(l); select({ type: 'label', id: l.id }); markDirty();
+}
+// A label is centred where it's put, so one put near the map's edge would run off it: its centre is kept far enough in
+// for the whole label to stay on the map, measured as it is drawn on the whole map and closer in (zoomed in past three
+// times, it is drawn smaller than that, so it stays on too).
+function labelHalf(l) {
+  const st = labelStyle(l, ui.style === 'atlas');
+  ctx.save(); ctx.font = `${st.font} 100px ${st.face}`; ctx.letterSpacing = `${100 * st.sp}px`; const w = ctx.measureText(l.text).width * l.size / 100; ctx.restore();
+  const a = (l.angle || 0) * Math.PI / 180, c = Math.abs(Math.cos(a)), sn = Math.abs(Math.sin(a)), hh = l.size * 0.7;
+  return { x: c * w / 2 + sn * hh, y: sn * w / 2 + c * hh };
+}
+function keepLabelIn(l) {
+  const hf = labelHalf(l);
+  l.x = hf.x * 2 >= W ? W / 2 : clamp(l.x, hf.x, W - hf.x);
+  l.y = hf.y * 2 >= H ? H / 2 : clamp(l.y, hf.y, H - hf.y);
 }
 function removeSel(sel) {
   const o = findSel(sel); if (!o) return;
@@ -2955,8 +2969,8 @@ window.terra = {
   // What lies at a map cell: its height against sea level (below zero in the sea), whether it holds a lake or a river,
   // its rain (m, 0 to 1) and its kind of land.
   cell: (x, y) => { const i = cellAt(x, y); return { h: world.h[i] - world.sea, lake: !!D.lake[i], river: !!D.isR[i], m: world.m[i], kind: BIOME_NAME[D.biome[i]] }; },
-  // Where the scale bar's box, the sea names, the latitude labels and the realms' names sit on the screen, as drawn:
-  // [left, top, right, bottom] in CSS pixels.
+  // Where the scale bar's box, the sea names, the latitude labels, the realms' names and every label sit on the screen,
+  // as drawn: [left, top, right, bottom] in CSS pixels.
   boxes: () => {
     const s = view.s, sb = scaleBar(view.ox, view.oy, H * s, W * s, s, view.ch, view.cw), seas = [], lats = [];
     for (const l of world.labels) {
@@ -2975,13 +2989,22 @@ window.terra = {
       }
       ctx.restore();
     }
+    // Every label drawn, as the box it fills (turned labels by the box round them).
+    const labels = [];
+    for (const l of world.labels) {
+      const fs = labelSize(l, view); if (fs < 6 || !ui.layers.labels) continue;
+      const st = labelStyle(l, ui.style === 'atlas'); ctx.save(); ctx.font = `${st.font} ${fs}px ${st.face}`; ctx.letterSpacing = `${(fs * st.sp).toFixed(1)}px`;
+      const w = ctx.measureText(l.text).width; ctx.restore();
+      const a = (l.angle || 0) * Math.PI / 180, hx = Math.abs(Math.cos(a)) * w / 2 + Math.abs(Math.sin(a)) * fs * 0.7, hy = Math.abs(Math.sin(a)) * w / 2 + Math.abs(Math.cos(a)) * fs * 0.7;
+      const X = view.ox + l.x * s, Y = view.oy + l.y * s; labels.push([X - hx, Y - hy, X + hx, Y + hy]);
+    }
     const realms = [];
     if (ui.layers.realms) for (const r of D.realms) {
       const sz = realmNameSize(r, s); if (sz < 8) continue;
       ctx.save(); ctx.font = `${sz}px ${F_SC}`; ctx.letterSpacing = `${(sz * 0.26).toFixed(1)}px`; const w = ctx.measureText(r.name).width; ctx.restore();
       const X = view.ox + r.lx * s, Y = view.oy + r.ly * s; realms.push([X - w / 2, Y - sz * 0.6, X + w / 2, Y + sz * 0.6]);
     }
-    return { scale: [sb.X - 6, sb.top, sb.right, sb.bottom], seas, lats, realms };
+    return { scale: [sb.X - 6, sb.top, sb.right, sb.bottom], seas, lats, realms, labels };
   },
   // What a seed and shape generated, to tell when that changes: the first 12 hex of the sha1 of the saved heights, of
   // the saved rainfall, and of the place names and label texts.

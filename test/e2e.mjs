@@ -1199,6 +1199,30 @@ await oldCtx.close();
   await c.close();
 }
 
+// A label put near the map's edge stays on the map: it was centred where it was put, so one put at the west edge
+// printed as 'e Kegra Sound', cut off by the frame. Dragged to an edge, it stays on the map too.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => document.fonts.ready);
+  await pg.keyboard.press('t');
+  await pg.click('.chip[data-g="label"][data-v="sea"]');
+  const b = await pg.locator('#map').boundingBox(), at = async (x, y) => { const p = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), [x, y]); return [b.x + p.x, b.y + p.y]; };
+  await pg.mouse.click(...await at(5, 20));
+  const inside = () => pg.evaluate(() => { const box = window.terra.boxes().labels.at(-1), a = window.terra.toScreen(0, 0), z = window.terra.toScreen(480, 300); return { box: box.map(Math.round), ok: box[0] >= a.x - 0.5 && box[1] >= a.y - 0.5 && box[2] <= z.x + 0.5 && box[3] <= z.y + 0.5 }; });
+  const placed = await inside(), text = (await pg.evaluate(() => window.terra.labels())).at(-1).text;
+  // Dragged by its middle to the map's south-east corner.
+  await pg.keyboard.press('v');
+  const l = (await pg.evaluate(() => window.terra.labels())).at(-1), from = await at(l.x, l.y), to = await at(478, 298);
+  await pg.mouse.move(...from); await pg.mouse.down();
+  for (let k = 1; k <= 12; k++) await pg.mouse.move(from[0] + (to[0] - from[0]) * k / 12, from[1] + (to[1] - from[1]) * k / 12);
+  await pg.mouse.up();
+  const dragged = await inside();
+  ok(placed.ok && dragged.ok && (await pg.evaluate(() => window.terra.labels())).at(-1).x > 300, `a label put at the map's west edge, and one dragged to its corner, stay on the map ("${text}" at ${placed.box.join(', ')}, then ${dragged.box.join(', ')})`);
+  await c.close();
+}
+
 // Backspace on a button on a place's page (Suggest another name) leaves the place be; some screen reader users press
 // it for Back. Delete after clicking the place on the map still removes it.
 {

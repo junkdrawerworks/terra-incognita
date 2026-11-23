@@ -103,8 +103,13 @@ button{touch-action:manipulation} /* a quick second tap on Undo doesn't zoom the
 .menu button:hover{background:var(--panel-2)}
 .menu b{font:600 13.5px var(--f-ui)}
 .menu span{font-size:12.5px;line-height:1.4;color:var(--muted)}
-.toast{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:8px 8px 8px 14px;border-radius:9px;display:flex;align-items:center;gap:12px;font-size:13px;box-shadow:var(--shadow);max-width:calc(100% - 120px)}
-.toast{pointer-events:none}
+/* A toast fades in with a small rise. Its [hidden] is set the moment it goes, but it stays laid out, so it can fade
+   out: .show is what puts it on screen, and its buttons only take a tap while it is shown. */
+.toast{position:absolute;left:50%;bottom:14px;transform:translate(-50%,6px);background:var(--ink);color:var(--panel);padding:8px 8px 8px 14px;border-radius:9px;display:flex;align-items:center;gap:12px;font-size:13px;box-shadow:var(--shadow);max-width:calc(100% - 120px)}
+.toast{pointer-events:none;opacity:0;visibility:hidden}
+.toast[hidden]{display:flex!important}
+.toast.show{opacity:1;visibility:visible;transform:translate(-50%,0)}
+.toast:not(.show) button{pointer-events:none}
 .toast button{pointer-events:auto;border:0;background:transparent;color:var(--accent-soft);font-weight:600;cursor:pointer;padding:4px 8px;border-radius:6px;white-space:nowrap}
 @media (hover:hover){ .toast button:hover{background:rgba(127,127,127,.2)} }
 /* A choice: the question on its own line, the answers under it. */
@@ -214,7 +219,8 @@ kbd{font:11px var(--f-mono);border:1px solid var(--line-strong);border-bottom-wi
   /* The map is often scrolled out of view here (the World tab and a place's page are under it), so a toast is held to
      the bottom of the screen, where it can be read and its Undo reached wherever the page is, and it covers none of a
      map in view at the top. */
-  .toast{position:fixed;left:16px;right:16px;bottom:calc(12px + env(safe-area-inset-bottom,0px));transform:none;max-width:none;z-index:30}
+  .toast{position:fixed;left:16px;right:16px;bottom:calc(12px + env(safe-area-inset-bottom,0px));transform:translateY(6px);max-width:none;z-index:30}
+  .toast.show{transform:none}
   .toast>span{flex:1 1 auto}
 }
 @media (max-width:520px){
@@ -252,8 +258,10 @@ kbd{font:11px var(--f-mono);border:1px solid var(--line-strong);border-bottom-wi
 @media (pointer: coarse) and (max-width:520px){
   #btnUndo,#btnRedo{width:44px}
 }
+/* With reduced motion asked for, a toast just appears and goes. Fading out, it stays visible until its fade ends. */
 @media (prefers-reduced-motion: no-preference){
-  .toast{transition:opacity .2s}
+  .toast{transition:opacity .2s,transform .2s,visibility 0s .2s}
+  .toast.show{transition:opacity .2s,transform .2s,visibility 0s}
 }
 
 .jd-foot{margin:0;padding:6px 0 calc(6px + env(safe-area-inset-bottom,0px));text-align:center;font-size:12px;color:var(--muted)}

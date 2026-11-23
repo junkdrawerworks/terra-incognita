@@ -2744,14 +2744,19 @@ function toast(msg, action, ms) {
   el.innerHTML = `<span>${esc(msg)}</span>` + acts.map(a => `<button type="button">${esc(a.label)}</button>`).join(''); el.classList.toggle('choice', acts.length > 1);
   el.querySelectorAll('button').forEach((b, k) => {
     const a = acts[k], stack = a.fn === undo ? undoStack : a.fn === redo ? redoStack : null, mine = stack && stack[stack.length - 1];
-    b.onclick = () => { el.hidden = true; toastActs = toastWaits = false; if (!stack || stack[stack.length - 1] === mine) a.fn(); };
+    b.onclick = () => { hideToast(); if (!stack || stack[stack.length - 1] === mine) a.fn(); };
   });
   toastActs = acts.length > 0 && !waits; toastWaits = waits;
-  el.hidden = false; clearTimeout(toastTimer);
-  if (!waits) toastTimer = setTimeout(() => { el.hidden = true; toastActs = false; }, ms || (acts.length ? 6000 : 3200));
+  // It rises into view, and a toast that takes the place of one still showing rises again, so the change is seen.
+  el.hidden = false; el.style.transition = 'none'; el.classList.remove('show'); void el.offsetWidth; el.style.transition = ''; el.classList.add('show');
+  clearTimeout(toastTimer);
+  if (!waits) toastTimer = setTimeout(hideToast, ms || (acts.length ? 6000 : 3200));
 }
+// Gone at once, as far as anything that asks is concerned ([hidden], and nothing offered or waited for), while it fades
+// out on screen: the stylesheet keeps a hidden toast laid out, and its buttons can't be pressed once it isn't .show.
+function hideToast() { const el = $('#toast'); el.hidden = true; el.classList.remove('show'); toastActs = toastWaits = false; clearTimeout(toastTimer); }
 // A new step, an Undo or a Redo takes away a toast that offers to undo something, before it can undo the wrong thing.
-function dropActionToast() { if (toastActs) { $('#toast').hidden = true; toastActs = false; clearTimeout(toastTimer); } }
+function dropActionToast() { if (toastActs) hideToast(); }
 
 // ------------------------------------------------------------------ keyboard
 window.addEventListener('keydown', e => {

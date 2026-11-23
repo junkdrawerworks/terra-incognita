@@ -569,6 +569,31 @@ const undoContrast = await desk.evaluate(() => {
 ok(undoContrast >= 4.5, `the toast's Undo is readable in the dark theme (${undoContrast.toFixed(1)}:1)`);
 await desk.evaluate(() => document.documentElement.removeAttribute('data-theme'));
 
+// A toast fades in with a small rise, and out again; one that takes the place of another rises again, so the change
+// shows. It used to snap on and off: [hidden] hid it outright, so its fade never ran. As far as anything that asks is
+// concerned it is gone at once, and its buttons can't be pressed while it fades. With reduced motion it just appears.
+for (const reducedMotion of ['no-preference', 'reduce']) {
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const look = () => pg.evaluate(() => { const t = document.getElementById('toast'), cs = getComputedStyle(t); return { hidden: t.hidden, op: +cs.opacity, vis: cs.visibility, moving: t.getAnimations().length > 0 }; });
+  const shown = await pg.evaluate(() => { document.getElementById('wClear').click(); const t = document.getElementById('toast'); return { op: +getComputedStyle(t).opacity, moving: t.getAnimations().length > 0 }; });
+  await pg.waitForTimeout(400);
+  const up = await look();
+  const again = await pg.evaluate(() => { document.getElementById('wClear').click(); return +getComputedStyle(document.getElementById('toast')).opacity; });
+  await pg.waitForTimeout(400);
+  await pg.evaluate(() => document.getElementById('wPopulate').click());
+  await pg.waitForTimeout(400);
+  // A new step (here, typing in the world's name) takes away the toast and its Undo.
+  await pg.evaluate(() => { const n = document.getElementById('worldName'); n.value += 'x'; n.dispatchEvent(new Event('input')); });
+  const going = await look(), pressable = await pg.evaluate(() => getComputedStyle(document.querySelector('#toast button')).pointerEvents !== 'none');
+  await pg.waitForTimeout(400);
+  const gone = await look();
+  if (reducedMotion === 'reduce') ok(shown.op === 1 && !shown.moving && up.op === 1 && going.hidden && going.vis === 'hidden' && !going.moving && gone.vis === 'hidden', 'with reduced motion a toast just appears and goes, with no fade');
+  else ok(shown.op < 1 && shown.moving && up.op === 1 && up.vis === 'visible' && again < 1 && going.hidden && going.moving && going.vis === 'visible' && !pressable && gone.vis === 'hidden' && gone.op === 0, 'a toast fades in and out, rises again when another takes its place, and is gone at once to anything that asks');
+  await c.close();
+}
+
 // Shortcuts still work straight after using a slider: Ctrl+Z takes back the sea level it set.
 await desk.click('#tab-world');
 const landBefore = (await desk.evaluate(() => window.terra.state())).land;
@@ -2176,7 +2201,8 @@ await oldCtx.close();
   await pg.click('#tab-world');
   await pg.fill('#worldName', 'Renamed');
   await pg.click('#btnUndo');
-  ok(await pg.locator('#toast').isHidden(), 'an Undo that leaves the places as they were says nothing');
+  // (The Redo toast that renaming took away may still be fading out, but no toast is up.)
+  ok(await pg.evaluate(() => document.getElementById('toast').hidden) && await pg.locator('#toast').waitFor({ state: 'hidden', timeout: 1000 }).then(() => true, () => false), 'an Undo that leaves the places as they were says nothing');
   await c.close();
 }
 

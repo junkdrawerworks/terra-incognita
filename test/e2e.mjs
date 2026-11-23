@@ -1101,6 +1101,26 @@ await oldCtx.close();
   await c.close();
 }
 
+// Realm titles read on the ground under them in every colour and look: against their halo laid over forest green and
+// tan ground, the worst was Ochre's name in the Atlas at 3.2:1 (seed 3333's Kingdom of Gyidor faded into its olive).
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const inks = await pg.evaluate(() => window.terra.realmInks ? window.terra.realmInks() : []);
+  // Each ink against its halo laid over forest green and over tan ground, the two that hid Ochre, Orange and Olive.
+  const rgb = (s) => s.match(/\d+(\.\d+)?/g).map(Number);
+  const lum = (c) => c.slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }).reduce((t, v, i) => t + v * [0.2126, 0.7152, 0.0722][i], 0);
+  const cr = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  let worst = Infinity, at = '';
+  for (const k of inks) for (const ground of [[70, 110, 70], [205, 150, 100]]) {
+    const h = rgb(k.halo), under = ground.map((g, i) => h[i] * h[3] + g * (1 - h[3]));
+    for (const line of ['title', 'name']) { const r = cr(rgb(k[line]), under); if (r < worst) { worst = r; at = `${k.style} ${k.color} ${line}`; } }
+  }
+  ok(inks.length === 18 && worst >= 4.5, `realm titles read at 4.5:1 or more against their halo on forest and tan ground, in each colour and look (worst ${worst.toFixed(1)}:1, ${at})`);
+  await c.close();
+}
+
 // Up close, names stop growing: a realm's at 42 px and a sea's at three times its size on the whole map (they were 166
 // and 115 px tall at the closest zoom). A sea name is clicked and dragged where it is drawn, not where its old size
 // reached.

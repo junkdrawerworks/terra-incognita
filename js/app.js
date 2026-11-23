@@ -1085,17 +1085,25 @@ function drawGlyphs(c, v, vw, vh) {
 // Realm names grow with the map up to 42 px (the saved map image's largest are 40.5 px), and fade from three times the
 // whole map's size to eight, so up close they don't cover the land they name.
 const realmNameSize = (r, s) => r.area < 40 ? 0 : Math.min(42, clamp(Math.sqrt(r.area) / 7.5, 4.2, 11) * s * 0.92);
+// A realm's name is drawn in a dark shade of its colour. The light ones (Ochre, Orange, Teal and Olive, over 0.17 in
+// relative luminance) take a darker shade, and the halo behind the name is stronger, so it reads on forest or tan
+// ground: Ochre's old shade on forest green was 1.1:1 without the halo.
+const relLum = hex => hexRgb(hex).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }).reduce((t, v, i) => t + v * [0.2126, 0.7152, 0.0722][i], 0);
+function realmInk(color, atlas) {
+  const light = relLum(color) > 0.17;
+  return { title: shade(color, light ? 0.45 : 0.55), name: shade(color, light ? 0.45 : 0.62), halo: atlas ? 'rgba(241,231,203,0.8)' : 'rgba(255,255,255,0.8)' };
+}
 function drawRealmNames(c, v, atlas) {
   const s = v.s, fade = 1 - 0.65 * clamp((s / v.s0 - 3) / 5, 0, 1);
   c.save(); c.globalAlpha = fade;
   for (const r of D.realms) {
     const sz = realmNameSize(r, s); if (sz < 8) continue;
-    const X = v.ox + r.lx * s, Y = v.oy + r.ly * s;
+    const X = v.ox + r.lx * s, Y = v.oy + r.ly * s, ink = realmInk(r.color, atlas);
     c.textAlign = 'center'; c.textBaseline = 'middle';
     c.font = `italic ${Math.max(10, sz * 0.42)}px ${F_DISPLAY}`; c.letterSpacing = '1px';
-    haloText(c, `The ${r.title} of`, X, Y - sz * 0.78, shade(r.color, 0.55), atlas ? 'rgba(241,231,203,0.6)' : 'rgba(255,255,255,0.55)', 2.5);
+    haloText(c, `The ${r.title} of`, X, Y - sz * 0.78, ink.title, ink.halo, 2.5);
     c.font = `${sz}px ${F_SC}`; c.letterSpacing = `${(sz * 0.26).toFixed(1)}px`;
-    haloText(c, r.name, X, Y, shade(r.color, 0.62), atlas ? 'rgba(241,231,203,0.6)' : 'rgba(255,255,255,0.55)', Math.max(2.5, sz * 0.12));
+    haloText(c, r.name, X, Y, ink.name, ink.halo, Math.max(2.5, sz * 0.12));
   }
   c.restore(); c.letterSpacing = '0px';
 }
@@ -2691,6 +2699,8 @@ window.terra = {
     return { name: world.name, seed: world.seed, shape: world.shape, land, rivers, lakes, realms: D.realms.length, places: world.places.length, labels: world.labels.length, springs: (world.springs || []).length, undo: undoStack.length };
   },
   toScreen: (x, y) => ({ x: view.ox + x * view.s, y: view.oy + y * view.s }),
+  // The inks a realm's title line and name are drawn in, and the halo behind them, for each realm colour in each look.
+  realmInks: () => ['terrain', 'atlas'].flatMap(st => REALM_COLORS.map(c => ({ style: st, color: c, ...realmInk(c, st === 'atlas') }))),
   // The brush's ring as last drawn, in CSS pixels on the map, or null when none shows.
   ring: () => ringShown && { ...ringShown },
   mapImage: (S = 2, allNames = true) => renderMapImage(S, allNames).toDataURL('image/png'),

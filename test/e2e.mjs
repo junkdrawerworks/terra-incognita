@@ -167,7 +167,7 @@ await page.click('#wPopulate');
 ok((await page.textContent('#toast')).startsWith('New realms need dry land') && (await state()).undo === st.undo, 'Found new realms on open water says it needs land');
 // On a touch screen a tapped text box doesn't zoom the page (iOS Safari zooms in on one under 16 px), and the controls
 // are big enough for a finger: 44 px where there's room. (The zoom buttons are at least their laptop size, 34 by 32,
-// and that toast keeps clear of them.)
+// and that toast keeps clear of them: on a phone it sits at the bottom of the screen, wherever the page is scrolled.)
 const touchSizes = await S(() => {
   const fs = ['#codexQ', '#wSeed', '#wShape'].map((q) => [q, parseFloat(getComputedStyle(document.querySelector(q)).fontSize)]);
   const box = (q) => { const r = document.querySelector(q).getBoundingClientRect(); return [q, Math.round(r.width), Math.round(r.height)]; };
@@ -178,10 +178,13 @@ const tooSmall = touchSizes.boxes.filter(([q, w, h]) => h < ({ '.chip': 38, '#wG
 ok(tooSmall.length === 0, 'controls on a touch screen are big enough for a finger' + (tooSmall.length ? ': ' + JSON.stringify(tooSmall) : ''));
 // A link button on a line of its own (Download the old save, Remove this place) is a finger's height too.
 ok(await S(() => { const l = document.createElement('button'); l.className = 'link'; l.textContent = 'x'; document.getElementById('pane-world').append(l); const h = l.getBoundingClientRect().height; l.remove(); return h >= 36; }), 'a link button on its own line is tall enough to tap');
-const [zoomSizes, toastClear] = await S(() => {
-  const z = document.querySelector('.zoom').getBoundingClientRect(), t = document.getElementById('toast');
-  return [[...document.querySelectorAll('.zoom button')].map((b) => [b.offsetWidth, b.offsetHeight]), !t.hidden && t.getBoundingClientRect().right < z.left];
+const toastClearOfZoom = () => S(() => {
+  const z = document.querySelector('.zoom').getBoundingClientRect(), t = document.getElementById('toast'), r = t.getBoundingClientRect();
+  return !t.hidden && r.top >= 0 && r.bottom <= innerHeight && (r.right < z.left || r.left > z.right || r.bottom < z.top || r.top > z.bottom);
 });
+const toastClearHere = await toastClearOfZoom();
+await S(() => window.scrollTo(0, 0));
+const [zoomSizes, toastClear] = await S(() => [[...document.querySelectorAll('.zoom button')].map((b) => [b.offsetWidth, b.offsetHeight])]).then(async ([z]) => [z, toastClearHere && await toastClearOfZoom()]);
 ok(zoomSizes.every(([w, h]) => w >= 34 && h >= 32) && toastClear, `the zoom buttons are full size on a phone (${zoomSizes[0].join(' x ')}), and a toast keeps clear of them`);
 await page.click('.chip[data-v="sea"]');
 await drag([[300, 100], [360, 100], [360, 160], [300, 160], [300, 100]], 5);
@@ -805,6 +808,40 @@ for (const [width, height] of [[320, 568], [360, 740], [390, 844], [412, 915]]) 
   const pg = watch(await c.newPage());
   await pg.goto(base);
   ok(await pg.evaluate(() => Math.round(document.getElementById('map').getBoundingClientRect().left)) === 17, 'with a mouse the map keeps the page\'s own margin');
+  await c.close();
+}
+
+// On a phone the World tab is under the map, so the map is scrolled out of view while it is used. A toast from there is
+// still on screen, at its bottom, with an Undo a finger can reach: it used to sit inside the map, above the screen.
+{
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.tap('#tab-world');
+  const seen = async () => {
+    await pg.waitForTimeout(300);
+    return pg.evaluate(() => {
+      const t = document.getElementById('toast'), r = t.getBoundingClientRect(), b = t.querySelector('button'), br = b && b.getBoundingClientRect();
+      const top = b && document.elementFromPoint(br.left + br.width / 2, br.top + br.height / 2);
+      return { text: t.querySelector('span').textContent, inside: !t.hidden && r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight && r.right <= innerWidth, tappable: !!top && b.contains(top), mapOff: document.getElementById('mapwrap').getBoundingClientRect().bottom < 0 };
+    });
+  };
+  const places = async () => (await pg.evaluate(() => window.terra.state())).places;
+  const all = await places(), land = (await pg.evaluate(() => window.terra.state())).land;
+  await pg.locator('#wClear').scrollIntoViewIfNeeded();
+  await pg.tap('#wClear');
+  const cleared = await seen();
+  await pg.tap('#toast button');
+  ok(cleared.mapOff && cleared.inside && cleared.tappable && cleared.text.startsWith('Cleared') && await places() === all, `on a phone, Clear places and labels with the map scrolled away shows its toast on screen, and its Undo works ("${cleared.text}")`);
+  // A tap far along the sea slider raises the sea over towns.
+  await pg.waitForTimeout(300);
+  await pg.locator('#wSea').scrollIntoViewIfNeeded();
+  const sb = await pg.locator('#wSea').boundingBox();
+  await pg.touchscreen.tap(sb.x + sb.width * 0.85, sb.y + sb.height / 2);
+  const rose = await seen(), drownedNow = await places();
+  await pg.tap('#toast button');
+  await pg.waitForTimeout(300);
+  ok(rose.mapOff && rose.inside && rose.tappable && rose.text.startsWith('The sea rose over') && drownedNow === all && (await pg.evaluate(() => window.terra.state())).land === land, `and so does the sea rising over places from the sea slider ("${rose.text}")`);
   await c.close();
 }
 

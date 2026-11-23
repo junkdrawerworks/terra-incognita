@@ -106,7 +106,7 @@ button{touch-action:manipulation} /* a quick second tap on Undo doesn't zoom the
 .toast{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:8px 8px 8px 14px;border-radius:9px;display:flex;align-items:center;gap:12px;font-size:13px;box-shadow:var(--shadow);max-width:calc(100% - 120px)}
 .toast{pointer-events:none}
 .toast button{pointer-events:auto;border:0;background:transparent;color:var(--accent-soft);font-weight:600;cursor:pointer;padding:4px 8px;border-radius:6px;white-space:nowrap}
-.toast button:hover{background:rgba(127,127,127,.2)}
+@media (hover:hover){ .toast button:hover{background:rgba(127,127,127,.2)} }
 /* A choice: the question on its own line, the answers under it. */
 .toast.choice{flex-wrap:wrap;column-gap:4px;row-gap:2px;padding-top:9px}
 .toast.choice span{flex:1 0 100%}
@@ -211,13 +211,18 @@ kbd{font:11px var(--f-mono);border:1px solid var(--line-strong);border-bottom-wi
   .top-actions{margin-left:0}
   .brand-name{font-size:21px}
   .status{max-width:calc(100% - 20px)}
+  /* The map is often scrolled out of view here (the World tab and a place's page are under it), so a toast is held to
+     the bottom of the screen, where it can be read and its Undo reached wherever the page is, and it covers none of a
+     map in view at the top. */
+  .toast{position:fixed;left:16px;right:16px;bottom:calc(12px + env(safe-area-inset-bottom,0px));transform:none;max-width:none;z-index:30}
+  .toast>span{flex:1 1 auto}
 }
 @media (max-width:520px){
   .top{gap:10px 12px}
   .top-actions{gap:6px}
   .btn .lbl{display:none}
   #btnUndo,#btnRedo{width:36px;padding:0;justify-content:center}
-  .toast{left:8px;right:50px;bottom:8px;transform:none;max-width:none;font-size:12.5px;padding:6px 6px 6px 11px} /* clear of the zoom buttons */
+  .toast{font-size:12.5px;padding:6px 6px 6px 11px}
   .seg button{padding:0 10px}
 }
 /* On a phone's touch screen the map keeps 24 px from the screen's sides (from the map's own edge, where a finger
@@ -246,7 +251,6 @@ kbd{font:11px var(--f-mono);border:1px solid var(--line-strong);border-bottom-wi
 }
 @media (pointer: coarse) and (max-width:520px){
   #btnUndo,#btnRedo{width:44px}
-  .toast{right:64px} /* clear of the wider zoom buttons */
 }
 @media (prefers-reduced-motion: no-preference){
   .toast{transition:opacity .2s}

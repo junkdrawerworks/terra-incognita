@@ -796,10 +796,15 @@ function serialize() {
 }
 // A world file must be whole: one cut short would open as a black map and then be autosaved over the world you had.
 // One saved by a newer version isn't opened at all, since saving it again here would lose whatever is new in it.
-function loadObj(o, fromFile) {
+// checkWorld runs every check and unpacks the terrain without touching the world open now, so a file it refuses changes
+// nothing; applyWorld then puts what it found in place.
+function loadObj(o, fromFile) { applyWorld(checkWorld(o, fromFile)); }
+function checkWorld(o, fromFile) {
   if (o && o.format === 'terra-incognita' && o.version > 1) throw new Error('newer');
   if (!o || o.format !== 'terra-incognita' || o.W !== W || o.H !== H || typeof o.h !== 'string') throw new Error('bad');
-  const h = unpackF(o.h, fromFile), m = unpackF(o.m, fromFile);
+  return { o, h: unpackF(o.h, fromFile), m: unpackF(o.m, fromFile) };
+}
+function applyWorld({ o, h, m }) {
   const placed = q => q && typeof q.x === 'number' && typeof q.y === 'number' && isFinite(q.x) && isFinite(q.y);
   if (!world) world = { h, m }; else { world.h.set(h); world.m.set(m); }
   Object.assign(world, { name: String(o.name || 'Untitled world'), seed: o.seed | 0, shape: SHAPES[o.shape] ? o.shape : 'continent', sea: clamp(+o.sea || 0.5, 0.4, 0.6), places: Array.isArray(o.places) ? o.places.filter(placed) : [], labels: Array.isArray(o.labels) ? o.labels.filter(placed) : [], nextId: o.nextId | 0 || 1,
@@ -2195,10 +2200,16 @@ function bindWorldTab() {
   $('#wFile').onchange = e => {
     const file = e.target.files && e.target.files[0]; if (!file) return;
     const rd = new FileReader();
+    // A file that's refused changes nothing: not the world, the selection, an unkept rumor or Redo.
     rd.onload = () => {
-      let obj; try { obj = JSON.parse(rd.result); } catch (err) { toast('That file is not a Terra Incognita world.'); return; }
-      pushUndo({ h: true, m: true, meta: true, world: true });
-      try { loadObj(obj, true); } catch (err) { undo(); redoStack.length = 0; updateUndoButtons(); toast(err.message === 'newer' ? 'That world file needs a newer Terra Incognita. Reload the page, then open it again.' : 'That file is not a Terra Incognita world.'); return; }
+      let parsed;
+      try { parsed = checkWorld(JSON.parse(rd.result), true); } catch (err) {
+        toast(err.message === 'newer' ? 'That world file needs a newer Terra Incognita. Reload the page, then open it again.'
+          : /"format"\s*:\s*"terra-incognita"/.test(rd.result) ? 'That world file is damaged or cut short, so it can\'t be opened. Try another copy.'
+          : 'That file is not a Terra Incognita world.');
+        return;
+      }
+      pushUndo({ h: true, m: true, meta: true, world: true }); applyWorld(parsed);
       ui.selected = null; dropDraft(); recomputeAll(); fitView(); syncWorldTab(); markDirty(); toast(`Opened ${world.name}.`, { label: 'Undo', fn: undo });
     };
     rd.readAsText(file); e.target.value = '';

@@ -324,7 +324,7 @@ const openFile = async (o) => {
 };
 const nameBefore = (await desk.evaluate(() => window.terra.state())).name;
 const [cutToast, cutState] = await openFile({ ...saved, h: saved.h.slice(0, 4000) });
-ok(cutToast.startsWith('That file is not') && cutState.name === nameBefore, 'a world file that was cut short is refused');
+ok(cutToast.startsWith('That world file is damaged or cut short') && cutState.name === nameBefore, 'a world file that was cut short is refused, and called damaged');
 const damaged = JSON.parse(JSON.stringify(saved));
 delete damaged.places.find((p) => p.kind === 'capital').realm.color;
 delete damaged.places.find((p) => p.kind !== 'capital').x;
@@ -962,6 +962,38 @@ await oldCtx.close();
   // On a world with land and no places yet, the welcome says to found new realms before founding your own.
   await pg.click('#tab-inspect');
   ok((await pg.textContent('#pane-inspect .tips li')).includes('Do it before you found your own: it replaces every place.'), 'the welcome says to found new realms before founding your own');
+  await c.close();
+}
+
+// A file that's refused changes nothing: Redo, the open place and its unkept rumor stay. It used to put an Undo step on
+// before checking the file and take it off again after, which lost all three. A world file cut short in the middle is
+// called damaged, not something else.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 }, acceptDownloads: true });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const open = async (name, text) => {
+    await pg.setInputFiles('#wFile', { name, mimeType: 'application/json', buffer: Buffer.from(text) });
+    await pg.waitForTimeout(400);
+    return pg.textContent('#toast span');
+  };
+  await pg.click('#tab-world');
+  const [dl] = await Promise.all([pg.waitForEvent('download'), pg.click('#wSaveFile')]);
+  const whole = await readFile(await dl.path(), 'utf8');
+  await pg.click('#wPopulate');
+  await pg.click('#btnUndo');
+  const cap = (await pg.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
+  await pg.evaluate((id) => window.terra.select({ type: 'place', id }), cap.id);
+  await pg.click('#pRumor');
+  const rumor = await pg.textContent('#draftBox');
+  await pg.click('#tab-world');
+  const refused = await open('package.json', JSON.stringify({ name: 'package', version: '1.0.0' }));
+  await pg.click('#tab-inspect');
+  const after = await pg.evaluate(() => ({ redo: !document.getElementById('btnRedo').disabled, name: document.getElementById('pName')?.value, rumor: document.getElementById('draftBox')?.textContent }));
+  ok(refused === 'That file is not a Terra Incognita world.' && after.redo && after.name === cap.name && after.rumor === rumor, `a refused file leaves Redo, ${cap.name}'s page and its unkept rumor as they were`);
+  await pg.click('#tab-world');
+  const cut = await open('world.json', whole.slice(0, whole.length >> 1));
+  ok(cut === 'That world file is damaged or cut short, so it can\'t be opened. Try another copy.', `a world file cut short is called damaged ("${cut}")`);
   await c.close();
 }
 

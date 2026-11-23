@@ -975,6 +975,30 @@ await oldCtx.close();
   await c.close();
 }
 
+// No two realms share a name. A realm's name was drawn without looking at the others, so now and then two came out
+// the same (two Oaklands among 30 realms). Here two towns of one tongue are made capitals with the same roll of the
+// dice, which drew the same name for both.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const places = await pg.evaluate(() => window.terra.places());
+  const pair = places.filter((p) => p.kind === 'town').find((p, k, all) => all.some((q) => q !== p && q.tongue === p.tongue));
+  const other = places.find((q) => q.kind === 'town' && q.id !== pair.id && q.tongue === pair.tongue);
+  const realms = [];
+  for (const t of [pair, other]) {
+    await pg.evaluate((id) => {
+      let a = 7; // the same dice for both
+      Math.random = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+      window.terra.select({ type: 'place', id });
+    }, t.id);
+    await pg.selectOption('#pKind', 'capital');
+    realms.push(await pg.inputValue('#rName'));
+  }
+  ok(realms[0] !== realms[1], `two towns made capitals with the same dice get realms of different names (${realms.join(', ')})`);
+  await c.close();
+}
+
 // Syllables thrown together can spell a slur or a crude word ('Bay of Cunt' was on one continent), or a bare English
 // word that breaks a sentence (a village called 'The'). Every tongue draws 50,000 names, a third each bare, for a realm
 // and plain, as towns, rivers, seas, landmarks and realms get them, and none is one of those.

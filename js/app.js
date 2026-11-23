@@ -598,10 +598,14 @@ function fertility(i) {
   return f;
 }
 function rollPop(kind, i, rng) { const r = POP[kind]; if (!r) return 0; return roundSig(r[0] * Math.pow(r[1] / r[0], rng()) * fertility(i), 2); }
+// A realm's name is one no other realm has, or had (a capital made a town keeps its realm for later).
 function newRealm(tongue, rng) {
   const used = new Set(world.places.map(p => (p.realm || p.oldRealm || {}).color).filter(Boolean));
-  const free = REALM_COLORS.filter(c => !used.has(c));
-  return { name: makeName(tongue, rng, { realm: true }), title: pick(rng, TONGUES[tongue].titles), color: free.length ? pick(rng, free) : pick(rng, REALM_COLORS) };
+  const free = REALM_COLORS.filter(c => !used.has(c)), taken = new Set();
+  for (const p of world.places) for (const r of [p.realm, p.oldRealm]) if (r) taken.add(r.name);
+  let name = makeName(tongue, rng, { realm: true });
+  for (let k = 0; k < 20 && taken.has(name); k++) name = makeName(tongue, rng, { realm: true });
+  return { name, title: pick(rng, TONGUES[tongue].titles), color: free.length ? pick(rng, free) : pick(rng, REALM_COLORS) };
 }
 // A name no other place has yet, so the Codex, rumors and directions never mean two places at once.
 function freshName(make) { let n = make(); for (let k = 0; k < 10 && world.places.some(q => q.name === n); k++) n = make(); return n; }

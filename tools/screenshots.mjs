@@ -57,7 +57,8 @@ async function drag(page, points, { steps = 6, up = true } = {}) {
   for (let k = 1; k < pts.length; k++) for (let s = 1; s <= steps; s++) await page.mouse.move(pts[k - 1][0] + (pts[k][0] - pts[k - 1][0]) * s / steps, pts[k - 1][1] + (pts[k][1] - pts[k - 1][1]) * s / steps);
   if (up) { await page.mouse.up(); await page.waitForTimeout(200); }
 }
-const hideToast = (page) => S(page, () => { document.getElementById('toast').hidden = true; });
+// Off at once, with no fade: [hidden] alone leaves a toast that is showing on screen while it fades.
+const hideToast = (page) => S(page, () => { const t = document.getElementById('toast'); t.hidden = true; t.style.transition = 'none'; t.classList.remove('show'); });
 
 // A hand-drawn island: coast, two ranges and a river, on blank ocean.
 async function sketchIsland(page) {

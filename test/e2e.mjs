@@ -13,13 +13,13 @@
 // Back mid-sketch taken for a slip, a browser that won't keep the autosave, and saved worlds the page can't read or
 // that a newer version wrote, kept aside and given back by Download the old save. Five seeds that must keep growing the
 // same worlds, and a world file from an earlier build that must keep opening. Then nothing lost and nothing undone by
-// surprise: a pinch that paints nothing, a drag a pinch cuts short (and a wobble it doesn't keep), a town dragged into
-// the sea, a page left mid-stroke, an autosave mid-stroke, Undo mid-stroke, a toast's Undo, Undo naming the places it
-// takes (and the rumor rolled for one), Found new realms and Clear naming the notes they take, a refused file, and two
-// tabs on one world. And sketches that keep what's on the map: rivers drawn into and beside lakes, a range across a
-// lake's way out, a river line across an inlet, figure-8s and loops drawn twice round, a drawn river's source going
-// under the sea, edits that change nothing saying so, and each brush, with its ring under a finger. The single-file
-// copy for Claude's viewer, from a file and over http.
+// surprise: a pinch that paints nothing (one finger off the map too), a drag a pinch cuts short (and a wobble it
+// doesn't keep), a town dragged into the sea, a page left mid-stroke, an autosave mid-stroke, Undo mid-stroke, a
+// toast's Undo, Undo naming the places it takes (and the rumor rolled for one), Found new realms and Clear naming the
+// notes they take, a refused file, and two tabs on one world. And sketches that keep what's on the map: rivers drawn
+// into and beside lakes, a range across a lake's way out, a river line across an inlet, figure-8s and loops drawn twice
+// round, a drawn river's source going under the sea, edits that change nothing saying so, and each brush, with its ring
+// under a finger. The single-file copy for Claude's viewer, from a file and over http.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -1707,6 +1707,59 @@ await oldCtx.close();
   await pg.waitForTimeout(400);
   const heldAfter = await look();
   ok(heldAfter.undo === heldBefore.undo + 1 && heldAfter.print.h !== heldBefore.print.h, 'a finger held still painting for over a second keeps what it painted when a second finger lands');
+  await c.close();
+}
+
+// A pinch with one finger just off the map, on the tool's options under it, zooms and paints nothing, as a pinch
+// wholly on the map does. The map is only 250 px tall on a phone, with the tools right above and below it, so a pinch
+// near its edge often puts a finger off it; that finger went unseen, and the other drew a river or raised land.
+{
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const pg = watch(await c.newPage());
+  const cdp = await c.newCDPSession(pg);
+  await pg.goto(base);
+  const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
+  const look = () => pg.evaluate(() => { const s = window.terra.state(); return { land: s.land, springs: s.springs, undo: s.undo }; });
+  const span = () => pg.evaluate(() => window.terra.toScreen(480, 0).x - window.terra.toScreen(0, 0).x);
+  const said = [];
+  for (const [tool, mode] of [['raise'], ['sketch', 'river']]) {
+    await pg.click(`.tool[data-tool="${tool}"]`);
+    if (mode) await pg.click(`.chip[data-v="${mode}"]`);
+    await pg.evaluate(() => { window.terra.fitView(); return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); });
+    const b = await pg.locator('#map').boundingBox(), o = await pg.locator('#toolOpts').boundingBox();
+    const p = await pg.evaluate(() => window.terra.toScreen(215, 250)), a = [b.x + p.x, b.y + p.y], z = [a[0] + 10, o.y + 16];
+    const before = await look(), wide = await span();
+    await touch('touchStart', [a]);
+    await pg.waitForTimeout(30);
+    await touch('touchStart', [a, z]);
+    for (let k = 1; k <= 6; k++) { await touch('touchMove', [[a[0], a[1] - k * 5], [z[0], z[1] + k * 5]]); await pg.waitForTimeout(16); }
+    await touch('touchEnd', []);
+    await pg.waitForTimeout(400);
+    const after = await look(), zoomed = await span();
+    said.push(`${tool}${mode ? ' > ' + mode : ''}: land ${before.land} then ${after.land}, ${after.springs - before.springs} new rivers, ${after.undo - before.undo} Undo steps, map ${Math.round(wide)} then ${Math.round(zoomed)} px wide`);
+    ok(JSON.stringify(after) === JSON.stringify(before) && zoomed > wide * 1.1, `a pinch with one finger on the tool's options under the map zooms and changes nothing, with ${said.at(-1)}`);
+  }
+  // A second finger held still on a tool in the toolbar above the map, while the first moves: the pinch doesn't pick
+  // that tool when it lifts.
+  await pg.click('.tool[data-tool="raise"]');
+  await pg.evaluate(() => { window.terra.fitView(); return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); });
+  {
+    const b = await pg.locator('#map').boundingBox(), t = await pg.locator('.tool[data-tool="select"]').boundingBox();
+    const p = await pg.evaluate(() => window.terra.toScreen(200, 60)), a = [b.x + p.x, b.y + p.y], z = [t.x + t.width / 2, t.y + t.height / 2];
+    const before = await look();
+    await touch('touchStart', [a]);
+    await pg.waitForTimeout(30);
+    await touch('touchStart', [a, z]);
+    for (let k = 1; k <= 6; k++) { await touch('touchMove', [[a[0], a[1] + k * 6], z]); await pg.waitForTimeout(16); }
+    await touch('touchEnd', [a]);
+    await touch('touchEnd', []);
+    await pg.waitForTimeout(400);
+    const tool = await pg.evaluate(() => document.querySelector('.tool[aria-pressed="true"]').dataset.tool);
+    ok(JSON.stringify(await look()) === JSON.stringify(before) && tool === 'raise', `with the second finger held still on the Select tool, it changes nothing and Raise stays picked (${tool})`);
+  }
+  // A tap on a tool with no finger on the map still picks it.
+  await pg.click('.tool[data-tool="select"]');
+  ok(await pg.evaluate(() => document.querySelector('.tool[data-tool="select"]').getAttribute('aria-pressed') === 'true'), 'and a tap on a tool with no finger on the map still picks it');
   await c.close();
 }
 

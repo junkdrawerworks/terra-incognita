@@ -1889,22 +1889,43 @@ function hitTest(sx, sy) {
   }
   return null;
 }
+// A second finger just after the first is a pinch, and whatever the first finger painted goes. A stroke well under
+// way is kept, and so is a finger held still for a second or more, since a brush keeps painting where it's held.
+function startPinch() {
+  if (stroke) { const age = performance.now() - stroke.t0; if (age < 300 || (stroke.far < 12 && age < 1000)) cancelStroke(); else endStroke(); }
+  if (sketchDraft) { sketchDraft = null; requestDraw(); }
+  // A drag the pinch cuts short keeps the ground it covered, by the same rule as a stroke: one just begun, or a
+  // finger that has only wobbled, puts the place back.
+  if (gesture && gesture.type === 'drag' && gesture.moved) { const g = gesture, age = performance.now() - g.t0; if (age < 300 || (g.far < 12 && age < 1000)) takeBackDrag(g); else finishDrag(g); }
+  const [a, b] = [...ptrs.values()];
+  gesture = { type: 'pinch', d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+}
+function pinchMove(g) {
+  const [a, b] = [...ptrs.values()]; const d = Math.hypot(a.x - b.x, a.y - b.y) || 1, mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+  view.ox += mx - g.mx; view.oy += my - g.my; zoomAt(mx, my, d / g.d); g.d = d; g.mx = mx; g.my = my;
+}
+// The map is short on a phone, with the tools right above and below it, so a pinch near its edge often lands its
+// second finger off the map: on the tool's options, the toolbar or the zoom buttons. While a finger is on the map,
+// such a touch is the pinch's second finger all the same, followed until it lifts. (A browser makes no tap of a
+// finger that was part of a pinch, so what it landed on isn't pressed.)
+const offMap = new Set();
+document.addEventListener('pointerdown', e => {
+  if (e.pointerType !== 'touch' || e.target === canvas || ptrs.size !== 1) return;
+  offMap.add(e.pointerId); ptrs.set(e.pointerId, local(e)); startPinch();
+}, true);
+document.addEventListener('pointermove', e => {
+  if (!offMap.has(e.pointerId)) return;
+  ptrs.set(e.pointerId, local(e)); if (gesture && gesture.type === 'pinch' && ptrs.size >= 2) pinchMove(gesture);
+}, true);
+const offMapEnd = e => { if (offMap.delete(e.pointerId)) endPointer(e); };
+document.addEventListener('pointerup', offMapEnd, true);
+document.addEventListener('pointercancel', offMapEnd, true);
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 canvas.addEventListener('pointerdown', e => {
   canvas.setPointerCapture(e.pointerId);
   if (mapKeys) { mapKeys = false; requestDraw(); }
   const pt = local(e); ptrs.set(e.pointerId, pt);
-  if (ptrs.size === 2) {
-    // A second finger just after the first is a pinch, and whatever the first finger painted goes. A stroke well under
-    // way is kept, and so is a finger held still for a second or more, since a brush keeps painting where it's held.
-    if (stroke) { const age = performance.now() - stroke.t0; if (age < 300 || (stroke.far < 12 && age < 1000)) cancelStroke(); else endStroke(); }
-    if (sketchDraft) { sketchDraft = null; requestDraw(); }
-    // A drag the pinch cuts short keeps the ground it covered, by the same rule as a stroke: one just begun, or a
-    // finger that has only wobbled, puts the place back.
-    if (gesture && gesture.type === 'drag' && gesture.moved) { const g = gesture, age = performance.now() - g.t0; if (age < 300 || (g.far < 12 && age < 1000)) takeBackDrag(g); else finishDrag(g); }
-    const [a, b] = [...ptrs.values()];
-    gesture = { type: 'pinch', d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 }; return;
-  }
+  if (ptrs.size === 2) { startPinch(); return; }
   if (ptrs.size > 2) return;
   if (e.button === 1 || e.button === 2 || spaceDown) { gesture = { type: 'pan', lx: pt.x, ly: pt.y }; updateCursor(); return; }
   if (e.button !== 0) return;
@@ -1927,10 +1948,8 @@ canvas.addEventListener('pointermove', e => {
   if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, pt);
   const g = gesture;
   if (g) {
-    if (g.type === 'pinch' && ptrs.size >= 2) {
-      const [a, b] = [...ptrs.values()]; const d = Math.hypot(a.x - b.x, a.y - b.y) || 1, mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-      view.ox += mx - g.mx; view.oy += my - g.my; zoomAt(mx, my, d / g.d); g.d = d; g.mx = mx; g.my = my;
-    } else if (g.type === 'pan' || g.type === 'click') {
+    if (g.type === 'pinch' && ptrs.size >= 2) pinchMove(g);
+    else if (g.type === 'pan' || g.type === 'click') {
       if (g.type === 'click' && !g.moved && Math.hypot(pt.x - g.sx, pt.y - g.sy) > 4) { g.moved = true; updateCursor(); }
       if (g.type === 'pan' || g.moved) { view.ox += pt.x - g.lx; view.oy += pt.y - g.ly; clampView(); requestDraw(); }
       g.lx = pt.x; g.ly = pt.y;

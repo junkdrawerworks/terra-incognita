@@ -1490,6 +1490,30 @@ await oldCtx.close();
   await c.close();
 }
 
+// A River line drawn uphill is turned round, and says so: it used to say the river ended inland when it ran down to
+// the coast where the line began. And a line stopped 3 cells (30 km) short of the coast, a few pixels under a finger
+// on a phone, reaches the sea; it used to be told it ended inland. One that stops well inland still says so.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => window.terra.startBlank());
+  await pg.click('.chip[data-v="land"]');
+  await drag([[110, 70], [370, 66], [380, 230], [120, 236], [110, 70]], 6, pg);
+  await pg.click('.chip[data-v="range"]'); await pg.click('.chip[data-v="high"]');
+  await drag([[240, 95], [244, 150], [238, 205]], 8, pg);
+  await pg.click('.chip[data-v="river"]');
+  const coast = (x0, step) => pg.evaluate(([x0, step]) => { let x = x0; while (window.terra.cell(x + 0.5, 150.5).h >= 0) x += step; return x; }, [x0, step]);
+  const east = await coast(260, 1), west = await coast(225, -1);
+  const said = async (line) => { await drag(line, 8, pg); const s = await pg.textContent('#toast span'); await pg.click('#btnUndo'); await pg.waitForTimeout(300); return s; };
+  const uphill = await said([[east - 2, 150], [east - 30, 148], [258, 150]]);
+  const short = await said([[226, 150], [190, 152], [west + 3.5, 150]]);
+  const farIn = await said([[226, 150], [190, 152], [west + 12.5, 150]]);
+  ok(uphill === 'River drawn, flowing downhill from the end of your line.' && short === 'River drawn.' && farIn === 'River drawn. It ends inland, so it finds its own way on from there.',
+    `a River line drawn uphill says the water flows from its end, one stopped 3 cells short of the coast reaches the sea, and one stopped 12 cells short ends inland ("${uphill}", "${short}", "${farIn}")`);
+  await c.close();
+}
+
 // Sketches that keep what's on the map, on the starting world. A River drawn into a lake ends there, and one drawn
 // down beside a long lake passes it by: both lakes keep their water. (They were drained, from 252 cells to 29 and
 // from 257 to 6.)

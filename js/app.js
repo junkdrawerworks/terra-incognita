@@ -1691,8 +1691,10 @@ function sketchRiver(raw) {
   // Water runs toward the end that touches the sea, or else toward the lower end, going by a lake's surface rather than
   // its bed. A line drawn into a lake keeps its way round: the river ends there.
   const surf = k => D.lake[at(k)] ? spill(at(k)) : hAt(k);
+  // A line turned round is said so: the water runs the other way from how it was drawn.
   const wet0 = hAt(0) < sea, wet1 = hAt(n - 1) < sea;
-  if ((wet0 && !wet1) || (!wet0 && !wet1 && !D.lake[at(n - 1)] && surf(0) < surf(n - 1))) { const r = []; for (let k = n - 1; k >= 0; k--) r.push(pts[2 * k], pts[2 * k + 1]); pts = r; }
+  const reversed = (wet0 && !wet1) || (!wet0 && !wet1 && !D.lake[at(n - 1)] && surf(0) < surf(n - 1));
+  if (reversed) { const r = []; for (let k = n - 1; k >= 0; k--) r.push(pts[2 * k], pts[2 * k + 1]); pts = r; }
   // A line that crosses the sea becomes a river over its longest stretch of land, out to where that reaches the sea (or
   // to the line's end, inland). The rest is left out, and if that's more than a few cells of land, it says so.
   const runs = [];
@@ -1784,7 +1786,12 @@ function sketchRiver(raw) {
   if (!world.springs) world.springs = [];
   world.springs.push({ x: pts[2 * first], y: pts[2 * first + 1], flow: RIVER_T * 1.25 });
   settleSketch(bx0, by0, bx1, by1);
-  toast(leftOut ? 'River drawn. The line crossed the sea, so only its longest stretch of land became a river.' : hAt(last) < sea ? 'River drawn.' : 'River drawn. It ends inland, so it finds its own way on from there.', { label: 'Undo', fn: undo });
+  // A line stopped a few cells short of the coast (30 km is a few pixels under a finger on a phone) still reaches the
+  // sea: the water runs on down to it. Only one that ends further in is said to end inland.
+  let c = at(last), toSea = h[c] < sea;
+  for (let k = 0; k < 6 && !toSea && D.down[c] >= 0; k++) { c = D.down[c]; toSea = h[c] < sea; }
+  const inland = toSea ? '' : ' It ends inland, so it finds its own way on from there.';
+  toast(leftOut ? 'River drawn. The line crossed the sea, so only its longest stretch of land became a river.' : reversed ? 'River drawn, flowing downhill from the end of your line.' + inland : 'River drawn.' + inland, { label: 'Undo', fn: undo });
 }
 // Cut a gorge from the bottom of a basin, along its overflow route, until the ground falls away on the far side. A lake
 // that was there before the sketch keeps its water: the gorge stops where its route reaches one, as the lake's own

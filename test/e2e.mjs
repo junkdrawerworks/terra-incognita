@@ -963,6 +963,70 @@ await oldCtx.close();
   await mac.close();
 }
 
+// The first screen says what this is and what to try. The welcome opens with a line on what this world is, its tool
+// names pick those tools (and on a phone bring the map up), and its count leaves out what there's none of. A place's
+// page has Show on map, which on a phone brings the map back into view, centred on it.
+{
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const hint = () => pg.textContent('#toolOpts .hint');
+  const first = await hint();
+  ok(first === 'Tap a town to read its page, or tap the pencil to sketch your own land.', `on the first visit the Select hint says what to try ("${first}")`);
+  const lede = await pg.textContent('#pane-inspect .lede');
+  ok(lede === "A world that doesn't exist, made for you from seed 20417. Read about any town, or sketch your own coastlines, ranges and rivers.", 'the welcome opens with what this world is');
+  const tools = await pg.evaluate(() => [...document.querySelectorAll('#pane-inspect .tool-link')].map((b) => [b.dataset.tool, b.textContent, !!b.querySelector('svg')]));
+  ok(JSON.stringify(tools) === JSON.stringify([['sketch', 'Sketch', true], ['raise', 'Raise', true], ['lower', 'Lower', true], ['settle', 'Found a settlement', true]]), 'the welcome names Sketch, Raise, Lower and Found a settlement as buttons with their icons');
+  await pg.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  ok(await pg.evaluate(() => document.getElementById('map').getBoundingClientRect().top < -40), 'with the welcome scrolled to, the map is partly off screen');
+  await pg.click('#pane-inspect .tool-link[data-tool="sketch"]');
+  await pg.waitForTimeout(900);
+  const picked = await pg.evaluate(() => { const r = document.getElementById('mapwrap').getBoundingClientRect(); return { tool: document.querySelector('.tool[aria-pressed="true"]').dataset.tool, top: r.top, bottom: r.bottom }; });
+  ok(picked.tool === 'sketch' && picked.top >= -1 && picked.bottom <= 845, `its Sketch picks the sketch tool and brings the map into view (map ${Math.round(picked.top)} to ${Math.round(picked.bottom)} px down the screen)`);
+  await pg.click('.tool[data-tool="select"]');
+  const normal = await hint();
+  ok(normal.startsWith('Drag to pan.'), 'and once a tool has been picked the Select hint is the usual one');
+  await pg.click('#pane-inspect .tool-link[data-tool="settle"]');
+  ok(await pg.evaluate(() => document.querySelector('.tool[aria-pressed="true"]').dataset.tool === 'settle' && document.querySelector('.chip[data-v="capital"]').getAttribute('aria-pressed') === 'true'), 'its Found a settlement picks the settle tool, with Capital chosen');
+  // A place's climate says a year, with room around the dot.
+  await pg.click('#tab-codex');
+  await pg.locator('#codexList .crow').nth(8).click();
+  const climate = await pg.evaluate(() => { const dd = [...document.querySelectorAll('#pane-inspect .facts dt')].find((d) => d.textContent === 'Climate').nextElementSibling; return [dd.textContent, parseFloat(getComputedStyle(dd.querySelector('.sep')).marginLeft)]; });
+  ok(/^-?\d+ °C mean·[\d,]+ mm a year$/.test(climate[0]) && climate[1] >= 4, `a place's climate gives its rain a year ("${climate[0]}")`);
+  // Show on map, from a page scrolled down below the map.
+  await pg.evaluate(() => { const p = window.terra.places()[0]; window.terra.centerOn(p.x, p.y); window.scrollTo(0, document.documentElement.scrollHeight); });
+  ok(await pg.evaluate(() => document.getElementById('map').getBoundingClientRect().bottom < 0), 'with the page scrolled down to the notes, the map is off screen');
+  await pg.click('#showOnMap');
+  await pg.waitForTimeout(900);
+  const shown = await pg.evaluate(() => { const r = document.getElementById('mapwrap').getBoundingClientRect(); const pl = window.terra.places(), name = document.getElementById('pName').value, p = pl.find((q) => q.name === name), s = window.terra.toScreen(p.x, p.y); return { top: r.top, bottom: r.bottom, dx: Math.abs(s.x - r.width / 2), dy: Math.abs(s.y - r.height / 2), cw: r.width, ch: r.height }; });
+  ok(shown.top >= -1 && shown.bottom <= 845 && shown.dx < shown.cw * 0.3 && shown.dy < shown.ch * 0.3, `Show on map brings the map into view, centred on the place (${Math.round(shown.dx)}, ${Math.round(shown.dy)} px off the middle)`);
+  // A count with no realms in it says so, and points at founding a capital.
+  await pg.click('#tab-world');
+  await pg.click('#wClear');
+  await pg.evaluate(() => { window.terra.setTool('settle'); window.terra.fitView(); });
+  await pg.click('.chip[data-v="town"]');
+  await pg.evaluate(() => window.scrollTo(0, 0));
+  const b = await pg.locator('#map').boundingBox(), at = await pg.evaluate(() => window.terra.toScreen(200, 150));
+  await pg.touchscreen.tap(b.x + at.x, b.y + at.y);
+  await pg.waitForTimeout(300);
+  await pg.evaluate(() => window.terra.select(null));
+  const lone = await pg.evaluate(() => [document.querySelector('#pane-inspect .welcome p:not(.eyebrow):not(.lede)').textContent, document.querySelectorAll('#pane-inspect .tips li')[2].textContent]);
+  ok(/^1 settlement and no realms across [\d,]+ km² of land\.$/.test(lone[0]) && lone[1].startsWith('No realm rules this land yet. Pick Found a settlement and choose Capital'), `a world with one town and no realms says so ("${lone[0]}")`);
+  await c.close();
+  const m = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const mp = watch(await m.newPage());
+  await mp.goto(base);
+  ok((await mp.textContent('#toolOpts .hint')).startsWith('Click a town to read its page'), 'with a mouse the first hint says Click');
+  const p = (await mp.evaluate(() => window.terra.places())).sort((a, b) => Math.hypot(a.x - 240, a.y - 150) - Math.hypot(b.x - 240, b.y - 150))[0];
+  await mp.evaluate((p) => window.terra.select({ type: 'place', id: p.id }), p);
+  await mp.click('#showOnMap');
+  const centred = await mp.evaluate((p) => { const r = document.getElementById('mapwrap').getBoundingClientRect(), s = window.terra.toScreen(p.x, p.y); return [Math.abs(s.x - r.width / 2), Math.abs(s.y - r.height / 2), scrollY]; }, p);
+  ok(centred[0] < 2 && centred[1] < 2 && centred[2] === 0, 'on a laptop Show on map centres the map on the place');
+  await mp.evaluate(() => window.terra.select({ type: 'loc', x: 240, y: 150 }));
+  ok(await mp.locator('#showOnMap').isVisible(), 'and a spot on the map has it too');
+  await m.close();
+}
+
 // A pinch with a brush picked zooms and paints nothing. Every pinch starts with one finger, which used to start a stroke
 // that the second finger then kept: a dab of Raise, or of rain, and an Undo step nobody meant. A stroke already under
 // way when a second finger lands is kept, as before.

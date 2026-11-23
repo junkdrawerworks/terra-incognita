@@ -41,7 +41,7 @@ and sea stop them. Every town has a page for its story.
 It's a static site: plain HTML, CSS and JavaScript, with no build step.
 
 ```sh
-npx serve .                   # or any static file server, then open the printed address
+npm start                     # or any static file server, then open http://localhost:8080
 npm test                      # draws a world in Chromium through the real page (needs Playwright)
 node tools/screenshots.mjs    # redraws docs/*.png and og.png (needs npm install for upng-js)
 node tools/make-icons.mjs     # redraws the PNG icons from icon.svg
@@ -66,3 +66,4 @@ To put it online with GitHub Pages: **Settings → Pages → Build and deploymen
   from the map; on the site that button stays hidden.
 - `tools/screenshots.mjs`, `tools/make-icons.mjs`, `tools/icon-full-bleed.svg`: the pictures and icons.
 - `test/e2e.mjs`: plays it on a phone-sized screen and a laptop-sized one, and checks it still works offline.
+- `LICENSE`: MIT.

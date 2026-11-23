@@ -1260,7 +1260,7 @@ function buildToolbar() {
   $('#tools').addEventListener('click', e => { const b = e.target.closest('[data-tool]'); if (b) setTool(b.dataset.tool); });
 }
 function setTool(id) {
-  ui.tool = id;
+  ui.tool = id; firstHint = false;
   document.querySelectorAll('#tools .tool').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tool === id)));
   renderToolOpts(); updateCursor(); requestDraw();
 }
@@ -1270,6 +1270,8 @@ function chipGroup(name, opts, cur, g) { return `<div class="chips" role="group"
 const LAND_TOP = { low: '400', medium: '1,000', high: '2,500' };
 // On a touch screen a finger draws or paints with these tools, and two fingers move the map.
 const TWO_FINGERS = TOUCH ? ' Two fingers move the map.' : '';
+// On the very first visit, until another tool is picked, the Select hint says what to try first.
+let firstHint = false;
 const ROUGH_WORD = ['smooth', 'gentle', 'gentle', 'gentle', 'natural', 'natural', 'natural', 'rugged', 'rugged', 'jagged', 'jagged'];
 function renderToolOpts() {
   const el = $('#toolOpts'), t = ui.tool, name = TOOLS.find(x => x && x.id === t).label;
@@ -1295,7 +1297,7 @@ function renderToolOpts() {
   } else if (t === 'erase') {
     h += `<span class="hint">${TAP} a place or label to remove it. Undo brings it back.</span>`;
   } else {
-    h += `<span class="hint">${TOUCH ? 'Drag to pan. Pinch to zoom. Tap a place or any spot to read about it.' : 'Drag to pan. Scroll or pinch to zoom. Click a place or any spot to read about it.'}</span>`;
+    h += firstHint ? `<span class="hint">${TAP} a town to read its page, or ${TOUCH ? 'tap' : 'pick'} the pencil to sketch your own land.</span>` : `<span class="hint">${TOUCH ? 'Drag to pan. Pinch to zoom. Tap a place or any spot to read about it.' : 'Drag to pan. Scroll or pinch to zoom. Click a place or any spot to read about it.'}</span>`;
   }
   el.innerHTML = h;
   const sz = $('#optSize'); if (sz) { sz.oninput = () => { ui.brush.size = +sz.value; $('#optSizeOut').textContent = sz.value; savePrefs(); if (TOUCH) showBrushSize(); }; }
@@ -1997,7 +1999,7 @@ function factsHTML(f, p) {
   if (f.water && !f.lake) rows.push(['Depth', `<span class="mono">${fmtInt(-f.E)} m</span>`]);
   else rows.push(['Elevation', `<span class="mono">${fmtInt(Math.max(0, f.E))} m</span>`]);
   // Out at sea too, this is the climate's mean air temperature, not the water's.
-  rows.push(['Climate', `<span class="mono">${Math.round(f.temp)} °C</span> mean` + (f.water && !f.lake ? '' : ` · <span class="mono">${fmtInt(f.precip)} mm</span> rain`)]);
+  rows.push(['Climate', `<span class="mono">${Math.round(f.temp)} °C</span> mean` + (f.water && !f.lake ? '' : `<span class="sep" aria-hidden="true">·</span><span class="mono">${fmtInt(f.precip)} mm</span> a year`)]);
   if (!f.water || f.lake) rows.push(['Land', esc(f.biome)]);
   if (!f.water) {
     const bits = [f.coastal ? `On the coast of ${esc(f.sea || 'the sea')}` : 'Inland']; if (f.river) bits.push(`on ${esc(f.river.on)}`);
@@ -2087,7 +2089,21 @@ function renderInspector() {
   else { pane.innerHTML = locHTML(o); bindLoc(o); }
   bindGotos(pane);
 }
-function bindGotos(pane) { pane.querySelectorAll('[data-goto]').forEach(b => b.onclick = () => { const p = world.places.find(q => q.id === +b.dataset.goto); if (p) { select({ type: 'place', id: p.id }); centerOn(p.x, p.y); } }); }
+function bindGotos(pane) {
+  pane.querySelectorAll('[data-goto]').forEach(b => b.onclick = () => { const p = world.places.find(q => q.id === +b.dataset.goto); if (p) { select({ type: 'place', id: p.id }); centerOn(p.x, p.y); } });
+  // A tool named in the text picks that tool, and on a phone brings the map up to use it on.
+  pane.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => { if (b.dataset.kind) ui.settleKind = b.dataset.kind; setTool(b.dataset.tool); mapIntoView(); });
+  // Show on map centres the map on what this page is about, and on a phone, where the map can be scrolled away above
+  // the page, brings it into view.
+  const show = $('#showOnMap', pane); if (show) show.onclick = () => { const o = findSel(ui.selected); if (o) { centerOn(o.x, o.y); mapIntoView(); } };
+}
+function mapIntoView() {
+  if (!window.matchMedia('(max-width: 860px)').matches) return;
+  $('#mapwrap').scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+}
+// A tool's name as a button that picks it, with its icon, as on the toolbar.
+const toolLink = (id, text, kind) => `<button class="link tool-link" type="button" data-tool="${id}"${kind ? ` data-kind="${kind}"` : ''}>${svgIcon(ICONS[id], 15)}${text}</button>`;
+const SHOW_ON_MAP = '<button class="link show-on-map" id="showOnMap" type="button">Show on map</button>';
 const JD_FOOT = `<footer class="jd-foot">  <a href="https://junkdrawer.works/">Part of junkdrawer.works</a>  <span aria-hidden="true">·</span>  <a href="https://junkdrawer.works/privacy.html">Privacy</a></footer>`;
 function welcomeHTML() {
   const settl = world.places.filter(p => p.kind !== 'landmark').length, lms = world.places.length - settl;
@@ -2097,20 +2113,28 @@ function welcomeHTML() {
   if (!land) return `<div class="welcome">${head}
     <p>Open water, waiting for its first coastline.</p>
     <ul class="tips">
-      <li>With <b>Sketch</b> and <b>Land</b> picked, draw a loop on the sea. Land rises inside it, with hills and a natural coast.</li>
+      <li>With ${toolLink('sketch', 'Sketch')} and <b>Land</b> picked, draw a loop on the sea. Land rises inside it, with hills and a natural coast.</li>
       <li>Choose <b>Sea</b> to carve bays, straits and inland seas, <b>Mountain range</b> to draw a ridge line, or <b>River</b> to run water from a source to the coast. Other rivers and lakes form on their own.</li>
       <li>When the land looks right, <b>Found new realms</b> in the World tab fills it with towns, borders and names.</li>
     </ul></div>${JD_FOOT}`;
-  const origin = world.shape === 'blank' ? 'Drawn by hand on open water.' : `Grown from seed <span class="mono">${world.seed}</span>.`;
+  // A generated world says what this is, in the README's words; one drawn by hand says so instead.
+  const made = world.shape !== 'blank';
+  const lede = made && world.places.length ? `<p class="lede">A world that doesn't exist, made for you from seed <span class="mono">${world.seed}</span>. Read about any town, or sketch your own coastlines, ranges and rivers.</p>` : '';
+  const origin = !made ? ' Drawn by hand on open water.' : lede ? '' : ` Grown from seed <span class="mono">${world.seed}</span>.`;
+  // Only the parts there are, and "no realms" when there are none.
+  const realms = D.realms.length, count = (n, one) => `${fmtInt(n)} ${one}${n === 1 ? '' : 's'}`;
+  const parts = [realms && count(realms, 'realm'), settl && count(settl, 'settlement'), lms && count(lms, 'landmark'), !realms && 'no realms'].filter(Boolean);
   const stats = world.places.length
-    ? `${D.realms.length} realm${D.realms.length === 1 ? '' : 's'}, ${settl} settlement${settl === 1 ? '' : 's'} and ${lms} landmark${lms === 1 ? '' : 's'} across <span class="mono">${fmtInt(land * KM * KM)}</span> km² of land.`
+    ? `${parts.length > 1 ? parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1] : parts[0]} across <span class="mono">${fmtInt(land * KM * KM)}</span> km² of land.`
     : `<span class="mono">${fmtInt(land * KM * KM)}</span> km² of land, with no towns or realms yet.`;
-  return `<div class="welcome">${head}
-    <p>${stats} ${origin}</p>
+  const capitalTip = realms || !settl ? `Pick ${toolLink('settle', 'Found a settlement', 'capital')} and choose <b>Capital</b> to start a realm of your own.`
+    : `No realm rules this land yet. Pick ${toolLink('settle', 'Found a settlement', 'capital')} and choose <b>Capital</b> to start one.`;
+  return `<div class="welcome">${head}${lede}
+    <p>${stats}${origin}</p>
     <ul class="tips">
       ${world.places.length ? `<li>${TAP} any place or patch of ground to read about it${cap ? `, or start with <button class="link" data-goto="${cap.id}">${esc(cap.name)}</button>` : ''}.</li>` : `<li><b>Found new realms</b> in the World tab fills this land with towns, borders and names. Do it before you found your own: it replaces every place.</li>`}
-      <li>Use <b>Sketch</b> to draw new coastlines, carve bays, add a mountain range or run a river. <b>Raise</b> and <b>Lower</b> paint the details. Rivers, lakes and borders follow the terrain.</li>
-      <li>Found a <b>capital</b> with the settle tool to start a realm of your own.</li>
+      <li>Use ${toolLink('sketch', 'Sketch')} to draw new coastlines, carve bays, add a mountain range or run a river. ${toolLink('raise', 'Raise')} and ${toolLink('lower', 'Lower')} paint the details. Rivers, lakes and borders follow the terrain.</li>
+      <li>${capitalTip}</li>
       <li>Every place has a page for notes. ${CL ? 'Roll a rumor, or ask Claude to draft a history from the geography.' : 'Roll a rumor for a story to start from.'}</li>
     </ul>
   </div>${JD_FOOT}`;
@@ -2131,7 +2155,7 @@ function placeHTML(p) {
   }
   const busy = draft.busy && draft.placeId === p.id;
   return `<div>
-      <p class="eyebrow"><span class="glyph">${kindGlyph(p, 15)}</span>${esc(kindLabel(p))}${f.realm ? ` · <span class="swatch" style="background:${f.realm.color}"></span>${esc(f.realm.display)}` : ''}</p>
+      <p class="eyebrow"><span class="glyph">${kindGlyph(p, 15)}</span>${esc(kindLabel(p))}${f.realm ? ` · <span class="swatch" style="background:${f.realm.color}"></span>${esc(f.realm.display)}` : ''}${SHOW_ON_MAP}</p>
       <div class="name-row"><label class="sr" for="pName">Name</label><input id="pName" class="name-input" value="${esc(p.name)}" autocomplete="off" spellcheck="false">
       <button class="icon-btn" id="pReroll" title="Suggest another name" aria-label="Suggest another name">${svgIcon('<path d="M16 4v4h-4"/><path d="M15.5 8A6.5 6.5 0 1 0 16 12"/>', 17)}</button></div>
     </div>
@@ -2230,7 +2254,7 @@ function changeKind(p, val) {
   recomputePolitics(); renderInspector(); refreshCodex(); requestDraw(); markDirty();
 }
 function labelHTML(l) {
-  return `<div><p class="eyebrow">Map label</p>
+  return `<div><p class="eyebrow">Map label${SHOW_ON_MAP}</p>
       <label class="sr" for="lText">Label text</label><input id="lText" class="name-input" value="${esc(l.text)}" autocomplete="off" spellcheck="false"></div>
     <div class="field"><label for="lKind">Style</label><select id="lKind"><option value="region" ${l.kind === 'region' ? 'selected' : ''}>Region</option><option value="sea" ${l.kind === 'sea' ? 'selected' : ''}>Sea or water</option><option value="range" ${l.kind === 'range' ? 'selected' : ''}>Mountains</option></select></div>
     <div class="field"><label for="lSize">Size</label><input type="range" id="lSize" min="3" max="16" step="0.2" value="${l.size}"></div>
@@ -2249,7 +2273,7 @@ function bindLabel(l) {
 function locHTML(o) {
   const f = facts(o.x, o.y, null);
   const title = f.water && !f.lake ? (nearestSeaLabel(o.x, o.y, new Set([D.body[f.i]])) || 'Open sea').replace(/^the /, 'The ') : f.biome;
-  return `<div><p class="eyebrow">Location</p><h2 class="display">${esc(title)}</h2></div>
+  return `<div><p class="eyebrow">Location${SHOW_ON_MAP}</p><h2 class="display">${esc(title)}</h2></div>
     ${factsHTML(f, null)}
     ${f.water || f.lake ? '' : `<div class="row"><button class="btn sm" id="locTown">Found a town here</button><button class="btn sm" id="locLabel">Label this spot</button></div>`}`;
 }
@@ -2448,7 +2472,7 @@ window.addEventListener('blur', () => { spaceDown = false; if (stroke) endStroke
 function init() {
   loadPrefs();
   let firstRun = false;
-  if (!loadLocal()) { firstRun = true; newWorld(DEFAULT_SEED, 'continent', { noUndo: true }); }
+  if (!loadLocal()) { firstRun = true; firstHint = unreadable === null; newWorld(DEFAULT_SEED, 'continent', { noUndo: true }); }
   else recomputeAll();
   buildToolbar(); renderToolOpts(); bindWorldTab(); syncWorldTab(); updateUndoButtons(); updateCursor();
   if (MAC) { $('#btnUndo').title = 'Undo (⌘Z)'; $('#btnRedo').title = 'Redo (⇧⌘Z)'; $('#keyUndo').textContent = '⌘ Z'; }

@@ -812,6 +812,7 @@ function afterRestore(otherWorld) {
   // Back to a different world: as with a new one, nothing from the world just left stays open.
   if (otherWorld) { ui.selected = null; dropDraft(); }
   else if (ui.selected && ui.selected.type !== 'loc' && !findSel(ui.selected)) ui.selected = null;
+  dropOrphanDraft();
   recomputeAll(); updateUndoButtons(); markDirty(); syncWorldTab();
 }
 function updateUndoButtons() { $('#btnUndo').disabled = !undoStack.length; $('#btnRedo').disabled = !redoStack.length; }
@@ -2032,6 +2033,7 @@ function removeSel(sel) {
   if (sel.type === 'place') { world.places = world.places.filter(p => p.id !== o.id); if (o.kind !== 'landmark') recomputePolitics(); }
   else world.labels = world.labels.filter(l => l.id !== o.id);
   if (ui.selected && ui.selected.type === sel.type && ui.selected.id === sel.id) ui.selected = null;
+  dropOrphanDraft();
   toast(`Removed ${sel.type === 'place' ? o.name : 'the label'}.`, { label: 'Undo', fn: undo });
   requestDraw(); renderInspector(); refreshCodex(); markDirty(); refocus('#tab-inspect');
 }
@@ -2221,6 +2223,9 @@ function kindGlyph(p, sz = 16) {
 }
 // A rumor or history that hasn't been kept belongs to one place; it goes when that place is left or the world changes.
 function dropDraft() { if (draft.ctl) draft.ctl.abort(); Object.assign(draft, { placeId: null, text: '', busy: false, kind: '', note: '', ctl: null }); }
+// A place Undo or Remove takes away takes its rumor or history with it, and stops one Claude is still writing: the
+// next place founded gets the same id, and would otherwise open with the old place's draft.
+function dropOrphanDraft() { if (draft.placeId != null && !world.places.some(p => p.id === draft.placeId)) dropDraft(); }
 function select(sel) {
   ui.selected = sel;
   if (sel) showTab('inspect');

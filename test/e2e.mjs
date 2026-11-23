@@ -14,11 +14,11 @@
 // that a newer version wrote, kept aside and given back by Download the old save. Five seeds that must keep growing the
 // same worlds, and a world file from an earlier build that must keep opening. Then nothing lost and nothing undone by
 // surprise: a pinch that paints nothing, a drag a pinch cuts short, a page left mid-stroke, Undo mid-stroke, a toast's
-// Undo, Undo naming the places it takes, Found new realms and Clear naming the notes they take, a refused file, and two
-// tabs on one world. And sketches that keep what's on the map: rivers drawn into and beside lakes, a range across a
-// lake's way out, a river line across an inlet, figure-8s and loops drawn twice round, a drawn river's source going
-// under the sea, edits that change nothing saying so, and each brush, with its ring under a finger. The single-file
-// copy for Claude's viewer, from a file and over http.
+// Undo, Undo naming the places it takes (and the rumor rolled for one), Found new realms and Clear naming the notes
+// they take, a refused file, and two tabs on one world. And sketches that keep what's on the map: rivers drawn into and
+// beside lakes, a range across a lake's way out, a river line across an inlet, figure-8s and loops drawn twice round, a
+// drawn river's source going under the sea, edits that change nothing saying so, and each brush, with its ring under a
+// finger. The single-file copy for Claude's viewer, from a file and over http.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -1869,6 +1869,25 @@ await oldCtx.close();
   await pg.fill('#worldName', 'Renamed');
   await pg.click('#btnUndo');
   ok(await pg.locator('#toast').isHidden(), 'an Undo that leaves the places as they were says nothing');
+  await c.close();
+}
+
+// A rumor rolled for a town that Undo then took away goes with it. The next town founded gets the same number, and
+// used to open with the old town's rumor and Keep in notes, which wrote it into the new town's notes.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const cap = (await pg.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
+  await pg.click('.tool[data-tool="settle"]');
+  const b = await pg.locator('#map').boundingBox();
+  const found = async (dy) => { const s = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), [cap.x + 6, cap.y + dy]); await pg.mouse.click(b.x + s.x, b.y + s.y); return (await pg.evaluate(() => window.terra.places())).at(-1); };
+  const first = await found(0);
+  await pg.click('#pRumor');
+  await pg.click('#btnUndo');
+  const second = await found(4);
+  const box = await pg.evaluate(() => { const b = document.getElementById('draftBox'); return b && !b.hidden ? b.textContent : ''; });
+  ok(second.id === first.id && second.name !== first.name && !box, `a rumor rolled for a town Undo took away doesn't turn up on the next town founded, which gets its number (${first.name}, then ${second.name}${box ? `, showing "${box}"` : ''})`);
   await c.close();
 }
 

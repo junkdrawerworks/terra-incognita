@@ -11,7 +11,8 @@
 // smooth, sea names clear of the scale bar and the latitudes down the left edge, and places the sea rises over; and
 // the README's count of the kinds of land. Last, a phone held sideways, the map clear of a touch screen's sides, a
 // Back mid-sketch taken for a slip, a browser that won't keep the autosave, and saved worlds the page can't read or
-// that a newer version wrote, kept aside and given back by Download the old save.
+// that a newer version wrote, kept aside and given back by Download the old save. Five seeds that must keep growing the
+// same worlds, and a world file from an earlier build that must keep opening.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -675,6 +676,49 @@ await oldPage.reload();
 await oldPage.click('#tab-world');
 ok(await oldSaveHidden(oldPage), 'and gone once no old save is kept');
 await oldCtx.close();
+
+// A seed and shape keep growing the same world, since people may have written seeds down: the saved heights and
+// rainfall, and the names, of five worlds, as sha1 (first 12 hex). If one of these fails, generation has changed: that
+// is Mark's call, so take it to him with before and after pictures of these worlds rather than changing the numbers.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const changed = [];
+  for (const [seed, shape, h, m, names] of [
+    [20417, 'continent', '8b20efbd125e', '512fcd5bb05c', 'f39ec175df17'],
+    [96298, 'continent', '736cd99437ab', 'cd459cbe598b', 'cc070ee5d302'],
+    [950281, 'inland', '7ff144f0176e', '02cd964ad9ee', '2cc825ec9712'],
+    [857490, 'twin', '548a8b21cd78', 'be8627ced63b', 'bc17038f44e7'],
+    [645278, 'inland', '358737c747f0', '14173dbaa8f3', 'f1aa3f465c81'],
+  ]) {
+    const f = await pg.evaluate(([seed, shape]) => { window.terra.newWorld(seed, shape); return window.terra.fingerprint(); }, [seed, shape]);
+    if (f.h !== h || f.m !== m || f.names !== names) changed.push(`${seed} ${shape}: h ${f.h}, m ${f.m}, names ${f.names}`);
+  }
+  ok(changed.length === 0, 'five seeds grow the same worlds as before' + (changed.length ? '. Generation changed, which must go to Mark with before and after pictures:\n' + changed.join('\n') : ''));
+  await c.close();
+}
+
+// A world file saved by an earlier build (with notes, a label, a drawn river's spring and a renamed, recolored realm)
+// still opens, every field intact: saving it again gives back the same file.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 }, acceptDownloads: true });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const fixture = await readFile(join(root, 'test/fixtures/world-v1.json'));
+  const old = JSON.parse(fixture);
+  await pg.click('#tab-world');
+  await pg.setInputFiles('#wFile', { name: 'world-v1.json', mimeType: 'application/json', buffer: fixture });
+  await pg.waitForTimeout(400);
+  const opened = await pg.textContent('#toast span');
+  const [again] = await Promise.all([pg.waitForEvent('download'), pg.click('#wSaveFile')]);
+  const resaved = JSON.parse(await readFile(await again.path(), 'utf8'));
+  const lost = Object.keys(old).filter((k) => k !== 'savedAt' && JSON.stringify(old[k]) !== JSON.stringify(resaved[k]));
+  ok(opened === `Opened ${old.name}.` && lost.length === 0, `a world file from an earlier build opens with every field intact (${old.places.length} places, ${old.labels.length} labels, ${old.springs.length} spring)` + (lost.length ? ': changed ' + lost.join(', ') : ''));
+  const cap = old.places.find((p) => p.lore);
+  ok(await pg.evaluate((id) => { window.terra.select({ type: 'place', id }); return document.getElementById('pLore').value; }, cap.id) === cap.lore, 'and its notes are there');
+  await c.close();
+}
 
 const real = problems.filter((p) => !/ERR_INTERNET_DISCONNECTED|net::ERR_FAILED/.test(p));
 ok(real.length === 0, 'no errors and nothing loaded from elsewhere' + (real.length ? ':\n' + real.join('\n') : ''));

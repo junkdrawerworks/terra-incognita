@@ -2290,6 +2290,12 @@ window.terra = {
     }
     return { scale: [sb.X - 6, sb.top, sb.right, sb.bottom], seas, lats };
   },
+  // What a seed and shape generated, to tell when that changes: the first 12 hex of the sha1 of the saved heights, of
+  // the saved rainfall, and of the place names and label texts.
+  fingerprint: async () => {
+    const sha = async (s) => [...new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(s)))].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 12);
+    return { h: await sha(packF(world.h)), m: await sha(packF(world.m)), names: await sha(world.places.map(p => p.name).join('|') + '\n' + world.labels.map(l => l.text).join('|')) };
+  },
   riverNear: (x, y, r = 1.5) => {
     for (let dy = -Math.ceil(r); dy <= Math.ceil(r); dy++) for (let dx = -Math.ceil(r); dx <= Math.ceil(r); dx++) {
       if (dx * dx + dy * dy > r * r) continue; const i = cellAt(x + dx, y + dy); if (D.isR[i]) return true;

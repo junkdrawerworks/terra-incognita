@@ -2117,12 +2117,17 @@ function addLabel(x, y, kind, text) {
 }
 function removeSel(sel) {
   const o = findSel(sel); if (!o) return;
+  // A capital taken off the map ends its realm, and the toast says so, and where the realm's other settlements went.
+  const ended = sel.type === 'place' && o.kind === 'capital' && o.realm ? D.realms.find(r => r.place === o) : null;
+  const held = ended ? world.places.filter(q => q !== o && q.kind !== 'landmark' && D.owner[cellAt(q.x, q.y)] === ended.idx) : [];
+  const display = ended && ended.display, plural = ended && realmPlural(ended);
   pushUndo({ meta: true });
   if (sel.type === 'place') { world.places = world.places.filter(p => p.id !== o.id); if (o.kind !== 'landmark') recomputePolitics(); }
   else world.labels = world.labels.filter(l => l.id !== o.id);
   if (ui.selected && ui.selected.type === sel.type && ui.selected.id === sel.id) ui.selected = null;
   dropOrphanDraft();
-  toast(`Removed ${sel.type === 'place' ? o.name : 'the label'}.`, { label: 'Undo', fn: undo });
+  const endedSay = ended ? ` ${display} ${plural ? 'are' : 'is'} no longer a realm. ${whereTheyWent(held, true)}`.trimEnd() : '';
+  toast(`Removed ${sel.type === 'place' ? o.name : 'the label'}.${endedSay}`, { label: 'Undo', fn: undo }, ended ? 10000 : 0);
   requestDraw(); renderInspector(); refreshCodex(); markDirty(); refocus('#tab-inspect');
 }
 
@@ -2517,14 +2522,15 @@ function bindPlace(p) {
   }
   renderDraft();
 }
-// A capital made something else ends its realm, and says where its places went; the place keeps the realm's name,
+// A capital made something else ends its realm, and says where its settlements went (the realm page's count of them:
+// the place itself among them, unless it became a landmark); the place keeps the realm's name,
 // title and colour, so making it a capital again brings the same realm back. The population is rolled again only
 // when it doesn't fit the new kind, from numbers of the place's own, so switching back and forth comes back to it.
 function changeKind(p, val) {
   pushUndo({ meta: true });
   const [kind, sub] = val.split(':'), i = cellAt(p.x, p.y);
   const ended = p.kind === 'capital' && kind !== 'capital' && p.realm ? D.realms.find(r => r.place === p) : null;
-  const held = ended ? world.places.filter(q => D.owner[cellAt(q.x, q.y)] === ended.idx) : [], display = ended && ended.display, plural = ended && realmPlural(ended);
+  const held = ended ? world.places.filter(q => (q === p ? kind : q.kind) !== 'landmark' && D.owner[cellAt(q.x, q.y)] === ended.idx) : [], display = ended && ended.display, plural = ended && realmPlural(ended);
   if (kind === 'capital') { if (!p.realm) p.realm = p.oldRealm || newRealm(p.tongue, Math.random); delete p.oldRealm; }
   else if (p.realm) { p.oldRealm = p.realm; delete p.realm; }
   if (kind === 'landmark') { p.kind = 'landmark'; p.sub = sub; p.pop = 0; }
@@ -2536,16 +2542,17 @@ function changeKind(p, val) {
   recomputePolitics(); renderInspector(); refreshCodex(); requestDraw(); markDirty();
   if (ended) toast(`${display} ${plural ? 'are' : 'is'} no longer a realm. ${whereTheyWent(held)}`, { label: 'Undo', fn: undo }, 10000);
 }
-// Where the places a realm held went when it ended: 'Its 9 places now belong to the Republic of Seraora.'
-function whereTheyWent(held) {
+// Where the settlements a realm held went when it ended: 'Its 9 settlements now belong to the Republic of Seraora.'
+// With its capital gone from the map, they are its other settlements.
+function whereTheyWent(held, other) {
   const n = held.length, to = new Map(); let free = 0;
-  if (!n) return ''; // never 'Its 0 places now belong to undefined'
+  if (!n) return ''; // never 'Its 0 settlements now belong to undefined'
   for (const q of held) { const o = D.owner[cellAt(q.x, q.y)]; if (o >= 0) to.set(o, (to.get(o) || 0) + 1); else free++; }
   const names = [...to.keys()].map(o => realmMid(D.realms[o])), list = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0];
-  const its = n === 1 ? 'Its one place' : `Its ${n} places`, k = n - free;
+  const what = `${other ? 'other ' : ''}settlement${n === 1 ? '' : 's'}`, its = n === 1 ? `Its one ${what}` : `Its ${n} ${what}`, k = n - free;
   if (!free) return `${its} now ${n === 1 ? 'belongs' : 'belong'} to ${list}.`;
   if (!k) return `${its} now ${n === 1 ? 'lies' : 'lie'} unclaimed.`;
-  return `Of its ${n} places, ${k} now ${k === 1 ? 'belongs' : 'belong'} to ${list} and ${free} ${free === 1 ? 'lies' : 'lie'} unclaimed.`;
+  return `Of its ${n} ${what}, ${k} now ${k === 1 ? 'belongs' : 'belong'} to ${list} and ${free} ${free === 1 ? 'lies' : 'lie'} unclaimed.`;
 }
 function labelHTML(l) {
   return `<div><p class="eyebrow">Map label${SHOW_ON_MAP}</p>

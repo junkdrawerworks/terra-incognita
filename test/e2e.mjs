@@ -1150,12 +1150,22 @@ await oldCtx.close();
   await pg.evaluate((id) => window.terra.select({ type: 'place', id }), riiel);
   const realm = () => pg.evaluate(() => ({ name: document.getElementById('rName')?.value, title: document.getElementById('rTitle')?.value, color: document.querySelector('[data-color][aria-pressed=true]')?.dataset.color, realms: window.terra.state().realms }));
   const before = await realm();
+  // The settlements the realm's page counts, the capital among them, are the ones the toast says went.
+  const counted = () => pg.evaluate(() => +[...document.querySelectorAll('#pane-inspect .note')].map((n) => n.textContent.match(/km², (\d+) settlements?/)).find(Boolean)[1]);
+  const settlements = await counted();
   await pg.selectOption('#pKind', 'town');
   const toast = await pg.textContent('#toast span'), mid = await realm();
-  ok(mid.realms === before.realms - 1 && new RegExp(`^The ${before.title} of ${before.name} is no longer a realm\\. (Its \\d+ places now belong to|Of its \\d+ places)`).test(toast) && await pg.locator('#toast button', { hasText: 'Undo' }).isVisible(), `a capital made a town ends its realm and says so ("${toast}")`);
+  ok(mid.realms === before.realms - 1 && new RegExp(`^The ${before.title} of ${before.name} is no longer a realm\\. (Its ${settlements} settlements now belong to|Of its ${settlements} settlements, )`).test(toast) && await pg.locator('#toast button', { hasText: 'Undo' }).isVisible(), `a capital made a town ends its realm and says where its ${settlements} settlements went, as its page counts them ("${toast}")`);
   await pg.selectOption('#pKind', 'capital');
   const after = await realm();
   ok(JSON.stringify(after) === JSON.stringify(before), `made a capital again, it rules the same realm (${before.title} of ${before.name}, ${before.color}; then ${after.title} of ${after.name}, ${after.color})`);
+  // Removing a capital ends its realm too, and says so: it said only 'Removed Riiel.' It names where the realm's other
+  // settlements went, one fewer than its page counted, since the capital itself is gone.
+  await pg.click('#pDelete');
+  const removed = await pg.textContent('#toast span');
+  ok(new RegExp(`^Removed Riiel\\. The ${before.title} of ${before.name} is no longer a realm\\. (Its ${settlements - 1} other settlements now belong to|Of its ${settlements - 1} other settlements, )`).test(removed) && (await realm()).realms === before.realms - 1, `removing a capital says its realm is no more, and where its other settlements went ("${removed}")`);
+  await pg.click('#toast button');
+  await pg.evaluate((id) => window.terra.select({ type: 'place', id }), riiel);
   const pop = () => pg.evaluate(() => { const dd = [...document.querySelectorAll('#pane-inspect .facts dd')].find((d) => d.previousElementSibling.textContent === 'Population'); return dd ? +dd.textContent.replace(/[~,]/g, '') : 0; });
   const village = await pg.evaluate(() => window.terra.places().find((p) => p.kind === 'village').id);
   await pg.evaluate((id) => window.terra.select({ type: 'place', id }), village);

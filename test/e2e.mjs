@@ -1924,7 +1924,7 @@ await oldCtx.close();
   const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   await c.addInitScript(() => {
     window.claude = { use: async (n) => {
-      if (n === 'sample') return async (prompt, o) => { o.onText && o.onText({ text: 'Founded' }); window.asked = prompt; return { text: 'Founded on salt and old quarrels.\nHook: a door nobody opens.', truncated: !!window.cutShort }; };
+      if (n === 'sample') return async (prompt, o) => { if (window.refuse) { window.asked = prompt; throw Object.assign(new Error('no'), { code: 'refused' }); } o.onText && o.onText({ text: 'Founded' }); window.asked = prompt; return { text: 'Founded on salt and old quarrels.\nHook: a door nobody opens.', truncated: !!window.cutShort }; };
       if (n === 'downloads') return { save: async (f) => { window.savedFile = { filename: f.filename, size: String(f.data).length }; } };
       throw Object.assign(new Error('no'), { code: 'not_declared' });
     } };
@@ -1953,6 +1953,28 @@ await oldCtx.close();
   await pg.click('#pRumor');
   const after = await note();
   ok(warned[0].includes('ran out of room') && !after[1] && after[0] === calm[0] && !calm[1], `a warning about a cut-short draft goes when a rumor is rolled ("${warned[0]}", then "${after[0]}")`);
+  await pg.evaluate(() => { window.cutShort = false; });
+  // A town in a realm is told where its capital is. Notes too long to send whole go as their start and their end, the
+  // latest kept history included, and the page says so.
+  const ask = async (id, lore) => {
+    await pg.evaluate((id) => window.terra.select({ type: 'place', id }), id);
+    if (lore !== undefined) await pg.fill('#pLore', lore);
+    await pg.click('#pWrite');
+    await pg.waitForFunction(() => !document.getElementById('pWrite').textContent.includes('Stop'));
+    return pg.evaluate(() => [window.asked, document.getElementById('draftNote').textContent]);
+  };
+  const all = await pg.evaluate(() => window.terra.places());
+  const village = all.find((p) => p.kind !== 'capital' && p.kind !== 'landmark' && p.landTongue);
+  const long = 'FIRST-LINE The Margrave rules here. ' + 'Old quarrels and salt. '.repeat(160) + 'LATEST-HISTORY The bridge fell.';
+  const [vp, vnote] = await ask(village.id, long);
+  ok(/Its capital is [^,]+, \d+ leagues? (north|south|east|west)/.test(vp) && vp.includes('FIRST-LINE') && vp.includes('LATEST-HISTORY') && vp.includes(' … ') && vnote === 'Only part of your notes fits: the start and the latest are sent.',
+    `a town's prompt names its capital and sends the start and the end of long notes ("${vp.match(/Its capital[^.]*\./)}"; "${vnote}")`);
+  // A landmark has no tongue, and a refusal on a place with no notes says to add one.
+  const lm = all.find((p) => p.kind === 'landmark' && p.landTongue);
+  await pg.evaluate(() => { window.refuse = true; });
+  const [lp, lnote] = await ask(lm.id, '');
+  ok(/^Realm: The /m.test(lp) && !/tongue/.test(lp) && !/Its capital/.test(lp) && lnote === 'Claude declined to write this one. Try again, or add a note to steer it.', `a landmark's prompt has no tongue line, and a refusal with no notes says to add one ("${lnote}")`);
+  await pg.evaluate(() => { window.refuse = false; });
   await pg.click('#tab-world');
   await pg.click('#wSaveFile');
   await pg.waitForFunction(() => window.savedFile);

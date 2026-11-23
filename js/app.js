@@ -2153,19 +2153,26 @@ function rumor(p) {
   const all = T.map(fn => fn()).filter(Boolean), opts = all.length > 1 ? all.filter(t => t !== lastRumor.get(p.id)) : all;
   const t = opts[Math.floor(Math.random() * opts.length)]; lastRumor.set(p.id, t); return t;
 }
+// The notes that go to Claude: all of them up to 2,500 characters; past that, the start (often who rules and what the
+// place is) and the latest (Keep in notes adds each history at the end), so what was written last is never cut.
+const NOTES_MAX = 2500, NOTES_HEAD = 800;
+const notesSent = lore => { const t = lore.trim(); return t.length <= NOTES_MAX ? t : t.slice(0, NOTES_HEAD).trimEnd() + ' … ' + t.slice(t.length - (NOTES_MAX - NOTES_HEAD)).trimStart(); };
+const leagues = d => { const n = Math.max(1, Math.round(d * KM / LEAGUE)); return `${n} league${n === 1 ? '' : 's'}`; };
 function buildPrompt(p) {
   const c = storyCtx(p), f = c.f;
   const L = [];
   L.push(`World: ${world.name}`);
   L.push(`Place: ${p.name}, a ${kindLabel(p).toLowerCase()}${p.pop ? ` of about ${fmtInt(p.pop)} people` : ''}.`);
-  L.push(f.realm ? `Realm: ${f.realm.display}${p.kind === 'capital' ? ' (this is its capital)' : ''}. Its people speak the ${TONGUES[f.realm.tongue].label} tongue.` : 'Realm: none. It lies in unclaimed land.');
+  // A landmark has no people of its own to speak a tongue; a town is told where its capital is.
+  const cap = f.realm && f.realm.place !== p && p.kind !== 'landmark' ? f.realm.place : null;
+  L.push(f.realm ? `Realm: ${f.realm.display}${p.kind === 'capital' ? ' (this is its capital)' : ''}.${p.kind === 'landmark' ? '' : ` Its people speak the ${TONGUES[f.realm.tongue].label} tongue.`}${cap ? ` Its capital is ${cap.name}, ${leagues(Math.hypot(cap.x - p.x, cap.y - p.y))} ${compass(cap.x - p.x, cap.y - p.y)}.` : ''}` : 'Realm: none. It lies in unclaimed land.');
   L.push(`Terrain: ${f.biome}, ${fmtInt(Math.max(0, f.E))} m above sea level, mean temperature ${Math.round(f.temp)} °C, ${fmtInt(f.precip)} mm of rain a year.`);
   if (f.coastal) L.push(`It sits on the coast of ${f.sea || 'the sea'}.`);
   if (f.river) L.push(`It sits on ${f.river.on}.`);
   if (f.goods.length) L.push(`Local goods: ${f.goods.join(', ')}.`);
-  if (c.nearby.length) { L.push('Nearby:'); for (const n of c.nearby) L.push(`- ${n.q.name} (${kindLabel(n.q).toLowerCase()}), ${Math.max(1, Math.round(n.d * KM / LEAGUE))} leagues ${compass(n.q.x - p.x, n.q.y - p.y)}`); }
+  if (c.nearby.length) { L.push('Nearby:'); for (const n of c.nearby) L.push(`- ${n.q.name} (${kindLabel(n.q).toLowerCase()}), ${leagues(n.d)} ${compass(n.q.x - p.x, n.q.y - p.y)}`); }
   if (D.realms.length) L.push(`Realms of this world: ${D.realms.map(r => r.display).join('; ')}.`);
-  if (p.lore.trim()) L.push(`The builder's own notes, which are canon:\n${p.lore.trim().slice(0, 2500)}`);
+  if (p.lore.trim()) L.push(`The builder's own notes, which are canon:\n${notesSent(p.lore)}`);
   return `You're helping someone build a fictional world on a map. Write a short history of one place in it.\n\n${L.join('\n')}\n\nWrite two short paragraphs, 140 words at most in total, in the voice of an old gazetteer. Ground the history in the geography above and mention at least one nearby place by name. Respect the builder's notes if there are any. Then add a final separate line that starts with "Hook:" and gives one unresolved mystery a storyteller could use. Plain text only: no headings, no markdown, no lists.`;
 }
 
@@ -2326,11 +2333,11 @@ function renderDraft() {
   if (wb) { wb.textContent = draft.busy ? 'Stop' : (draft.kind === 'claude' && draft.text ? 'Write another' : 'Write its history'); wb.hidden = !sampleFn; }
 }
 const SAMPLE_OFF = ['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed'];
-function sampleCopy(code) {
+function sampleCopy(code, noted) {
   switch (code) {
     case 'rate_limited': return 'Claude has had a lot of requests from you just now. Try again in a minute.';
     case 'session_expired': return 'Sign in to Claude again, then try once more.';
-    case 'refused': return 'Claude declined to write this one. Change the notes and try again.';
+    case 'refused': return noted ? 'Claude declined to write this one. Change the notes and try again.' : 'Claude declined to write this one. Try again, or add a note to steer it.';
     case 'prompt_too_large': return 'The notes are too long to send. Shorten them and try again.';
     case 'empty_completion': return 'Claude came back empty. Try again.';
     default: return 'Could not reach Claude. Try again.';
@@ -2339,19 +2346,19 @@ function sampleCopy(code) {
 async function writeHistory(p) {
   if (draft.busy && draft.kind === 'claude') { draft.ctl && draft.ctl.abort(); return; }
   if (!sampleFn) return;
-  const ctl = new AbortController();
-  Object.assign(draft, { placeId: p.id, text: '', busy: true, kind: 'claude', note: '', ctl });
+  const ctl = new AbortController(), partial = p.lore.trim().length > NOTES_MAX ? 'Only part of your notes fits: the start and the latest are sent.' : '';
+  Object.assign(draft, { placeId: p.id, text: '', busy: true, kind: 'claude', note: partial, ctl });
   renderDraft();
   try {
     const res = await sampleFn(buildPrompt(p), { signal: ctl.signal, cache: false, onText: ({ text }) => { if (draft.ctl === ctl) { draft.text = text; renderDraft(); } } });
     if (draft.ctl !== ctl) return;
-    draft.text = res.text.trim(); if (res.truncated) draft.note = 'Claude ran out of room, so the draft stops early.';
+    draft.text = res.text.trim(); if (res.truncated) draft.note = (partial ? partial + ' ' : '') + 'Claude ran out of room, so the draft stops early.';
   } catch (e) {
     if (draft.ctl !== ctl) return;
     const code = e && e.code;
     draft.text = code === 'refused' ? '' : (e && e.text) || '';
     if (SAMPLE_OFF.includes(code)) { sampleFn = null; draft.note = 'Claude is not available on this page, so the history writer is off. Rumors still work.'; }
-    else if (code !== 'cancelled') draft.note = sampleCopy(code);
+    else if (code !== 'cancelled') draft.note = sampleCopy(code, !!p.lore.trim());
   }
   if (draft.ctl === ctl) { draft.busy = false; draft.ctl = null; }
   renderDraft();

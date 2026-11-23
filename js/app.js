@@ -1483,6 +1483,18 @@ function sketchLoop(pts, mode) {
   const wet = mode === 'sea' ? drowned(dry) : [];
   toast(mode === 'land' ? 'Land raised. Rivers and borders have been redrawn.' : wet.length ? `Flooded. The sea rose over ${someWet(wet)}.` : 'Flooded. The coast has been redrawn.', { label: 'Undo', fn: undo });
 }
+// The pieces of a line (k0 to k1) sorted into squares, so a cell looks only at the pieces that could be within r of it:
+// any piece that close is in the cell's own square, in the same order as along the line.
+function segmentGrid(pts, k0, k1, x0, y0, x1, y1, r) {
+  const g = Math.max(4, Math.ceil(r)), gw = Math.floor((x1 - x0) / g) + 1, gh = Math.floor((y1 - y0) / g) + 1, cells = Array.from({ length: gw * gh }, () => []);
+  for (let k = k0; k < k1; k++) {
+    const ax = pts[2 * k], ay = pts[2 * k + 1], bx = pts[2 * k + 2], by = pts[2 * k + 3];
+    const qx0 = clamp(Math.floor((Math.min(ax, bx) - r - x0) / g), 0, gw - 1), qx1 = clamp(Math.floor((Math.max(ax, bx) + r - x0) / g), 0, gw - 1);
+    const qy0 = clamp(Math.floor((Math.min(ay, by) - r - y0) / g), 0, gh - 1), qy1 = clamp(Math.floor((Math.max(ay, by) + r - y0) / g), 0, gh - 1);
+    for (let qy = qy0; qy <= qy1; qy++) for (let qx = qx0; qx <= qx1; qx++) cells[qy * gw + qx].push(k);
+  }
+  return (px, py) => cells[clamp(Math.floor((py - y0) / g), 0, gh - 1) * gw + clamp(Math.floor((px - x0) / g), 0, gw - 1)];
+}
 function sketchRange(raw) {
   const pts = [raw[0], raw[1]];
   for (let k = 2; k < raw.length; k += 2) if (Math.hypot(raw[k] - pts[pts.length - 2], raw[k + 1] - pts[pts.length - 1]) >= 1.2) pts.push(raw[k], raw[k + 1]);
@@ -1495,16 +1507,17 @@ function sketchRange(raw) {
   const bx0 = clamp(Math.floor(minX - sh) - 1, 0, W - 1), bx1 = clamp(Math.ceil(maxX + sh) + 1, 0, W - 1), by0 = clamp(Math.floor(minY - sh) - 1, 0, H - 1), by1 = clamp(Math.ceil(maxY + sh) + 1, 0, H - 1);
   const nz1 = sketchNoise(4), nz2 = sketchNoise(5), taper = Math.min(Wd * 1.2, L / 3);
   pushUndo({ h: true, meta: true });
+  // Nothing past 1.8 times the widest the range wobbles to (noise stays within 1) is touched.
+  const reach = Wd * 1.35 * 1.8, near = segmentGrid(pts, 0, n - 1, bx0, by0, bx1 + 1, by1 + 1, reach), all = Array.from({ length: n - 1 }, (_, k) => k);
   for (let gy = by0; gy <= by1; gy++) for (let gx = bx0; gx <= bx1; gx++) {
-    const px = gx + 0.5, py = gy + 0.5; let bd = Infinity, bs = 0;
-    for (let k = 0; k < n - 1; k++) {
+    const px = gx + 0.5, py = gy + 0.5, gi = gy * W + gx, wob = Wd * (1 + 0.35 * fbm(nz2, gx * 0.06, gy * 0.06, 3));
+    let bd = Infinity, bs = 0;
+    for (const k of wob * 1.8 <= reach ? near(px, py) : all) {
       const ax = pts[2 * k], ay = pts[2 * k + 1], vx = pts[2 * k + 2] - ax, vy = pts[2 * k + 3] - ay, ll = vx * vx + vy * vy;
       const t = ll ? clamp(((px - ax) * vx + (py - ay) * vy) / ll, 0, 1) : 0;
       const d = Math.hypot(px - ax - vx * t, py - ay - vy * t);
       if (d < bd) { bd = d; bs = cum[k] + t * Math.sqrt(ll); }
     }
-    const gi = gy * W + gx;
-    const wob = Wd * (1 + 0.35 * fbm(nz2, gx * 0.06, gy * 0.06, 3));
     if (bd < wob) {
       const f = 1 - bd / wob, prof = Math.pow(f * f * (3 - 2 * f), 1.3);
       const rn = 1 - Math.abs(nz1(gx * 0.11, gy * 0.11)), along = 0.8 + 0.4 * fbm(nz2, gx * 0.035 + 20, gy * 0.035, 3);
@@ -1617,10 +1630,11 @@ function sketchRiver(raw) {
     keep[(gy - by0) * bw + gx - bx0] = kv;
   }
   pushUndo({ h: true, meta: true });
+  const near = segmentGrid(pts, first, last, bx0, by0, bx1 + 1, by1 + 1, Wv);
   for (let gy = by0; gy <= by1; gy++) for (let gx = bx0; gx <= bx1; gx++) {
     const gi = gy * W + gx, kv = keep[(gy - by0) * bw + gx - bx0]; if (h[gi] < sea || kv < 0) continue;
     const px = gx + 0.5, py = gy + 0.5; let bd = Infinity, bb = 0, bk = 0;
-    for (let k = first; k < last; k++) {
+    for (const k of near(px, py)) {
       const ax = pts[2 * k], ay = pts[2 * k + 1], vx = pts[2 * k + 2] - ax, vy = pts[2 * k + 3] - ay, ll = vx * vx + vy * vy;
       const t = ll ? clamp(((px - ax) * vx + (py - ay) * vy) / ll, 0, 1) : 0;
       const d = Math.hypot(px - ax - vx * t, py - ay - vy * t);

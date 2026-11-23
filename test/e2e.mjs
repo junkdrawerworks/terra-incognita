@@ -786,15 +786,23 @@ await oldCtx.close();
   const changed = [];
   for (const [seed, shape, h, m, names] of [
     [20417, 'continent', '8b20efbd125e', '512fcd5bb05c', 'f39ec175df17'],
-    [96298, 'continent', '736cd99437ab', 'cd459cbe598b', '8b66c72f3740'],
+    [96298, 'continent', '736cd99437ab', 'cd459cbe598b', '8b2ab68b79c8'],
     [950281, 'inland', '7ff144f0176e', '02cd964ad9ee', '5fcab7c3aa94'],
-    [857490, 'twin', '548a8b21cd78', 'be8627ced63b', 'bc17038f44e7'],
-    [645278, 'inland', '358737c747f0', '14173dbaa8f3', 'f1aa3f465c81'],
+    [857490, 'twin', '548a8b21cd78', 'be8627ced63b', '7894f8463569'],
+    [645278, 'inland', '358737c747f0', '14173dbaa8f3', 'c61fc9ca5499'],
   ]) {
     const f = await pg.evaluate(([seed, shape]) => { window.terra.newWorld(seed, shape); return window.terra.fingerprint(); }, [seed, shape]);
     if (f.h !== h || f.m !== m || f.names !== names) changed.push(`${seed} ${shape}: h ${f.h}, m ${f.m}, names ${f.names}`);
   }
   ok(changed.length === 0, 'five seeds grow the same worlds as before' + (changed.length ? '. Generation changed, which must go to Mark with before and after pictures:\n' + changed.join('\n') : ''));
+  // Each realm has its own tongue, so every town and village in it is named in that tongue, the few villages founded
+  // where no realm reached yet included, once the realms' borders take them in.
+  const foreign = [];
+  for (const [seed, shape] of [[96298, 'continent'], [857490, 'twin'], [645278, 'inland'], [15939, 'continent'], [53527, 'continent']]) {
+    const ps = await pg.evaluate(([seed, shape]) => { window.terra.newWorld(seed, shape); return window.terra.places(); }, [seed, shape]);
+    for (const p of ps) if (p.kind !== 'capital' && p.kind !== 'landmark' && p.landTongue && p.tongue !== p.landTongue) foreign.push(`${seed} ${p.name} (${p.tongue} in a ${p.landTongue} realm)`);
+  }
+  ok(foreign.length === 0, 'every town and village is named in the tongue of the realm it stands in' + (foreign.length ? ': ' + foreign.join(', ') : ''));
   await c.close();
 }
 

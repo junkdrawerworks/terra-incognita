@@ -654,6 +654,7 @@ function populate(seed) {
       for (const c of cands) { if (!left) break; if (D.owner[c.i] !== r.idx || !far(c, world.places, minD)) continue; world.places.push(makePlace(kind, c.x, c.y, rng)); left--; }
     }
   }
+  // A few villages where no capital's land reaches yet. The towns' own claims below can still bring one into a realm.
   let free = 3;
   for (const c of cands) { if (!free) break; if (D.owner[c.i] !== -1 || !far(c, world.places, 12)) continue; world.places.push(makePlace('village', c.x, c.y, rng)); free--; }
   for (const sub of Object.keys(LANDMARKS)) {
@@ -665,6 +666,16 @@ function populate(seed) {
     }
   }
   territories();
+  // A village or town the final borders put in a realm with another tongue (a free village claimed after all, or one
+  // a neighbour's towns took) takes the realm's tongue and a name in it, so towns sound like the realm they are in.
+  // Each draws from its own numbers, so no other name in the world changes.
+  for (const p of world.places) {
+    if (p.kind === 'capital' || p.kind === 'landmark') continue;
+    const o = D.owner[cellAt(p.x, p.y)], r = o >= 0 ? D.realms[o] : null;
+    if (!r || r.tongue === p.tongue) continue;
+    p.tongue = r.tongue; const own = mulberry32(hash3(seed, p.id, 61));
+    p.name = freshName(() => makeName(p.tongue, own));
+  }
   autoLabels(rng);
 }
 // Where the latitudes labelled down the map's left edge (35° to 55°N) cross it, in map cells.
@@ -2547,7 +2558,9 @@ if ('serviceWorker' in navigator && !inFrame && location.protocol.startsWith('ht
 window.terra = {
   newWorld: (seed, shape = 'continent') => { newWorld(seed, shape); syncWorldTab(); fitView(); },
   startBlank, setStyle, setTool, fitView, select, centerOn,
-  places: () => world.places.map(p => ({ id: p.id, kind: p.kind, name: p.name, x: p.x, y: p.y })),
+  // Each place, with its tongue and the tongue of the realm whose land it stands on (null on land no realm holds).
+  places: () => world.places.map(p => { const o = D.owner[cellAt(p.x, p.y)]; return { id: p.id, kind: p.kind, name: p.name, x: p.x, y: p.y, tongue: p.tongue, landTongue: o >= 0 && D.realms[o] ? D.realms[o].tongue : null }; }),
+  labels: () => world.labels.map(l => ({ id: l.id, kind: l.kind, text: l.text, x: l.x, y: l.y })),
   state: () => {
     let land = 0, rivers = 0, lakes = 0;
     for (let i = 0; i < N; i++) { if (world.h[i] >= world.sea) land++; if (D.isR[i]) rivers++; if (D.lake[i]) lakes++; }

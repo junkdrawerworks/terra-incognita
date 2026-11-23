@@ -153,7 +153,19 @@ ok(tip.includes('Sketch') && !/on the (left|right)|above|below/.test(tip), `the 
 await page.click('#tab-world');
 await page.click('#wPopulate');
 ok((await page.textContent('#toast')).startsWith('New realms need dry land') && (await state()).undo === st.undo, 'Found new realms on open water says it needs land');
-// The zoom buttons are as big on a phone as on a laptop, 34 by 32, and that toast keeps clear of them.
+// On a touch screen a tapped text box doesn't zoom the page (iOS Safari zooms in on one under 16 px), and the controls
+// are big enough for a finger: 44 px where there's room. (The zoom buttons are at least their laptop size, 34 by 32,
+// and that toast keeps clear of them.)
+const touchSizes = await S(() => {
+  const fs = ['#codexQ', '#wSeed', '#wShape'].map((q) => [q, parseFloat(getComputedStyle(document.querySelector(q)).fontSize)]);
+  const box = (q) => { const r = document.querySelector(q).getBoundingClientRect(); return [q, Math.round(r.width), Math.round(r.height)]; };
+  return { fs, boxes: ['.tool', '#btnUndo', '.seg', '#btnNew', '.tab', '#wGen', '.chip', '.checks label', '.zoom button'].map(box) };
+});
+ok(touchSizes.fs.every(([, f]) => f >= 16), `text boxes on a touch screen are 16 px or more (${touchSizes.fs.map(([q, f]) => q + ' ' + f).join(', ')})`);
+const tooSmall = touchSizes.boxes.filter(([q, w, h]) => h < ({ '.chip': 38, '#wGen': 40 }[q] || 44) || (['.tool', '#btnUndo', '.zoom button'].includes(q) && w < 44));
+ok(tooSmall.length === 0, 'controls on a touch screen are big enough for a finger' + (tooSmall.length ? ': ' + JSON.stringify(tooSmall) : ''));
+// A link button on a line of its own (Download the old save, Remove this place) is a finger's height too.
+ok(await S(() => { const l = document.createElement('button'); l.className = 'link'; l.textContent = 'x'; document.getElementById('pane-world').append(l); const h = l.getBoundingClientRect().height; l.remove(); return h >= 36; }), 'a link button on its own line is tall enough to tap');
 const [zoomSizes, toastClear] = await S(() => {
   const z = document.querySelector('.zoom').getBoundingClientRect(), t = document.getElementById('toast');
   return [[...document.querySelectorAll('.zoom button')].map((b) => [b.offsetWidth, b.offsetHeight]), !t.hidden && t.getBoundingClientRect().right < z.left];
@@ -293,6 +305,9 @@ const desk = watch(await (await browser.newContext({ viewport: { width: 1280, he
 await desk.goto(base);
 await desk.click('#tab-codex');
 ok(await desk.evaluate(() => document.getElementById('codexQ').getBoundingClientRect().height) >= 33, 'the Codex search box keeps its height beside a long list');
+// With a mouse, the controls keep their laptop sizes.
+ok(JSON.stringify(await desk.evaluate(() => ['.tool', '#btnUndo', '.chip', '.zoom button', '#codexQ'].map((q) => { const e = document.querySelector(q); return e ? Math.round(e.getBoundingClientRect().height) : null; })))
+  === JSON.stringify([38, 34, null, 32, 34]) && await desk.evaluate(() => getComputedStyle(document.getElementById('codexQ')).fontSize) === '14px', 'with a mouse the tools, buttons and boxes keep their sizes');
 
 // A place by a sea labelled "Gulf of ..." is on the coast of the Gulf of ...
 const settingOf = (id) => desk.evaluate((id) => {

@@ -1185,9 +1185,9 @@ function drawScale(c, sb, ink, halo) {
 
 // ------------------------------------------------------------------ view
 const canvas = $('#map'), ctx = canvas.getContext('2d');
-// The whole map fits inside these margins. On a narrow screen the right one leaves room for the zoom buttons, so they
-// don't cover the map's east edge.
-const fitMargins = () => view.cw < 500 ? { l: 12, r: 46, t: 12, b: 12 } : { l: 26, r: 26, t: 26, b: 26 };
+// The whole map fits inside these margins. On a narrow screen the right one leaves room for the zoom buttons (wider on
+// a touch screen), so they don't cover the map's east edge.
+const fitMargins = () => view.cw < 500 ? { l: 12, r: 10 + ($('.zoom').offsetWidth || 36), t: 12, b: 12 } : { l: 26, r: 26, t: 26, b: 26 };
 function computeS0() { const m = fitMargins(); view.s0 = Math.max(0.2, Math.min((view.cw - m.l - m.r) / W, (view.ch - m.t - m.b) / H)); }
 function fitView() {
   computeS0(); const m = fitMargins(); view.s = view.s0;

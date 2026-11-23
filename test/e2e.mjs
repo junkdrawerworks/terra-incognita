@@ -430,6 +430,36 @@ ok(rangeOk.envoys > 10 && rangeOk.tolls > 10 && !rangeOk.repeats && !rangeOk.bad
   await desk.click('#btnUndo');
 }
 
+// A town beside a lake is on its shore, not inland. A tapped lake gives its surface's height, with no Land or Setting
+// row, and can be named from its own page, as the open sea can; the town on its shore then reads the name.
+{
+  const facts = () => desk.evaluate(() => Object.fromEntries([...document.querySelectorAll('#pane-inspect .facts dt')].map((d) => [d.textContent, d.nextElementSibling.textContent])));
+  let shore = null, wet = null;
+  for (const p of await desk.evaluate(() => window.terra.places())) {
+    await desk.evaluate((id) => window.terra.select({ type: 'place', id }), p.id);
+    if (!/^On a lake shore/.test((await facts()).Setting || '')) continue;
+    wet = await desk.evaluate((p) => { for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (window.terra.cell(p.x + dx, p.y + dy).lake) return { x: Math.floor(p.x + dx) + 0.5, y: Math.floor(p.y + dy) + 0.5 }; return null; }, p);
+    if (wet) { shore = p; break; }
+  }
+  await desk.evaluate((w) => window.terra.select({ type: 'loc', x: w.x, y: w.y }), wet);
+  const lake = await facts(), lakeTitle = await desk.textContent('#pane-inspect h2');
+  ok(lakeTitle === 'Lake' && 'Surface' in lake && !('Land' in lake) && !('Setting' in lake) && !('Elevation' in lake) && 'Waters of' in lake && await desk.locator('#locWater').textContent() === 'Name this water',
+    `a tapped lake reads as water (${JSON.stringify(lake)})`);
+  await desk.click('#locWater');
+  const name = await desk.inputValue('#lText');
+  await desk.evaluate((w) => window.terra.select({ type: 'loc', x: w.x, y: w.y }), wet);
+  const titled = [await desk.textContent('#pane-inspect h2'), await desk.locator('#locWater').textContent()];
+  await desk.evaluate((id) => window.terra.select({ type: 'place', id }), shore.id);
+  const setting = (await facts()).Setting;
+  ok(setting.startsWith(`On the shore of ${name.replace(/^The /, 'the ')}`) && titled[0] === name && titled[1] === 'Rename this water', `naming the lake from its page names ${shore.name}'s shore ("${setting}")`);
+  await desk.click('#btnUndo');
+  // The ocean in the corner is the Sea of Lainho on seed 20417, so its page opens that label to rename it.
+  const sea = await desk.evaluate(() => { window.terra.select({ type: 'loc', x: 2.5, y: 2.5 }); return [document.querySelector('#pane-inspect h2').textContent, document.getElementById('locWater').textContent]; });
+  await desk.click('#locWater');
+  const seaLabel = await desk.inputValue('#lText');
+  ok(sea[0] !== 'Open sea' && sea[1] === 'Rename this water' && seaLabel === sea[0], `a named sea's page opens its label to rename it ("${sea[0]}")`);
+}
+
 // A rumor that wasn't kept stays with its place, not with whatever has its id in a new world.
 const firstCap = (await desk.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
 await desk.evaluate((id) => window.terra.select({ type: 'place', id }), firstCap.id);
@@ -544,7 +574,8 @@ const readAt = async (x, y, name) => { await M(([x, y]) => window.terra.select({
 // shore, rather than the lake bed under it.
 await M(() => window.terra.newWorld(96298, 'continent'));
 ok(await M(() => window.terra.cell(403.5, 160.5).lake && window.terra.cell(408.5, 162.5).lake && !window.terra.cell(400.5, 159.5).lake), 'world 96298 has its lake, with dry shore to its west');
-const heights = []; for (const [x, y] of [[403.5, 160.5], [408.5, 162.5], [400.5, 159.5]]) heights.push(parseInt((await readAt(x, y, 'Elevation')).replace(/,/g, ''), 10));
+// On the lake the row is called Surface.
+const heights = []; for (const [x, y, name] of [[403.5, 160.5, 'Surface'], [408.5, 162.5, 'Surface'], [400.5, 159.5, 'Elevation']]) heights.push(parseInt((await readAt(x, y, name)).replace(/,/g, ''), 10));
 const [lakeA, lakeB, shore] = heights;
 ok(lakeA === lakeB && Math.abs(lakeA - shore) <= 15, `a lake reads as its surface, level with the shore (${lakeA} m and ${lakeB} m out on it, ${shore} m on the shore)`);
 
@@ -574,7 +605,7 @@ ok(bigBefore > 800 && bigAfter >= bigBefore * 0.95, `a wide valley drawn out of 
 
 // A lake reads one height from end to end. World 857490's lake read 1,036 m at one end and 1,037 m at the other.
 await M(() => window.terra.newWorld(857490, 'twin'));
-const ends = []; for (const [x, y] of [[372.5, 184.5], [368.5, 189.5]]) ends.push(await M(([x, y]) => window.terra.cell(x, y).lake, [x, y]) && parseInt((await readAt(x, y, 'Elevation')).replace(/,/g, ''), 10));
+const ends = []; for (const [x, y] of [[372.5, 184.5], [368.5, 189.5]]) ends.push(await M(([x, y]) => window.terra.cell(x, y).lake, [x, y]) && parseInt((await readAt(x, y, 'Surface')).replace(/,/g, ''), 10));
 ok(ends[0] > 0 && ends[0] === ends[1], `a lake reads one height from end to end (${ends[0]} m and ${ends[1]} m)`);
 
 // Walrus ivory and whale oil come from the sea, so only a cold coast lists them: tundra and ice sheet far from the sea
@@ -591,7 +622,7 @@ const cold = await M(() => {
 });
 const goodsAt = async (list) => { const g = []; for (const [x, y] of list) { const s = await readAt(x, y, 'Setting'), gd = await readAt(x, y, 'Goods'); g.push([s, gd]); } return g; };
 const inlandGoods = await goodsAt(cold.inland), coastGoods = await goodsAt(cold.coast);
-ok(cold.inland.length >= 10 && inlandGoods.every(([s, g]) => s.startsWith('Inland') && !/walrus|whale/.test(g)), `tundra and ice sheet inland list no walrus ivory or whale oil (${cold.inland.length} spots: ${[...new Set(inlandGoods.flatMap(([, g]) => g.split(', ')))].join(', ')})`);
+ok(cold.inland.length >= 10 && inlandGoods.every(([s, g]) => (s.startsWith('Inland') || s.startsWith('On a lake shore')) && !/walrus|whale/.test(g)), `tundra and ice sheet inland list no walrus ivory or whale oil (${cold.inland.length} spots: ${[...new Set(inlandGoods.flatMap(([, g]) => g.split(', ')))].join(', ')})`);
 ok(coastGoods.some(([s, g]) => s.startsWith('On the coast') && /walrus|whale/.test(g)) && coastGoods.every(([, g]) => !/pearls/.test(g)), 'a cold coast can list them, and no pearls');
 const ninten = await M(() => window.terra.places().find((p) => p.name === 'Ninten').id);
 await M((id) => window.terra.select({ type: 'place', id }), ninten);

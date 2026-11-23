@@ -2021,8 +2021,9 @@ function addLabel(x, y, kind, text) {
   pushUndo({ meta: true });
   const tg = D.owner[cellAt(x, y)] >= 0 ? D.realms[D.owner[cellAt(x, y)]].tongue : pick(Math.random, TONGUE_IDS);
   const core = makeName(tg, Math.random, { bare: true });
-  const auto = kind === 'sea' ? pick(Math.random, ['The % Sea', 'Bay of %', 'Gulf of %', 'The % Sound']) : kind === 'range' ? pick(Math.random, ['The % Mountains', 'The % Hills', 'The % Range']) : pick(Math.random, ['The % Downs', 'The % Wold', 'The % Reach', '%', 'The % Wastes', 'The % Weald']);
-  const l = { id: world.nextId++, kind, text: text || auto.replace('%', core), x, y, size: kind === 'sea' ? 6 : kind === 'range' ? 4.6 : 5, angle: 0 };
+  const onLake = kind === 'sea' && !!D.lake[cellAt(x, y)];
+  const auto = onLake ? pick(Math.random, ['Lake %', 'Lake %', '% Mere', '% Water']) : kind === 'sea' ? pick(Math.random, ['The % Sea', 'Bay of %', 'Gulf of %', 'The % Sound']) : kind === 'range' ? pick(Math.random, ['The % Mountains', 'The % Hills', 'The % Range']) : pick(Math.random, ['The % Downs', 'The % Wold', 'The % Reach', '%', 'The % Wastes', 'The % Weald']);
+  const l = { id: world.nextId++, kind, text: text || auto.replace('%', core), x, y, size: onLake ? 4.6 : kind === 'sea' ? 6 : kind === 'range' ? 4.6 : 5, angle: 0 };
   world.labels.push(l); select({ type: 'label', id: l.id }); markDirty();
 }
 function removeSel(sel) {
@@ -2053,14 +2054,30 @@ function updateStatus() {
 // The stretches of sea within r cells of a spot.
 function bodiesNear(i, r) { const s = new Set(), x = i % W, y = (i / W) | 0; for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; const b = D.body[ny * W + nx]; if (b >= 0) s.add(b); } return s; }
 // The stretch of sea a label names: the one under it, or for a label set just off the water, the nearest one.
+// A label set on a lake names that lake, never the sea beside it.
 function labelBody(l) {
-  const i = cellAt(l.x, l.y); if (D.body[i] >= 0) return D.body[i];
+  const i = cellAt(l.x, l.y); if (D.body[i] >= 0) return D.body[i]; if (D.lake[i]) return -1;
   const x = i % W, y = (i / W) | 0; let best = -1, bd = 7 * 7;
   for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) { const nx = x + dx, ny = y + dy, d = dx * dx + dy * dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H || d >= bd) continue; const b = D.body[ny * W + nx]; if (b >= 0) { bd = d; best = b; } }
   return best;
 }
 // The nearest sea label on one of the given stretches of sea, so a place never takes its name from water it isn't on.
-function nearestSeaLabel(x, y, bodies) { let best = null, bd = Infinity; for (const l of world.labels) if (l.kind === 'sea' && bodies.has(labelBody(l))) { const d = (l.x - x) ** 2 + (l.y - y) ** 2; if (d < bd) { bd = d; best = l; } } return best ? best.text : null; }
+function nearestSeaLabel(x, y, bodies, label = false) { let best = null, bd = Infinity; for (const l of world.labels) if (l.kind === 'sea' && bodies.has(labelBody(l))) { const d = (l.x - x) ** 2 + (l.y - y) ** 2; if (d < bd) { bd = d; best = l; } } return label ? best : best ? best.text : null; }
+// The cells of the lake a lake cell is part of (lake cells touching at a side or a corner).
+function lakeCells(i) {
+  const s = new Set([i]), q = [i];
+  while (q.length) { const c = q.pop(), cx = c % W, cy = (c / W) | 0; for (let k = 0; k < 8; k++) { const nx = cx + NBX[k], ny = cy + NBY[k]; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; const n = ny * W + nx; if (D.lake[n] && !s.has(n)) { s.add(n); q.push(n); } } }
+  return s;
+}
+// The lakes within r cells of a spot, and the sea-style label set on one of them nearest the spot (lakes have names only
+// when the builder gives them one, with Name this water or the label tool): { lakes, label }.
+function lakesNear(i, r, x, y) {
+  const lakes = [], cx = i % W, cy = (i / W) | 0;
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const nx = cx + dx, ny = cy + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; const j = ny * W + nx; if (D.lake[j] && !lakes.some(s => s.has(j))) lakes.push(lakeCells(j)); }
+  let label = null, bd = Infinity;
+  if (lakes.length) for (const l of world.labels) { const j = cellAt(l.x, l.y), d = (l.x - x) ** 2 + (l.y - y) ** 2; if (l.kind === 'sea' && d < bd && lakes.some(s => s.has(j))) { bd = d; label = l; } }
+  return { lakes, label };
+}
 // A sea's name in the middle of a sentence: "the Lasgmias Sound", "the Sea of Kamkod".
 const seaInText = t => /^The /.test(t) ? 'the ' + t.slice(4) : /^(Sea|Bay|Gulf|Sound|Straits?|Ocean|Lake) of /.test(t) ? 'the ' + t : t;
 function facts(x, y, self) {
@@ -2073,8 +2090,11 @@ function facts(x, y, self) {
   let nb = null, nd = Infinity; for (const p of world.places) { if (p === self) continue; const d = Math.hypot(p.x - x, p.y - y); if (d < nd) { nd = d; nb = p; } }
   f.near = nb ? { p: nb, leagues: Math.max(1, Math.round(nd * KM / LEAGUE)), dir: compass(x - nb.x, y - nb.y) } : null;
   const seaName = f.coastal && nearestSeaLabel(x, y, bodiesNear(i, 2)); f.sea = seaName ? seaInText(seaName) : null;
+  // A lake under the spot, or within two cells of dry land, and its name if it has one.
+  const lk = water ? null : lakesNear(i, lake ? 0 : 2, x, y);
+  f.lakeside = !!lk && !lake && lk.lakes.length > 0; f.lakeLabel = lk && lk.label; f.lakeName = f.lakeLabel ? seaInText(f.lakeLabel.text) : null;
   f.goods = [];
-  if (!water) {
+  if (!water && !lake) {
     const rng = mulberry32(hash3(i, world.seed, 31)); const pool = (GOODS[f.b] || []).slice();
     if (E > 900) pool.push(pick(rng, ['iron', 'copper', 'tin', 'marble']));
     if (f.coastal) pool.push(pick(rng, f.b === B.TUNDRA || f.b === B.ICE || f.temp < 3 ? ['walrus ivory', 'whale oil', 'salted fish'] : ['salted fish', 'pearls', 'sea salt']));
@@ -2087,18 +2107,20 @@ function factsHTML(f, p) {
   const rows = [];
   rows.push(['Position', `<span class="mono">${fmtPos(f.x, f.y)}</span>`]);
   if (f.water && !f.lake) rows.push(['Depth', `<span class="mono">${fmtInt(-f.E)} m</span>`]);
-  // A few metres above the sea reads as a missing figure when it rounds to '0 m'.
-  else rows.push(['Elevation', f.E < 5 ? 'At sea level' : `<span class="mono">${fmtInt(f.E)} m</span>`]);
+  // A few metres above the sea reads as a missing figure when it rounds to '0 m'. On a lake it is the water's surface.
+  else rows.push([f.lake ? 'Surface' : 'Elevation', f.E < 5 ? 'At sea level' : `<span class="mono">${fmtInt(f.E)} m</span>`]);
   // Out at sea too, this is the climate's mean air temperature, not the water's.
   rows.push(['Climate', `<span class="mono">${Math.round(f.temp)} °C</span> mean` + (f.water && !f.lake ? '' : `<span class="sep" aria-hidden="true">·</span><span class="mono">${fmtInt(f.precip)} mm</span> a year`)]);
-  if (!f.water || f.lake) rows.push(['Land', esc(f.biome)]);
-  if (!f.water) {
-    const bits = [f.coastal ? `On the coast of ${esc(f.sea || 'the sea')}` : 'Inland']; if (f.river) bits.push(`on ${esc(f.river.on)}`);
+  if (!f.water && !f.lake) {
+    rows.push(['Land', esc(f.biome)]);
+    const bits = [f.coastal ? `On the coast of ${esc(f.sea || 'the sea')}` : f.lakeside ? (f.lakeName ? `On the shore of ${esc(f.lakeName)}` : 'On a lake shore') : 'Inland'];
+    if (f.coastal && f.lakeside) bits.push(`by ${f.lakeName ? esc(f.lakeName) : 'a lake'}`);
+    if (f.river) bits.push(`on ${esc(f.river.on)}`);
     rows.push(['Setting', bits.join(', ')]);
   }
   // The realm's name goes to its capital's page, where it is renamed and recoloured; on the capital itself it is text.
   const rname = f.realm && `<span data-realm="${f.realm.place.id}">${esc(f.realm.display)}</span>`;
-  rows.push([f.water ? 'Waters of' : 'Realm', f.realm ? `<span class="swatch" style="background:${f.realm.color}"></span> ${p === f.realm.place ? rname : `<button class="link" data-goto="${f.realm.place.id}">${rname}</button>`}` : (f.water ? 'No realm' : 'Unclaimed')]);
+  rows.push([f.water || f.lake ? 'Waters of' : 'Realm', f.realm ? `<span class="swatch" style="background:${f.realm.color}"></span> ${p === f.realm.place ? rname : `<button class="link" data-goto="${f.realm.place.id}">${rname}</button>`}` : (f.water || f.lake ? 'No realm' : 'Unclaimed')]);
   if (p && p.pop) rows.push(['Population', `<span class="mono">~${fmtInt(p.pop)}</span>`]);
   if (f.near) rows.push(['Nearest', `${f.near.leagues} league${f.near.leagues === 1 ? '' : 's'} ${f.near.dir} of ${placeIn(f.near.p) !== f.near.p.name ? 'the ' : ''}<button class="link" data-goto="${f.near.p.id}">${esc(f.near.p.name.replace(/^The /, ''))}</button>`]);
   if (f.goods.length) rows.push(['Goods', esc(f.goods.join(', '))]);
@@ -2134,7 +2156,7 @@ function rumor(p) {
   // A toll is on goods: never on 'river trade'.
   const c = storyCtx(p), g = c.f.goods.find(x => x !== 'river trade'), town = !c.lm, R = c.realm;
   const T = [
-    () => c.coastal && `Fishermen ${town ? 'in' : 'near'} ${c.at} swear ${c.f.sea || 'the sea'} glows green on moonless nights, and the catch has doubled since it started.`,
+    () => (c.coastal || c.f.lakeside) && `Fishermen ${town ? 'in' : 'near'} ${c.at} swear ${c.coastal ? c.f.sea || 'the sea' : c.f.lakeName || 'the lake'} glows green on moonless nights, and the catch has doubled since it started.`,
     () => town && c.near && `A caravan bound for ${c.near.name} never arrived. Its cold campfire was found ${c.near.leagues} league${c.near.leagues === 1 ? '' : 's'} out, every crate still sealed.`,
     () => town && R && g && `${R.display} ${realmPlural(R) ? 'have' : 'has'} doubled the toll on ${g} leaving ${c.name}, and the tax collectors will not say why.`,
     () => town && c.river && `Every seventh spring ${c.river.on} runs the color of rust for a day. The elders of ${c.name} have been counting, and this is the seventh spring.`,
@@ -2170,6 +2192,7 @@ function buildPrompt(p) {
   L.push(f.realm ? `Realm: ${f.realm.display}${p.kind === 'capital' ? ' (this is its capital)' : ''}.${p.kind === 'landmark' ? '' : ` Its people speak the ${TONGUES[f.realm.tongue].label} tongue.`}${cap ? ` Its capital is ${cap.name}, ${leagues(Math.hypot(cap.x - p.x, cap.y - p.y))} ${compass(cap.x - p.x, cap.y - p.y)}.` : ''}` : 'Realm: none. It lies in unclaimed land.');
   L.push(`Terrain: ${f.biome}, ${fmtInt(Math.max(0, f.E))} m above sea level, mean temperature ${Math.round(f.temp)} °C, ${fmtInt(f.precip)} mm of rain a year.`);
   if (f.coastal) L.push(`It sits on the coast of ${f.sea || 'the sea'}.`);
+  if (f.lakeside) L.push(`It sits on the shore of ${f.lakeName || 'a lake'}.`);
   if (f.river) L.push(`It sits on ${f.river.on}.`);
   if (f.goods.length) L.push(`Local goods: ${f.goods.join(', ')}.`);
   if (c.nearby.length) { L.push('Nearby:'); for (const n of c.nearby) L.push(`- ${n.q.name} (${kindLabel(n.q).toLowerCase()}), ${leagues(n.d)} ${compass(n.q.x - p.x, n.q.y - p.y)}`); }
@@ -2440,14 +2463,20 @@ function bindLabel(l) {
   $('#lAngle').addEventListener('input', e => { once(); l.angle = +e.target.value; requestDraw(); markDirty(); });
   $('#lDelete').onclick = () => removeSel({ type: 'label', id: l.id });
 }
-const locTitle = (f, o) => f.water && !f.lake ? (nearestSeaLabel(o.x, o.y, new Set([D.body[f.i]])) || 'Open sea').replace(/^the /, 'The ') : f.biome;
+// The sea label that names the water at a spot, if there is one: the stretch of sea's, or the lake's.
+const waterLabel = (f, o) => f.lake ? f.lakeLabel : f.water ? nearestSeaLabel(o.x, o.y, new Set([D.body[f.i]]), true) : null;
+const locTitle = (f, o) => { const l = waterLabel(f, o); return l ? l.text.replace(/^the /, 'The ') : f.water ? 'Open sea' : f.biome; };
 function locHTML(o) {
   const f = facts(o.x, o.y, null), title = locTitle(f, o);
+  // Water can be named from its own page; once it has a name, the button opens that label to change it.
+  const wet = f.water || f.lake, named = wet && waterLabel(f, o);
   return `<div><p class="eyebrow">Location${SHOW_ON_MAP}</p><h2 class="display">${esc(title)}</h2></div>
     ${factsHTML(f, null)}
-    ${f.water || f.lake ? '' : `<div class="row"><button class="btn sm" id="locTown">Found a town here</button><button class="btn sm" id="locLabel">Label this spot</button></div>`}`;
+    ${wet ? `<div class="row"><button class="btn sm" id="locWater"${named ? ` data-label="${named.id}"` : ''}>${named ? 'Rename this water' : 'Name this water'}</button></div>`
+    : `<div class="row"><button class="btn sm" id="locTown">Found a town here</button><button class="btn sm" id="locLabel">Label this spot</button></div>`}`;
 }
 function bindLoc(o) {
+  const w = $('#locWater'); if (w) w.onclick = () => { if (w.dataset.label) select({ type: 'label', id: +w.dataset.label }); else addLabel(o.x, o.y, 'sea', ''); refocus('#lText'); };
   const t = $('#locTown'); if (t) t.onclick = () => { pushUndo({ meta: true }); const p = makePlace('town', o.x, o.y, Math.random); world.places.push(p); recomputePolitics(); select({ type: 'place', id: p.id }); refocus('#pTitle'); refreshCodex(); markDirty(); toast(`Founded ${p.name}.`); };
   const l = $('#locLabel'); if (l) l.onclick = () => addLabel(o.x, o.y, 'region', '');
 }

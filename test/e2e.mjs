@@ -340,6 +340,21 @@ const eyebrowLine = await desk.evaluate(() => {
 });
 ok(Math.abs(eyebrowLine.swatch - eyebrowLine.name) <= 4 && eyebrowLine.showTop - eyebrowLine.eyebrowTop < 12, `a realm's colour stays beside its name on a capital's page (${JSON.stringify(eyebrowLine)})`);
 
+// A town's Realm row goes to its capital's page, where the realm's population is given to two figures, not to the
+// person. On the capital itself the realm's name is plain text.
+{
+  const town = (await desk.evaluate(() => window.terra.places())).find((p) => p.kind === 'town' && p.landTongue);
+  await desk.evaluate((id) => window.terra.select({ type: 'place', id }), town.id);
+  const realmRow = () => desk.evaluate(() => { const dt = [...document.querySelectorAll('#pane-inspect .facts dt')].find((d) => d.textContent === 'Realm'); return dt.nextElementSibling.querySelector('button.link') ? 'link' : 'text'; });
+  const onTown = await realmRow();
+  await desk.click('#pane-inspect .facts button.link:has([data-realm])');
+  const there = await desk.evaluate(() => ({ kind: document.querySelector('#pKind').value, note: document.querySelector('#pane-inspect .section .note').textContent }));
+  const people = +there.note.match(/about ([\d,]+) people/)[1].replace(/,/g, '');
+  ok(onTown === 'link' && there.kind === 'capital' && await realmRow() === 'text' && String(people).replace(/0+$/, '').length <= 2, `a town's realm links to its capital, whose page rounds the realm's people ("${there.note.match(/about [\d,]+ people/)}")`);
+  // Going to the capital centred the map on it; put the whole map back in view for the tests that click on it.
+  await desk.evaluate(() => { window.terra.select(null); window.terra.fitView(); });
+}
+
 // A place by a sea labelled "Gulf of ..." is on the coast of the Gulf of ...
 const settingOf = (id) => desk.evaluate((id) => {
   window.terra.select({ type: 'place', id });

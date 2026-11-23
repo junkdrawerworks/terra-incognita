@@ -2096,7 +2096,9 @@ function factsHTML(f, p) {
     const bits = [f.coastal ? `On the coast of ${esc(f.sea || 'the sea')}` : 'Inland']; if (f.river) bits.push(`on ${esc(f.river.on)}`);
     rows.push(['Setting', bits.join(', ')]);
   }
-  rows.push([f.water ? 'Waters of' : 'Realm', f.realm ? `<span class="swatch" style="background:${f.realm.color}"></span> <span data-realm="${f.realm.place.id}">${esc(f.realm.display)}</span>` : (f.water ? 'No realm' : 'Unclaimed')]);
+  // The realm's name goes to its capital's page, where it is renamed and recoloured; on the capital itself it is text.
+  const rname = f.realm && `<span data-realm="${f.realm.place.id}">${esc(f.realm.display)}</span>`;
+  rows.push([f.water ? 'Waters of' : 'Realm', f.realm ? `<span class="swatch" style="background:${f.realm.color}"></span> ${p === f.realm.place ? rname : `<button class="link" data-goto="${f.realm.place.id}">${rname}</button>`}` : (f.water ? 'No realm' : 'Unclaimed')]);
   if (p && p.pop) rows.push(['Population', `<span class="mono">~${fmtInt(p.pop)}</span>`]);
   if (f.near) rows.push(['Nearest', `${f.near.leagues} league${f.near.leagues === 1 ? '' : 's'} ${f.near.dir} of ${placeIn(f.near.p) !== f.near.p.name ? 'the ' : ''}<button class="link" data-goto="${f.near.p.id}">${esc(f.near.p.name.replace(/^The /, ''))}</button>`]);
   if (f.goods.length) rows.push(['Goods', esc(f.goods.join(', '))]);
@@ -2292,7 +2294,7 @@ function placeHTML(p) {
       <div class="field"><label for="rTitle">Title</label><select id="rTitle">${ALL_TITLES.map(t => `<option ${t === p.realm.title ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></div>
       <div class="field"><label for="rTongue">Tongue</label><select id="rTongue">${TONGUE_IDS.map(t => `<option value="${t}" ${t === p.tongue ? 'selected' : ''}>${TONGUES[t].label}</option>`).join('')}</select></div>
       <div class="field"><span class="h3" style="text-transform:none;letter-spacing:0;font-weight:400;font-size:12px">Color</span><div class="swatches" role="group" aria-label="Realm color">${REALM_COLORS.map((c, k) => `<button data-color="${c}" style="background:${c}" aria-label="${REALM_COLOR_NAMES[k]}" title="${REALM_COLOR_NAMES[k]}" aria-pressed="${c === p.realm.color}"></button>`).join('')}<span class="swatch-name" aria-hidden="true">${REALM_COLOR_NAMES[REALM_COLORS.indexOf(p.realm.color)] || ''}</span></div></div>
-      <p class="note">${f.realm ? `<span class="mono">${fmtInt(f.realm.area * KM * KM)}</span> km², ${f.realm.count} settlement${f.realm.count === 1 ? '' : 's'}, about <span class="mono">${fmtInt(f.realm.pop)}</span> people.` : ''} New places founded here take their names from its tongue.</p>
+      <p class="note">${f.realm ? `<span class="mono">${fmtInt(f.realm.area * KM * KM)}</span> km², ${f.realm.count} settlement${f.realm.count === 1 ? '' : 's'}, about <span class="mono">${fmtInt(roundSig(f.realm.pop, 2))}</span> people.` : ''} New places founded here take their names from its tongue.</p>
     </div>`;
   }
   const busy = draft.busy && draft.placeId === p.id;

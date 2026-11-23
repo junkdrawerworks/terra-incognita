@@ -10,7 +10,7 @@ and sea stop them. Every town has a page for its story.
 <p align="center">
   <img src="docs/phone-world.png" alt="A generated continent in shaded relief, with five realms outlined in color, named rivers, and capitals marked with stars" width="250">
   &nbsp;
-  <img src="docs/phone-sketch.png" alt="A hand-drawn island with two snowy ranges and a river, and a second island being sketched as a loop in the sea" width="250">
+  <img src="docs/phone-sketch.png" alt="A hand-drawn island in shaded relief, with two snowy ranges and named rivers and no towns yet, and a second island being sketched as a loop in the sea beside it" width="250">
   &nbsp;
   <img src="docs/phone-place.png" alt="The page for a capital: its coast and river, realm, population and local goods, its realm's name, title, tongue and colour, and a rumor rolled from the map kept in its notes" width="250">
 </p>
@@ -36,6 +36,9 @@ and sea stop them. Every town has a page for its story.
 - **Keyboard.** Every tool has a letter (V, P, R…), [ and ] size the brush, F shows the whole map, and Ctrl S saves
   the world file; the World tab lists them.
 - **Two looks.** Terrain is shaded relief; Atlas is parchment with drawn mountains and trees.
+
+  <img src="docs/desktop.png" alt="The Atlas look on a laptop: the starting continent on parchment, with drawn mountains and forests, five realms outlined in colour and named rivers, beside the page for the capital Ninten" width="640">
+
 - **No account and no server.** Your world saves itself in your browser. *Save world file* and *Open world file* keep it
   or move it to another device, and *Save map image* makes a picture of it. It works offline and installs to a phone's
   home screen.

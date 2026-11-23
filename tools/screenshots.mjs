@@ -42,6 +42,9 @@ async function open(viewport, deviceScaleFactor, touch, scheme = 'light') {
   }, SEED);
   await page.goto(base);
   await page.evaluate(() => document.fonts.ready);
+  // The readout over the map follows a mouse. These pictures are drawn with a mouse even on a phone, which never shows
+  // it, so it stays out of them.
+  if (touch) await page.addStyleTag({ content: '#status{display:none!important}' });
   return page;
 }
 const S = (page, fn, arg) => page.evaluate(fn, arg);
@@ -60,19 +63,17 @@ async function drag(page, points, { steps = 6, up = true } = {}) {
 // Off at once, with no fade: [hidden] alone leaves a toast that is showing on screen while it fades.
 const hideToast = (page) => S(page, () => { const t = document.getElementById('toast'); t.hidden = true; t.style.transition = 'none'; t.classList.remove('show'); });
 
-// A hand-drawn island: coast, two ranges and a river, on blank ocean.
+// A hand-drawn island: coast, two ranges and a river, on blank ocean, with no realms on it yet.
 async function sketchIsland(page) {
   await S(page, () => window.terra.startBlank());
   await drag(page, [[120, 70], [210, 52], [300, 64], [372, 98], [384, 160], [350, 222], [282, 246], [200, 240], [132, 214], [96, 160], [104, 104], [120, 70]], { steps: 5 });
   await page.click('.chip[data-v="range"]');
   await page.click('.chip[data-v="high"]');
   await drag(page, [[150, 104], [215, 92], [290, 104], [340, 132]], { steps: 8 });
-  await page.click('.chip[data-v="medium"]');
   await drag(page, [[170, 196], [232, 210], [290, 196]], { steps: 8 });
+  await page.click('.chip[data-v="medium"]'); // back to Medium, for the Land loop drawn later
   await page.click('.chip[data-v="river"]');
   await drag(page, [[262, 142], [240, 160], [262, 186], [250, 214], [256, 252]], { steps: 8 });
-  await page.click('#tab-world');
-  await page.click('#wPopulate');
   await hideToast(page);
 }
 
@@ -83,16 +84,22 @@ async function sketchIsland(page) {
   await page.waitForTimeout(200);
   await save(await page.screenshot(), 'docs/phone-world.png');
 
+  // The island as drawn, a step in from the whole map, before any realms and their names, with a second island being
+  // drawn as a loop off its north-east coast, clear of the compass and the zoom buttons.
   await sketchIsland(page);
-  await page.click('#tab-inspect');
   await page.click('.chip[data-v="land"]');
+  await S(page, () => window.terra.fitView());
+  await page.click('#zIn');
   // The options sit under the map on a phone, so picking one scrolls the top of the map away: bring it back.
   await S(page, () => { document.querySelector('.stage').scrollIntoView({ block: 'start' }); window.scrollBy(0, -12); });
-  await drag(page, [[400, 200], [446, 186], [462, 232], [440, 262], [404, 252]], { steps: 6, up: false });
+  await drag(page, [[394, 88], [426, 82], [440, 104], [422, 124], [396, 118]], { steps: 6, up: false });
   await page.waitForTimeout(100);
   await save(await page.screenshot(), 'docs/phone-sketch.png');
   await page.keyboard.press('Escape');
   await page.mouse.up();
+  await page.click('#tab-world');
+  await page.click('#wPopulate');
+  await hideToast(page);
 
   await S(page, () => window.terra.setTool('select'));
   const cap = (await S(page, () => window.terra.places())).find((p) => p.kind === 'capital');

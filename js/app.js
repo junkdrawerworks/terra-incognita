@@ -1336,6 +1336,9 @@ function buildToolbar() {
 }
 function setTool(id) {
   ui.tool = id; firstHint = false;
+  // A plain message about the last tool goes with it ('Landmarks need dry land.' over a label just placed); one with an
+  // Undo stays for its time, and a question waits for its answer.
+  if (!toastActs && !toastWaits) hideToast();
   document.querySelectorAll('#tools .tool').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tool === id)));
   renderToolOpts(); updateCursor(); requestDraw();
 }

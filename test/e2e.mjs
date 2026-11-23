@@ -2178,6 +2178,29 @@ await oldCtx.close();
   await c.close();
 }
 
+// A plain message about one tool goes when another tool is picked: 'Landmarks need dry land.' stayed up over a label
+// placed with the next tool. A toast with an Undo stays for its time.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const up = () => pg.evaluate(() => document.getElementById('toast').hidden ? '' : document.querySelector('#toast span').textContent);
+  await pg.keyboard.press('m');
+  const b = await pg.locator('#map').boundingBox(), sea = await pg.evaluate(() => window.terra.toScreen(8, 8));
+  await pg.mouse.click(b.x + sea.x, b.y + sea.y);
+  const refused = await up();
+  await pg.keyboard.press('t');
+  const afterSwitch = await up();
+  ok(refused === 'Landmarks need dry land.' && afterSwitch === '', `picking another tool takes away the last tool's message ("${refused}")`);
+  await pg.keyboard.press('p');
+  await pg.click('.chip[data-v="land"]');
+  const loop = []; for (let t = 0; t <= 8; t++) loop.push([60 + Math.cos(t * Math.PI / 4) * 16, 255 + Math.sin(t * Math.PI / 4) * 10]);
+  await drag(loop, 3, pg);
+  await pg.keyboard.press('v');
+  ok((await up()).startsWith('Land raised') && await pg.locator('#toast button', { hasText: 'Undo' }).isVisible(), 'but a toast with an Undo stays when the tool changes');
+  await c.close();
+}
+
 // Undo says so when it takes a place away, and that the notes written in it go too (notes aren't part of Undo, so
 // undoing the founding of a town takes them). Its Redo brings the town back, notes and all.
 {

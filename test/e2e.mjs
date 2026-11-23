@@ -2200,6 +2200,15 @@ await oldCtx.close();
   await pg.mouse.up();
   const after = (await pg.evaluate(() => window.terra.places())).find((p) => p.id === cap.id);
   ok(after.x === cap.x && (await pg.evaluate(() => window.terra.state())).name === 'Dragged', 'and Ctrl+Z with it over the sea takes back the drag, not the rename before it');
+  // Ctrl+Shift+Z likewise takes back only the drag, and brings back nothing Undo took.
+  await pg.keyboard.press('Control+z');
+  const named = (await pg.evaluate(() => window.terra.state())).name;
+  await pg.mouse.move(b.x + s.x, b.y + s.y); await pg.mouse.down();
+  for (let k = 1; k <= 8; k++) await pg.mouse.move(b.x + s.x + (t.x - s.x) * k / 8, b.y + s.y + (t.y - s.y) * k / 8);
+  await pg.keyboard.press('Control+Shift+z');
+  await pg.mouse.up();
+  const redone = (await pg.evaluate(() => window.terra.places())).find((p) => p.id === cap.id), st = await pg.evaluate(() => ({ ...window.terra.state(), redo: !document.getElementById('btnRedo').disabled }));
+  ok(named !== 'Dragged' && redone.x === cap.x && st.name === named && st.redo, `and so does Ctrl+Shift+Z, which leaves the undone rename undone ("${st.name}")`);
   await c.close();
 }
 

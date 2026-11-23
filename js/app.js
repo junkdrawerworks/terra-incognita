@@ -783,7 +783,7 @@ function applySnap(s) {
 }
 // A whole world brought back (from New world, Generate or Open) is named, as it was when it came.
 function undo() { if (settleGesture()) return; dropActionToast(); const s = undoStack.pop(); if (!s) return; const was = world.places; redoStack.push(applySnap(s)); afterRestore(s.world); if (s.world) toast(`Back to ${world.name}.`, { label: 'Redo', fn: redo }, 6000); else tellPlaces(was, true); }
-function redo() { settleGesture(); dropActionToast(); const s = redoStack.pop(); if (!s) return; const was = world.places; undoStack.push(applySnap(s)); afterRestore(s.world); if (s.world) toast(`${world.name} again.`, { label: 'Undo', fn: undo }, 6000); else tellPlaces(was, false); }
+function redo() { if (settleGesture()) return; dropActionToast(); const s = redoStack.pop(); if (!s) return; const was = world.places; undoStack.push(applySnap(s)); afterRestore(s.world); if (s.world) toast(`${world.name} again.`, { label: 'Undo', fn: undo }, 6000); else tellPlaces(was, false); }
 // Undo and Redo say so when places go or come back, and when notes go with them, since notes aren't part of Undo:
 // undoing the founding of a town takes the notes written in it since.
 function tellPlaces(was, undid) {
@@ -807,7 +807,7 @@ function tellPlaces(was, undid) {
 // Undo or Redo in the middle of a brush stroke or a drag (Ctrl+Z, or a second finger on the button) ends it first, so
 // the whole stroke or drag is one step, and the rest of it can't carry on with no step to take it back. A half-drawn
 // sketch goes. A drag let go of over water goes back where it was and takes its own step back: true then, and Undo
-// stops there rather than taking back the step before it too.
+// or Redo stops there rather than also taking back, or bringing back, another step.
 function settleGesture() {
   let back = false;
   if (stroke) { endStroke(); gesture = null; }

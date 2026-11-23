@@ -2446,6 +2446,7 @@ function changeKind(p, val) {
 // Where the places a realm held went when it ended: 'Its 9 places now belong to the Republic of Seraora.'
 function whereTheyWent(held) {
   const n = held.length, to = new Map(); let free = 0;
+  if (!n) return ''; // never 'Its 0 places now belong to undefined'
   for (const q of held) { const o = D.owner[cellAt(q.x, q.y)]; if (o >= 0) to.set(o, (to.get(o) || 0) + 1); else free++; }
   const names = [...to.keys()].map(o => realmMid(D.realms[o])), list = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0];
   const its = n === 1 ? 'Its one place' : `Its ${n} places`, k = n - free;

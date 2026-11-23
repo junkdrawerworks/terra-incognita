@@ -30,9 +30,11 @@ and sea stop them. Every town has a page for its story.
 - **Realms.** A capital claims the land around it until hills, deserts and sea make going further too costly, and its
   towns push the border out. Each realm has its own tongue, so towns founded inside it sound like they belong there.
 - **Places.** Tap any town or patch of ground to see its position, elevation, climate, river, nearest neighbour and
-  local goods. Keep notes for your lore, or roll a rumor built from the map around it. From the keyboard, Tab to the
-  map, pan it with the arrow keys and press Enter to read the spot in the middle. The Codex lists every place and every
-  sea, region and range named on the map, and finds words in your notes.
+  local goods, with distances in leagues of 4.8 km. Keep notes for your lore, or roll a rumor built from the map around
+  it. From the keyboard, Tab to the map, pan it with the arrow keys and press Enter to read the spot in the middle. The
+  Codex lists every place and every sea, region and range named on the map, and finds words in your notes.
+- **Keyboard.** Every tool has a letter (V, P, R…), [ and ] size the brush, F shows the whole map, and Ctrl S saves
+  the world file; the World tab lists them.
 - **Two looks.** Terrain is shaded relief; Atlas is parchment with drawn mountains and trees.
 - **No account and no server.** Your world saves itself in your browser. *Save world file* and *Open world file* keep it
   or move it to another device, and *Save map image* makes a picture of it. It works offline and installs to a phone's
@@ -47,7 +49,7 @@ npm start                     # or any static file server, then open http://loca
 npm test                      # draws a world in Chromium through the real page (needs Playwright)
 node tools/screenshots.mjs    # redraws docs/*.png and og.png (needs npm install for upng-js)
 node tools/make-icons.mjs     # redraws the PNG icons from icon.svg
-node scripts/build.mjs        # writes dist/artifact.html, a single-file copy for Claude's Artifact viewer
+node scripts/build.mjs        # writes dist/terra-incognita.html and dist/artifact.html, single-file copies for Claude's Artifact viewer
 ```
 
 In Claude, `dist/artifact.html` is published as an Artifact with the capabilities `{sample: {}, downloads: true}`:
@@ -67,9 +69,12 @@ To put it online with GitHub Pages: **Settings → Pages → Build and deploymen
 - `css/app.css`: the page, with light and dark palettes.
 - `fonts/`: IM Fell English and IM Fell English SC, Instrument Sans, and IBM Plex Mono (all SIL Open Font License),
   served from here so nothing loads from elsewhere.
+- `manifest.webmanifest`, `icon.svg`, `icon-180.png`, `icon-192.png`, `icon-512.png`, `icon-512-maskable.png`: the
+  name and icons for installing it to a home screen.
 - `sw.js`: keeps a copy for using offline. On a connection that isn't answering, a page opens from that copy after four seconds. `FILES` in it is a fingerprint of the files it keeps: change one and `npm test` says what to set it to, so a release never leaves the copy half old.
 - `scripts/build.mjs`: the single-file copy. Inside Claude, a town's page there can also ask Claude to draft its history
   from the map; on the site that button stays hidden.
 - `tools/screenshots.mjs`, `tools/make-icons.mjs`, `tools/icon-full-bleed.svg`: the pictures and icons.
 - `test/e2e.mjs`: plays it on a phone-sized screen and a laptop-sized one, and checks it still works offline.
+- `test/fixtures/`: a world file from an earlier build, which must keep opening.
 - `LICENSE`: MIT.

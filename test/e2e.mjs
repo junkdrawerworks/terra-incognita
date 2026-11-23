@@ -1132,6 +1132,16 @@ await oldCtx.close();
   await touch('touchEnd', []);
   await pg.waitForTimeout(400);
   ok((await look()).undo === undoBefore + 1, 'a stroke already under way when a second finger lands is kept');
+  // A brush keeps painting where a finger is held, so a finger held still a while has built something: a second finger
+  // then keeps it.
+  const heldBefore = await look(), h0 = await at(204, 146);
+  await touch('touchStart', [h0]);
+  await pg.waitForTimeout(1300);
+  await touch('touchStart', [h0, [h0[0] + 60, h0[1] + 60]]);
+  await touch('touchEnd', []);
+  await pg.waitForTimeout(400);
+  const heldAfter = await look();
+  ok(heldAfter.undo === heldBefore.undo + 1 && heldAfter.print.h !== heldBefore.print.h, 'a finger held still painting for over a second keeps what it painted when a second finger lands');
   await c.close();
 }
 

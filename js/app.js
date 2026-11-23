@@ -1826,8 +1826,8 @@ canvas.addEventListener('pointerdown', e => {
   const pt = local(e); ptrs.set(e.pointerId, pt);
   if (ptrs.size === 2) {
     // A second finger just after the first is a pinch, and whatever the first finger painted goes. A stroke well under
-    // way is kept.
-    if (stroke) { if (performance.now() - stroke.t0 < 300 || stroke.far < 12) cancelStroke(); else endStroke(); }
+    // way is kept, and so is a finger held still for a second or more, since a brush keeps painting where it's held.
+    if (stroke) { const age = performance.now() - stroke.t0; if (age < 300 || (stroke.far < 12 && age < 1000)) cancelStroke(); else endStroke(); }
     if (sketchDraft) { sketchDraft = null; requestDraw(); }
     // A drag the pinch cuts short keeps the ground it covered.
     if (gesture && gesture.type === 'drag' && gesture.moved) finishDrag(gesture);

@@ -2362,11 +2362,7 @@ function renderInspector() {
 }
 function bindGotos(pane) {
   pane.querySelectorAll('[data-goto]').forEach(b => b.onclick = () => { const p = world.places.find(q => q.id === +b.dataset.goto); if (p) { select({ type: 'place', id: p.id }); centerOn(p.x, p.y); refocus('#pTitle'); } });
-  // A tool named in the text picks that tool, and on a phone brings the map up to use it on.
-  pane.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => { if (b.dataset.kind) ui.settleKind = b.dataset.kind; setTool(b.dataset.tool); mapIntoView(); });
-  // Found new realms does what the World tab's button does, and shows the map it filled; focus goes to the capital the
-  // new welcome offers to start with.
-  pane.querySelectorAll('[data-act="populate"]').forEach(b => b.onclick = () => { populateRealms(); mapIntoView(); refocus('#pane-inspect [data-goto]'); });
+  bindToolLinks(pane, '#pane-inspect [data-goto]');
   // Show on map centres the map on what this page is about, and on a phone, where the map can be scrolled away above
   // the page, brings it into view.
   const show = $('#showOnMap', pane); if (show) show.onclick = () => { const o = findSel(ui.selected); if (o) { centerOn(o.x, o.y); mapIntoView(); } };
@@ -2378,6 +2374,12 @@ function refocus(sel) {
   const a = document.activeElement;
   if (a && a !== document.body && a.isConnected && a.getClientRects().length) return;
   const el = typeof sel === 'string' ? $(sel) : sel; if (el) el.focus();
+}
+// A tool named in the text picks that tool, and on a phone brings the map up to use it on. Found new realms does what
+// the World tab's button does, and shows the map it filled; focus goes to `after` in what is built then.
+function bindToolLinks(el, after) {
+  el.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => { if (b.dataset.kind) ui.settleKind = b.dataset.kind; setTool(b.dataset.tool); mapIntoView(); });
+  el.querySelectorAll('[data-act="populate"]').forEach(b => b.onclick = () => { populateRealms(); mapIntoView(); refocus(after); });
 }
 function mapIntoView() {
   if (!window.matchMedia('(max-width: 860px)').matches) return;
@@ -2672,7 +2674,9 @@ function renderCodex() {
     if (!items.length) continue; any = true;
     h += `<h3 class="group-h">${g.color ? `<span class="swatch" style="background:${g.color}"></span>` : ''}${esc(g.title)}</h3><div class="clist">` + items.map(row).join('') + `</div>`;
   }
-  if (!realms.length && !any) h = q ? '' : `<p class="note">No places yet. Use the settle tool to found one.</p>`;
+  // With nothing founded yet, it says what to do first: draw some land, or fill it.
+  if (!realms.length && !any) h = q ? '' : tally().land ? `<p class="note">No places yet. ${REALMS_LINK} fills the land, or pick ${toolLink('settle', 'Found a settlement')} to found one yourself.</p>`
+    : `<p class="note">No land yet, so no places. ${toolLink('sketch', 'Sketch')} a coast first.</p>`;
   // The names on the map itself: seas and lakes, regions and ranges, A to Z.
   const sortKey = l => l.text.replace(/^The /, '').toLowerCase();
   const labels = world.labels.filter(l => l.text.trim() && match(l.text)).sort((a, b) => sortKey(a) < sortKey(b) ? -1 : sortKey(a) > sortKey(b) ? 1 : 0);
@@ -2682,6 +2686,7 @@ function renderCodex() {
   if (!h) h = `<p class="note">Nothing by that name or in your notes yet.</p>`;
   $('#codexList').innerHTML = h;
   $('#codexList').querySelectorAll('.crow[data-id]').forEach(b => b.onclick = () => { const p = world.places.find(x => x.id === +b.dataset.id); if (p) { select({ type: 'place', id: p.id }); centerOn(p.x, p.y); refocus('#pTitle'); } });
+  bindToolLinks($('#codexList'), '#codexList .crow');
   $('#codexList').querySelectorAll('.crow[data-label]').forEach(b => b.onclick = () => { const l = world.labels.find(x => x.id === +b.dataset.label); if (l) { select({ type: 'label', id: l.id }); centerOn(l.x, l.y); refocus('#lText'); } });
 }
 

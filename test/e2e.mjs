@@ -168,6 +168,14 @@ ok(tip.includes('Sketch') && !/on the (left|right)|above|below/.test(tip), `the 
 const lastTip = () => S(() => [...document.querySelectorAll('#pane-inspect .tips li')].pop().textContent);
 ok((await lastTip()) === 'The World tab keeps it: Save map image makes a picture to show someone, and Save world file a copy that lasts.', 'the welcome ends on how to keep the world: a picture, and a file');
 
+// The Codex on open water says why it is empty and offers Sketch, which picks the tool. It told you to use 'the settle
+// tool', which isn't a tool's name, on a map with no land to found a place on.
+await page.click('#tab-codex');
+await page.keyboard.press('v');
+const codexEmpty = () => S(() => { const n = document.querySelector('#codexList .note'); return [n.textContent, [...n.querySelectorAll('button')].map((b) => b.dataset.tool || b.dataset.act)]; });
+const [blankCodex, blankLinks] = await codexEmpty();
+await page.click('#codexList .note [data-tool="sketch"]');
+ok(blankCodex === 'No land yet, so no places. Sketch a coast first.' && blankLinks.join() === 'sketch' && await S(() => document.querySelector('.tool[aria-pressed="true"]').dataset.tool === 'sketch'), `the Codex on open water says to sketch a coast, and its Sketch picks the tool ("${blankCodex}")`);
 // On open water there are no realms to found and nothing to flood, so nothing changes and it says so.
 await page.click('#tab-world');
 await page.click('#wPopulate');
@@ -207,6 +215,10 @@ ok(st.land > 15000, `a sketched loop becomes land (${st.land} cells)`);
 const firstLand = await page.textContent('#toast span');
 const firstLandSays = firstLand.match(/^Land rises from the sea: ([\d,]+) km², with (\d+) rivers\. Found new realms in the World tab fills it with towns\.$/);
 ok(firstLandSays && +firstLandSays[1].replace(/,/g, '') === st.land * 100 && +firstLandSays[2] > 1, `the first land out of the sea says how big it is and how many rivers it has ("${firstLand}")`);
+// With land and no places, the Codex offers Found new realms, or Found a settlement to found one yourself.
+await page.click('#tab-codex');
+const [landCodex, landLinks] = await codexEmpty();
+ok(landCodex === 'No places yet. Found new realms fills the land, or pick Found a settlement to found one yourself.' && landLinks.join() === 'populate,settle', `the Codex on land with no places offers Found new realms and Found a settlement ("${landCodex}")`);
 
 // A sea loop across its coast floods some of it.
 await page.click('.chip[data-v="sea"]');

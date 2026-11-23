@@ -107,6 +107,15 @@ const fitted = await S(() => {
   return { share: (scale[2] - scale[0]) / (b.x - a.x), mapRight: wrap.left + b.x, zoomLeft: zoom.left };
 });
 ok(fitted.share < 0.4 && fitted.mapRight <= fitted.zoomLeft + 0.5, `on a phone the scale bar takes ${Math.round(fitted.share * 100)}% of the map's width, and the zoom buttons stay off the map`);
+// Zoomed in, it keeps to about a third of the screen: it was sized by the whole map's width, and covered over half of
+// it. (A little over a third when the shortest step that fits under its own length is twice the one before.)
+const zoomShares = [];
+for (let k = 0; k < 8; k++) {
+  await page.click('#zIn'); await page.waitForTimeout(150);
+  zoomShares.push(await S(() => { const { scale } = window.terra.boxes(); return (scale[2] - scale[0]) / document.getElementById('map').getBoundingClientRect().width; }));
+}
+await S(() => window.terra.fitView());
+ok(zoomShares.every((x) => x <= 0.35), `zoomed in on a phone, the scale bar takes about a third of the screen at most (${zoomShares.map((x) => Math.round(x * 100) + '%').join(', ')})`);
 
 // Borders come from the land, the capitals and their towns, so a reload brings back the same realms.
 const realmRows = () => S(() => {

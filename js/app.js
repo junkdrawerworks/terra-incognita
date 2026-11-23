@@ -1006,7 +1006,7 @@ function drawMap(c, k, vw, vh, v, opt) {
 
   // ---- screen space
   c.setTransform(k, 0, 0, k, 0, 0);
-  const X0 = ox, Y0 = oy, MW = W * s, MH = H * s, sb = scaleBar(X0, Y0, MH, MW, s, vh);
+  const X0 = ox, Y0 = oy, MW = W * s, MH = H * s, sb = scaleBar(X0, Y0, MH, MW, s, vh, vw);
   c.save(); c.beginPath(); c.rect(X0, Y0, MW, MH); c.clip();
   if (atlas) drawGlyphs(c, v, vw, vh);
   if (L.grid && zr > 0.7) {
@@ -1198,12 +1198,12 @@ function drawCompass(c, X, Y, R, ink, halo) {
   c.restore();
 }
 // Where the scale bar goes in the map's bottom-left corner, how long it is, and the box painted behind it. The box
-// takes about 30% of the map's width at most, showing the first step when no step fits, though the bar is never so
-// short that its length, written centred on its end, sticks out of the box. The 0 at its start is left out when the
-// length would run into it. 10.5px IBM Plex Mono is 6.3px a letter.
+// takes about 30% of the map's width at most (of the screen's, vw, once zoomed in past it), showing the first step
+// when no step fits, though the bar is never so short that its length, written centred on its end, sticks out of the
+// box. The 0 at its start is left out when the length would run into it. 10.5px IBM Plex Mono is 6.3px a letter.
 const SCALE_STEPS = [5, 10, 20, 25, 50, 100, 150, 200, 250, 300, 500, 1000];
-function scaleBar(X0, Y0, MH, MW, s, vh) {
-  const X = Math.max(16, X0 + 14), Y = Math.min(vh - 18, Y0 + MH - 16), ppl = s * LEAGUE / KM, maxLen = Math.min(150, MW * 0.3 - 62);
+function scaleBar(X0, Y0, MH, MW, s, vh, vw) {
+  const X = Math.max(16, X0 + 14), Y = Math.min(vh - 18, Y0 + MH - 16), ppl = s * LEAGUE / KM, maxLen = Math.min(150, Math.min(MW, vw) * 0.3 - 62);
   const half = n => (String(n).length + 8) * 3.15; // half the width of "N leagues"
   let k = 0; while (k + 1 < SCALE_STEPS.length && SCALE_STEPS[k + 1] * ppl <= maxLen) k++;
   while (k + 1 < SCALE_STEPS.length && SCALE_STEPS[k] * ppl < half(SCALE_STEPS[k]) - 4) k++;
@@ -2608,7 +2608,7 @@ window.terra = {
   // Where the scale bar's box, the sea names and the latitude labels sit on the screen, as drawn: [left, top, right,
   // bottom] in CSS pixels.
   boxes: () => {
-    const s = view.s, sb = scaleBar(view.ox, view.oy, H * s, W * s, s, view.ch), seas = [], lats = [];
+    const s = view.s, sb = scaleBar(view.ox, view.oy, H * s, W * s, s, view.ch, view.cw), seas = [], lats = [];
     for (const l of world.labels) {
       const fs = l.size * s; if (l.kind !== 'sea' || fs < 6) continue;
       const st = labelStyle(l, ui.style === 'atlas'); ctx.save(); ctx.font = `${st.font} ${fs}px ${st.face}`; ctx.letterSpacing = `${(fs * st.sp).toFixed(1)}px`;

@@ -16,7 +16,7 @@
 // surprise: a pinch that paints nothing, a drag a pinch cuts short, a page left mid-stroke, Undo mid-stroke, a toast's
 // Undo, Undo naming the places it takes, Found new realms and Clear naming the notes they take, a refused file, and two
 // tabs on one world. And sketches that keep what's on the map: rivers drawn into and beside lakes, a range across a
-// lake's way out, and a river line across an inlet.
+// lake's way out, a river line across an inlet, and figure-8s and loops drawn twice round.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -776,6 +776,16 @@ await oldCtx.close();
   const run = along.slice(start, end - 1), beside = (await E((pts) => pts.map(([x, y]) => window.terra.riverNear(x, y, 2.5)), run)).filter(Boolean).length;
   const inletToast = await pg.textContent('#toast span');
   ok(beside >= run.length * 0.8 && /crossed the sea/.test(inletToast), `a river line across an inlet runs over the land after it (${beside} of ${run.length} points), and says what was left out ("${inletToast}")`);
+  // A figure-8 drawn as a Land loop raises both lobes, as two loops would, and a loop drawn twice round raises what one
+  // loop does. The figure-8 was refused as too small (its lobes cancelled out), and the loop drawn twice stayed sea.
+  await E(() => window.terra.startBlank());
+  await E(() => { const r = document.getElementById('optRough'); r.value = '0'; r.dispatchEvent(new Event('input')); });
+  const ring = (t0, t1, f) => { const o = []; for (let k = 0; k <= 48; k++) o.push(f(t0 + (t1 - t0) * k / 48)); return o; };
+  const eight = (t) => [240 + 60 * Math.sin(t), 150 + 40 * Math.sin(2 * t)], oval = (t) => [240 + 50 * Math.cos(t), 150 + 30 * Math.sin(t)];
+  const landFrom = async (...loops) => { await E(() => window.terra.startBlank()); for (const l of loops) await drag(l, 2, pg); return (await E(() => window.terra.state())).land; };
+  const lobes = await landFrom(ring(0, Math.PI, eight), ring(Math.PI, 2 * Math.PI, eight)), figure8 = await landFrom(ring(0, 2 * Math.PI, eight));
+  const once = await landFrom(ring(0, 2 * Math.PI, oval)), twice = await landFrom(ring(0, 4 * Math.PI, oval));
+  ok(lobes > 2000 && Math.abs(figure8 - lobes) < lobes * 0.1 && once > 2000 && Math.abs(twice - once) < once * 0.1, `a figure-8 raises both its lobes (${figure8} land cells, against ${lobes} for the lobes drawn one at a time), and a loop drawn twice round raises one loop's land (${twice} cells, against ${once})`);
   await c.close();
 }
 

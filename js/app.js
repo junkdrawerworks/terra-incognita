@@ -1383,20 +1383,28 @@ function chamfer(mask, bw, bh, target) {
 function sketchNoise(k) { sketchCount++; return makeNoise(hash3(world.seed, sketchCount + (Date.now() & 0xffff), k)); }
 function sketchLoop(pts, mode) {
   const n = pts.length / 2;
-  let area = 0; for (let k = 0, j = n - 1; k < n; j = k++) area += (pts[2 * j] * pts[2 * k + 1] - pts[2 * k] * pts[2 * j + 1]);
-  if (n < 3 || Math.abs(area / 2) < 8) { toast('Draw a bigger loop. The shape closes itself when you let go.'); return; }
+  const tooSmall = () => toast('Draw a bigger loop. The shape closes itself when you let go.');
+  if (n < 3) { tooSmall(); return; }
   const h = world.h, sea = world.sea, amp = ui.sketch.rough * 1.3, rel = HEIGHT_AMP[ui.sketch.height] || HEIGHT_AMP.medium;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (let k = 0; k < n; k++) { minX = Math.min(minX, pts[2 * k]); maxX = Math.max(maxX, pts[2 * k]); minY = Math.min(minY, pts[2 * k + 1]); maxY = Math.max(maxY, pts[2 * k + 1]); }
   const M = Math.ceil(amp * 1.5 + 16);
   const bx0 = clamp(Math.floor(minX) - M, 0, W - 1), bx1 = clamp(Math.ceil(maxX) + M, 0, W - 1), by0 = clamp(Math.floor(minY) - M, 0, H - 1), by1 = clamp(Math.ceil(maxY) + M, 0, H - 1);
+  // Inside is wherever the line winds round at least once, so a figure-8 fills both lobes, and a loop drawn round twice,
+  // or over its own start, fills as one loop would.
   const bw = bx1 - bx0 + 1, bh = by1 - by0 + 1, inside = new Uint8Array(bw * bh), xs = [];
+  let cells = 0;
   for (let y = 0; y < bh; y++) {
     const yc = by0 + y + 0.5; xs.length = 0;
-    for (let k = 0, j = n - 1; k < n; j = k++) { const x1 = pts[2 * j], y1 = pts[2 * j + 1], x2 = pts[2 * k], y2 = pts[2 * k + 1]; if ((y1 > yc) !== (y2 > yc)) xs.push(x1 + (yc - y1) / (y2 - y1) * (x2 - x1)); }
-    xs.sort((a, b) => a - b);
-    for (let q = 0; q + 1 < xs.length; q += 2) { const xa = Math.max(0, Math.ceil(xs[q] - 0.5 - bx0)), xb = Math.min(bw - 1, Math.floor(xs[q + 1] - 0.5 - bx0)); for (let x = xa; x <= xb; x++) inside[y * bw + x] = 1; }
+    for (let k = 0, j = n - 1; k < n; j = k++) { const x1 = pts[2 * j], y1 = pts[2 * j + 1], x2 = pts[2 * k], y2 = pts[2 * k + 1]; if ((y1 > yc) !== (y2 > yc)) xs.push([x1 + (yc - y1) / (y2 - y1) * (x2 - x1), y2 > y1 ? 1 : -1]); }
+    xs.sort((a, b) => a[0] - b[0]);
+    for (let q = 0, wind = 0; q + 1 < xs.length; q++) {
+      wind += xs[q][1]; if (!wind) continue;
+      const xa = Math.max(0, Math.ceil(xs[q][0] - 0.5 - bx0)), xb = Math.min(bw - 1, Math.floor(xs[q + 1][0] - 0.5 - bx0));
+      for (let x = xa; x <= xb; x++) if (!inside[y * bw + x]) { inside[y * bw + x] = 1; cells++; }
+    }
   }
+  if (cells < 8) { tooSmall(); return; }
   const dIn = chamfer(inside, bw, bh, 1), dOut = chamfer(inside, bw, bh, 0);
   let maxIn = 0; for (let i = 0; i < inside.length; i++) if (inside[i] && dIn[i] > maxIn) maxIn = dIn[i];
   const R = clamp(maxIn * 0.65, 4, 45), nz1 = sketchNoise(1), nz2 = sketchNoise(2), nz3 = sketchNoise(3);

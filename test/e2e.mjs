@@ -356,6 +356,23 @@ await desk.mouse.click(mapBox.x + at.x, mapBox.y + at.y);
 const setting = await settingOf(coastal.id);
 ok(setting.startsWith('On the coast of the Gulf of Testing'), `a sea's name reads as it should in a sentence (${coastal.name}: "${setting}")`);
 
+// A landmark's name reads right in the middle of a sentence ('the Tower of Ithigwial', 'the Veol Deep'), in rumors
+// and in the Nearest row, and a landmark has rumors of its own, not a town's well, woodcutters or tax collectors.
+const midBreak = /(?<![Tt]he)(?<=[a-z,]) (?:The [A-Z]|(?:Ruins|Tower|Temple|Shrine|Hollow|Field|Plain|Pillar) of )/;
+const rolled = await desk.evaluate(() => {
+  const out = [];
+  for (const p of window.terra.places()) {
+    window.terra.select({ type: 'place', id: p.id });
+    for (let k = 0; k < 8; k++) { document.getElementById('pRumor').click(); out.push([p.kind, document.getElementById('draftBox').textContent]); }
+    const dt = [...document.querySelectorAll('#pane-inspect .facts dt')].find((d) => d.textContent === 'Nearest');
+    if (dt) out.push(['nearest', dt.nextElementSibling.textContent]);
+  }
+  window.terra.select(null);
+  return out;
+});
+const midBroken = rolled.filter(([, t]) => midBreak.test(t)), townish = rolled.filter(([k, t]) => k === 'landmark' && /oldest well|Woodcutters|A stranger in|toll|caravan/.test(t));
+ok(rolled.length > 300 && !midBroken.length && !townish.length, `landmarks read right mid-sentence and have rumors of their own (${rolled.length} lines${midBroken.length ? '; broken: ' + midBroken[0][1] : ''}${townish.length ? '; a town\'s rumor on a landmark: ' + townish[0][1] : ''})`);
+
 // A rumor that wasn't kept stays with its place, not with whatever has its id in a new world.
 const firstCap = (await desk.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
 await desk.evaluate((id) => window.terra.select({ type: 'place', id }), firstCap.id);

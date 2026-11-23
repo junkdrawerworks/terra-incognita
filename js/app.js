@@ -139,6 +139,9 @@ const landmarkName = (sub, tg, rng) => pick(rng, LANDMARKS[sub].fmt).replace('%'
 const realmDisplay = r => r.title === 'Free Cities' ? `Free Cities of ${r.name}` : `The ${r.title} of ${r.name}`;
 const realmMid = r => r.display.replace(/^The /, 'the ');
 const kindLabel = p => p.kind === 'landmark' ? (LANDMARKS[p.sub] || LANDMARKS.ruin).label : KINDS[p.kind].label;
+// A place's name in the middle of a sentence: a landmark called 'The Veol Deep' or 'Tower of Ithigwial' reads 'the Veol
+// Deep' and 'the Tower of Ithigwial' there; 'Viheo Obelisk' and every town stay as they are.
+const placeIn = p => p.kind !== 'landmark' ? p.name : /^The /.test(p.name) ? 'the ' + p.name.slice(4) : /^(Ruins|Tower|Temple|Shrine|Hollow|Field|Plain|Pillar) of /.test(p.name) ? 'the ' + p.name : p.name;
 
 // ------------------------------------------------------------------ state
 let world = null;
@@ -2091,7 +2094,7 @@ function factsHTML(f, p) {
   }
   rows.push([f.water ? 'Waters of' : 'Realm', f.realm ? `<span class="swatch" style="background:${f.realm.color}"></span> <span data-realm="${f.realm.place.id}">${esc(f.realm.display)}</span>` : (f.water ? 'No realm' : 'Unclaimed')]);
   if (p && p.pop) rows.push(['Population', `<span class="mono">~${fmtInt(p.pop)}</span>`]);
-  if (f.near) rows.push(['Nearest', `${f.near.leagues} league${f.near.leagues === 1 ? '' : 's'} ${f.near.dir} of <button class="link" data-goto="${f.near.p.id}">${esc(f.near.p.name)}</button>`]);
+  if (f.near) rows.push(['Nearest', `${f.near.leagues} league${f.near.leagues === 1 ? '' : 's'} ${f.near.dir} of ${placeIn(f.near.p) !== f.near.p.name ? 'the ' : ''}<button class="link" data-goto="${f.near.p.id}">${esc(f.near.p.name.replace(/^The /, ''))}</button>`]);
   if (f.goods.length) rows.push(['Goods', esc(f.goods.join(', '))]);
   return `<dl class="facts">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>`;
 }
@@ -2104,28 +2107,38 @@ function storyCtx(p) {
   const others = D.realms.filter(r => !f.realm || r.idx !== f.realm.idx);
   const range = world.labels.find(l => l.kind === 'range');
   return {
-    f, name: p.name, realm: f.realm, near: f.near ? { name: f.near.p.name, leagues: f.near.leagues, dir: f.near.dir } : null,
+    f, name: p.name, at: placeIn(p), lm: p.kind === 'landmark' ? p.sub : null, realm: f.realm, near: f.near ? { name: placeIn(f.near.p), leagues: f.near.leagues, dir: f.near.dir } : null,
     landmark: lm ? lm.q : null, other: others.length ? others[Math.floor(Math.random() * others.length)] : null, range: range ? range.text.replace(/^The /, '') : null,
     coastal: f.coastal, river: f.river, cold: f.temp < 3, dry: f.b === B.DESERT || f.b === B.STEPPE, forest: [B.TFOREST, B.TRAIN, B.TAIGA, B.TROP, B.JUNGLE].includes(f.b), high: f.E > 1100, capital: p.kind === 'capital', nearby,
   };
 }
+// A landmark's own rumors, by its kind: a ruin or a battlefield has no well, woodcutters or tax collectors.
+const LANDMARK_RUMORS = {
+  ruin: [n => `Shepherds who shelter in ${n} hear a bell at dusk, though no bell has hung there in living memory.`, n => `Someone has been digging in ${n} by night. Each morning the holes are filled in again, and the earth is warm.`],
+  tower: [n => `A light has burned at the top of ${n} for three nights running. The stair to it fell in a hundred years ago.`, n => `Travellers who climb ${n} swear that on a clear day you can see a coast that is on no map.`],
+  temple: [n => `The pilgrims who walk to ${n} each spring have started leaving offerings to a name nobody can read.`, n => `The doors of ${n} were found open one morning, and the bones under its altar were gone.`],
+  cave: [n => `Treasure-seekers who went down into ${n} came back with silver no smith can work, and none of them will go back.`, n => `A warm wind has started blowing out of ${n} at night, and it smells of bread.`],
+  battle: [n => `Farmers who plough beside ${n} still turn up arrowheads. This spring they turned up a banner nobody can put a realm to.`, n => `On the night of the old battle, campfires are seen across ${n}, though nobody has camped there in living memory.`],
+  monument: [n => `The carvings on ${n} have changed. The few who can read them say the new lines are a warning.`, n => `Someone leaves fresh flowers at the foot of ${n}, though the name carved on it belongs to nobody remembered.`],
+};
 function rumor(p) {
-  const c = storyCtx(p), g = c.f.goods[0] || 'grain';
+  const c = storyCtx(p), g = c.f.goods[0] || 'grain', town = !c.lm;
   const T = [
-    () => c.coastal && `Fishermen in ${c.name} swear ${c.f.sea || 'the sea'} glows green on moonless nights, and the catch has doubled since it started.`,
-    () => c.near && `A caravan bound for ${c.near.name} never arrived. Its cold campfire was found ${c.near.leagues} leagues out, every crate still sealed.`,
-    () => c.realm && `${c.realm.display} has doubled the toll on ${g} leaving ${c.name}, and the tax collectors will not say why.`,
-    () => c.river && `Every seventh spring ${c.river.on} runs the color of rust for a day. The elders of ${c.name} have been counting, and this is the seventh spring.`,
-    () => c.landmark && `Children in ${c.name} sing a rhyme about ${c.landmark.name} that no adult admits to teaching them.`,
-    () => `The oldest well in ${c.name} has started bringing up coins instead of water. They are stamped with a face nobody recognizes.`,
-    () => c.other && `Envoys from ${realmMid(c.other)} were seen in ${c.name}, buying every map of ${c.range ? 'the ' + c.range : 'the high country'} they could find.`,
-    () => c.high && `Shepherds above ${c.name} report a new pass through the peaks, one that was not there last winter.`,
-    () => c.cold && `A hunter walked into ${c.name} at midsummer with frost still on their coat and no memory of the last three weeks.`,
-    () => c.dry && `A buried street has surfaced in the sands outside ${c.name}. Its lamps are still lit.`,
-    () => c.forest && `Woodcutters from ${c.name} refuse to fell any tree carved with a spiral. Each morning there are more spirals.`,
+    () => c.coastal && `Fishermen ${town ? 'in' : 'near'} ${c.at} swear ${c.f.sea || 'the sea'} glows green on moonless nights, and the catch has doubled since it started.`,
+    () => town && c.near && `A caravan bound for ${c.near.name} never arrived. Its cold campfire was found ${c.near.leagues} leagues out, every crate still sealed.`,
+    () => town && c.realm && `${c.realm.display} has doubled the toll on ${g} leaving ${c.name}, and the tax collectors will not say why.`,
+    () => town && c.river && `Every seventh spring ${c.river.on} runs the color of rust for a day. The elders of ${c.name} have been counting, and this is the seventh spring.`,
+    () => town && c.landmark && `Children in ${c.name} sing a rhyme about ${placeIn(c.landmark)} that no adult admits to teaching them.`,
+    () => town && `The oldest well in ${c.name} has started bringing up coins instead of water. They are stamped with a face nobody recognizes.`,
+    () => town && c.other && `Envoys from ${realmMid(c.other)} were seen in ${c.name}, buying every map of ${c.range ? 'the ' + c.range : 'the high country'} they could find.`,
+    () => c.high && `Shepherds above ${c.at} report a new pass through the peaks, one that was not there last winter.`,
+    () => town && c.cold && `A hunter walked into ${c.name} at midsummer with frost still on their coat and no memory of the last three weeks.`,
+    () => c.dry && `A buried street has surfaced in the sands outside ${c.at}. Its lamps are still lit.`,
+    () => town && c.forest && `Woodcutters from ${c.name} refuse to fell any tree carved with a spiral. Each morning there are more spirals.`,
     () => c.capital && `The heir of ${realmMid(c.realm)} has not appeared in public for forty days. The palace says it is a fever.`,
-    () => `A stranger in ${c.name} pays in gold for anyone who can read an old map. On the map, ${c.name} is drawn as a lake.`,
-    () => !c.realm && `No realm claims ${c.name}, but someone has been collecting its taxes all the same.`,
+    () => town && `A stranger in ${c.name} pays in gold for anyone who can read an old map. On the map, ${c.name} is drawn as a lake.`,
+    () => town && !c.realm && `No realm claims ${c.name}, but someone has been collecting its taxes all the same.`,
+    ...(c.lm ? (LANDMARK_RUMORS[c.lm] || LANDMARK_RUMORS.ruin).map(fn => () => fn(c.at)) : []),
   ];
   const opts = T.map(fn => fn()).filter(Boolean);
   return opts[Math.floor(Math.random() * opts.length)];

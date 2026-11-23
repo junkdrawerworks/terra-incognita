@@ -120,6 +120,8 @@ button{touch-action:manipulation} /* a quick second tap on Undo doesn't zoom the
 .name-row{display:flex;align-items:center;gap:6px;margin-top:6px}
 .name-input{font-family:var(--f-display);font-size:26px;line-height:1.2;border:0;border-bottom:1px dashed var(--line-strong);background:transparent;padding:2px 0 4px;width:100%;min-width:0;border-radius:0}
 .name-input:focus{outline:none;border-bottom:1px solid var(--accent)}
+/* A place's heading is for screen readers; when keyboard focus lands on it, the ring goes round the name it heads. */
+.place-head:has(#pTitle:focus-visible){outline:2px solid var(--focus);outline-offset:4px;border-radius:4px}
 .icon-btn{width:32px;height:32px;flex:none;border:1px solid var(--line-strong);border-radius:8px;background:var(--panel);color:var(--muted);display:grid;place-items:center;cursor:pointer}
 .icon-btn:hover{color:var(--ink);background:var(--panel-2)}
 .swatch{display:inline-block;width:11px;height:11px;border-radius:3px;border:1px solid rgba(0,0,0,.25);vertical-align:-1px;flex:none}

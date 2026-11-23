@@ -1345,7 +1345,7 @@ function renderToolOpts() {
     if (g === 'settle') ui.settleKind = v; else if (g === 'landmark') ui.landmarkKind = v; else if (g === 'label') ui.labelKind = v;
     else if (g === 'skmode') ui.sketch.mode = v; else if (g === 'skh') ui.sketch.height = v;
     if (g === 'skmode' || g === 'skh') savePrefs();
-    renderToolOpts();
+    renderToolOpts(); refocus(el.querySelector(`.chip[data-g="${g}"][data-v="${v}"]`));
   });
   const lt = $('#optLabelText'); if (lt) lt.oninput = () => { ui.labelText = lt.value; };
   const ro = $('#optRough'); if (ro) ro.oninput = () => { ui.sketch.rough = +ro.value; $('#optRoughOut').textContent = ROUGH_WORD[ui.sketch.rough]; savePrefs(); };
@@ -1980,7 +1980,7 @@ function removeSel(sel) {
   else world.labels = world.labels.filter(l => l.id !== o.id);
   if (ui.selected && ui.selected.type === sel.type && ui.selected.id === sel.id) ui.selected = null;
   toast(`Removed ${sel.type === 'place' ? o.name : 'the label'}.`, { label: 'Undo', fn: undo });
-  requestDraw(); renderInspector(); refreshCodex(); markDirty();
+  requestDraw(); renderInspector(); refreshCodex(); markDirty(); refocus('#tab-inspect');
 }
 
 // ------------------------------------------------------------------ status bar
@@ -2044,7 +2044,7 @@ function factsHTML(f, p) {
     const bits = [f.coastal ? `On the coast of ${esc(f.sea || 'the sea')}` : 'Inland']; if (f.river) bits.push(`on ${esc(f.river.on)}`);
     rows.push(['Setting', bits.join(', ')]);
   }
-  rows.push([f.water ? 'Waters of' : 'Realm', f.realm ? `<span class="swatch" style="background:${f.realm.color}"></span> ${esc(f.realm.display)}` : (f.water ? 'No realm' : 'Unclaimed')]);
+  rows.push([f.water ? 'Waters of' : 'Realm', f.realm ? `<span class="swatch" style="background:${f.realm.color}"></span> <span data-realm="${f.realm.place.id}">${esc(f.realm.display)}</span>` : (f.water ? 'No realm' : 'Unclaimed')]);
   if (p && p.pop) rows.push(['Population', `<span class="mono">~${fmtInt(p.pop)}</span>`]);
   if (f.near) rows.push(['Nearest', `${f.near.leagues} league${f.near.leagues === 1 ? '' : 's'} ${f.near.dir} of <button class="link" data-goto="${f.near.p.id}">${esc(f.near.p.name)}</button>`]);
   if (f.goods.length) rows.push(['Goods', esc(f.goods.join(', '))]);
@@ -2129,12 +2129,20 @@ function renderInspector() {
   bindGotos(pane);
 }
 function bindGotos(pane) {
-  pane.querySelectorAll('[data-goto]').forEach(b => b.onclick = () => { const p = world.places.find(q => q.id === +b.dataset.goto); if (p) { select({ type: 'place', id: p.id }); centerOn(p.x, p.y); } });
+  pane.querySelectorAll('[data-goto]').forEach(b => b.onclick = () => { const p = world.places.find(q => q.id === +b.dataset.goto); if (p) { select({ type: 'place', id: p.id }); centerOn(p.x, p.y); refocus('#pTitle'); } });
   // A tool named in the text picks that tool, and on a phone brings the map up to use it on.
   pane.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => { if (b.dataset.kind) ui.settleKind = b.dataset.kind; setTool(b.dataset.tool); mapIntoView(); });
   // Show on map centres the map on what this page is about, and on a phone, where the map can be scrolled away above
   // the page, brings it into view.
   const show = $('#showOnMap', pane); if (show) show.onclick = () => { const o = findSel(ui.selected); if (o) { centerOn(o.x, o.y); mapIntoView(); } };
+}
+// A rebuild of the side panel or the tool's options takes away the control that had focus, leaving it on the page
+// itself: a screen reader says nothing, and the next Tab starts again from the top. Focus goes to the control's
+// counterpart in what was built instead, or to the new page's heading. A control that still has focus keeps it.
+function refocus(sel) {
+  const a = document.activeElement;
+  if (a && a !== document.body && a.isConnected && a.getClientRects().length) return;
+  const el = typeof sel === 'string' ? $(sel) : sel; if (el) el.focus();
 }
 function mapIntoView() {
   if (!window.matchMedia('(max-width: 860px)').matches) return;
@@ -2195,7 +2203,7 @@ function placeHTML(p) {
   const busy = draft.busy && draft.placeId === p.id;
   // The page's heading is the place's name, for a screen reader to find; on screen the name is the field under it.
   return `<div class="place-head"><h2 class="sr" id="pTitle" tabindex="-1">${esc(p.name)}</h2>
-      <p class="eyebrow"><span class="glyph">${kindGlyph(p, 15)}</span><span class="eb-text">${esc(kindLabel(p))}${f.realm ? ` · <span class="swatch" style="background:${f.realm.color}"></span>${esc(f.realm.display)}` : ''}</span>${SHOW_ON_MAP}</p>
+      <p class="eyebrow"><span class="glyph">${kindGlyph(p, 15)}</span><span class="eb-text">${esc(kindLabel(p))}${f.realm ? ` · <span class="swatch" style="background:${f.realm.color}"></span><span data-realm="${f.realm.place.id}">${esc(f.realm.display)}</span>` : ''}</span>${SHOW_ON_MAP}</p>
       <div class="name-row"><label class="sr" for="pName">Name</label><input id="pName" class="name-input" value="${esc(p.name)}" autocomplete="off" spellcheck="false">
       <button class="icon-btn" id="pReroll" title="Suggest another name" aria-label="Suggest another name">${svgIcon('<path d="M16 4v4h-4"/><path d="M15.5 8A6.5 6.5 0 1 0 16 12"/>', 17)}</button></div>
     </div>
@@ -2270,7 +2278,7 @@ function bindPlace(p) {
   nm.addEventListener('input', () => { once(); p.name = nm.value; named(); requestDraw(); markDirty(); });
   nm.addEventListener('change', () => { if (!p.name.trim()) { p.name = 'Nameless'; nm.value = p.name; named(); } refreshCodex(); requestDraw(); });
   $('#pReroll').onclick = () => { pushUndo({ meta: true }); p.name = freshName(() => p.kind === 'landmark' ? landmarkName(p.sub, p.tongue, Math.random) : makeName(p.tongue, Math.random)); nm.value = p.name; named(); requestDraw(); refreshCodex(); markDirty(); };
-  $('#pKind').onchange = e => changeKind(p, e.target.value);
+  $('#pKind').onchange = e => { changeKind(p, e.target.value); refocus('#pKind'); };
   $('#pLore').addEventListener('input', e => { p.lore = e.target.value; markDirty(); });
   $('#pDelete').onclick = () => removeSel({ type: 'place', id: p.id });
   $('#pRumor').onclick = () => { if (draft.busy) return; Object.assign(draft, { placeId: p.id, text: rumor(p), busy: false, kind: 'rumor', note: '', ctl: null }); renderDraft(); };
@@ -2278,12 +2286,14 @@ function bindPlace(p) {
   $('#dKeep').onclick = () => { const ta = $('#pLore'); p.lore = (p.lore.trim() ? p.lore.trimEnd() + '\n\n' : '') + draft.text.trim(); ta.value = p.lore; Object.assign(draft, { text: '', kind: '', note: '' }); renderDraft(); markDirty(); toast('Added to the notes.'); };
   $('#dDiscard').onclick = () => { Object.assign(draft, { text: '', kind: '', note: '' }); renderDraft(); };
   if (p.kind === 'capital' && p.realm) {
-    const rn = $('#rName');
-    rn.addEventListener('input', () => { once(); p.realm.name = rn.value; requestDraw(); markDirty(); });
-    rn.addEventListener('change', () => { if (!p.realm.name.trim()) { p.realm.name = 'Nameless'; rn.value = 'Nameless'; } renderInspector(); refreshCodex(); });
-    $('#rTitle').onchange = e => { once(); p.realm.title = e.target.value; requestDraw(); markDirty(); renderInspector(); refreshCodex(); };
+    // The realm's name and title change where the page shows them, without building the page again, which took away
+    // the field being left (or the control clicked next) along with its focus.
+    const rn = $('#rName'), shown = () => document.querySelectorAll(`#pane-inspect [data-realm="${p.id}"]`).forEach(e => { e.textContent = realmDisplay(p.realm); });
+    rn.addEventListener('input', () => { once(); p.realm.name = rn.value; shown(); requestDraw(); markDirty(); });
+    rn.addEventListener('change', () => { if (!p.realm.name.trim()) { p.realm.name = 'Nameless'; rn.value = 'Nameless'; shown(); requestDraw(); } refreshCodex(); });
+    $('#rTitle').onchange = e => { once(); p.realm.title = e.target.value; shown(); requestDraw(); markDirty(); refreshCodex(); };
     $('#rTongue').onchange = e => { once(); p.tongue = e.target.value; markDirty(); };
-    document.querySelectorAll('[data-color]').forEach(b => b.onclick = () => { once(); p.realm.color = b.dataset.color; renderTint(); requestDraw(); markDirty(); renderInspector(); refreshCodex(); });
+    document.querySelectorAll('[data-color]').forEach(b => b.onclick = () => { once(); p.realm.color = b.dataset.color; renderTint(); requestDraw(); markDirty(); renderInspector(); refreshCodex(); refocus(`[data-color="${p.realm.color}"]`); });
   }
   renderDraft();
 }
@@ -2341,7 +2351,7 @@ function locHTML(o) {
     ${f.water || f.lake ? '' : `<div class="row"><button class="btn sm" id="locTown">Found a town here</button><button class="btn sm" id="locLabel">Label this spot</button></div>`}`;
 }
 function bindLoc(o) {
-  const t = $('#locTown'); if (t) t.onclick = () => { pushUndo({ meta: true }); const p = makePlace('town', o.x, o.y, Math.random); world.places.push(p); recomputePolitics(); select({ type: 'place', id: p.id }); refreshCodex(); markDirty(); toast(`Founded ${p.name}.`); };
+  const t = $('#locTown'); if (t) t.onclick = () => { pushUndo({ meta: true }); const p = makePlace('town', o.x, o.y, Math.random); world.places.push(p); recomputePolitics(); select({ type: 'place', id: p.id }); refocus('#pTitle'); refreshCodex(); markDirty(); toast(`Founded ${p.name}.`); };
   const l = $('#locLabel'); if (l) l.onclick = () => addLabel(o.x, o.y, 'region', '');
 }
 
@@ -2366,7 +2376,7 @@ function renderCodex() {
   }
   if (!realms.length && !any) h = `<p class="note">${q ? 'Nothing by that name yet.' : 'No places yet. Use the settle tool to found one.'}</p>`;
   $('#codexList').innerHTML = h;
-  $('#codexList').querySelectorAll('.crow').forEach(b => b.onclick = () => { const p = world.places.find(x => x.id === +b.dataset.id); if (p) { select({ type: 'place', id: p.id }); centerOn(p.x, p.y); } });
+  $('#codexList').querySelectorAll('.crow').forEach(b => b.onclick = () => { const p = world.places.find(x => x.id === +b.dataset.id); if (p) { select({ type: 'place', id: p.id }); centerOn(p.x, p.y); refocus('#pTitle'); } });
 }
 
 // ------------------------------------------------------------------ tabs, world tab
@@ -2519,7 +2529,7 @@ window.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     if (!$('#newMenu').hidden) { closeNewMenu(); $('#btnNew').focus(); return; }
     if (sketchDraft) { sketchDraft = null; gesture = null; requestDraw(); return; }
-    select(null); return;
+    select(null); refocus('#tab-inspect'); return;
   }
   // Delete and Backspace remove what is selected from the map or the tools, not from a button on the side panel (some
   // screen reader users press Backspace there for Back), the New world menu or a toast; the place page has its Remove.

@@ -333,7 +333,7 @@ ok(JSON.stringify(await desk.evaluate(() => ['.tool', '#btnUndo', '.chip', '.zoo
 // when the name wraps in the narrow panel.
 const eyebrowLine = await desk.evaluate(() => {
   const cap = window.terra.places().find((p) => p.kind === 'capital'); window.terra.select({ type: 'place', id: cap.id });
-  const sw = document.querySelector('#pane-inspect .eyebrow .swatch'), r = document.createRange(), t = sw.nextSibling; r.setStart(t, 0); r.setEnd(t, 1);
+  const sw = document.querySelector('#pane-inspect .eyebrow .swatch'), r = document.createRange(), t = sw.nextSibling.firstChild || sw.nextSibling; r.setStart(t, 0); r.setEnd(t, 1);
   const a = sw.getBoundingClientRect(), b = r.getBoundingClientRect(), show = document.getElementById('showOnMap').getBoundingClientRect();
   window.terra.select(null);
   return { swatch: Math.round(a.top + a.height / 2), name: Math.round(b.top + b.height / 2), showTop: Math.round(show.top), eyebrowTop: Math.round(document.querySelector('#pane-inspect .eyebrow').getBoundingClientRect().top) };
@@ -920,6 +920,62 @@ await oldCtx.close();
   const row = await pg.getByRole('button', { name: /^Ninten Vale Capital · [\d,]+ people$/ }).count();
   ok(heading === 1 && typed === 1 && JSON.stringify(fields) === '["Name","Realm name"]' && groups[0] === groups[1] && groups[0] > 3 && row === 1,
     `a place's page has its name for a heading, kept in step as it is typed, its realm's field is Realm name, and the Codex's groups are headings with populations in people (${heading}, ${typed}, ${fields.join(' / ')}, ${groups.join(' of ')} groups, ${row})`);
+  await c.close();
+}
+
+// Keyboard only, a rebuild of the side panel or the tool's options keeps focus: a row in the Codex, a link to a place
+// and Found a town here focus the new page's heading, a colour, a chip, the title and the kind stay focused, the realm's
+// name is left with Tab for the next field, and Remove focuses the Inspect tab. Focus used to fall to the page itself,
+// where a screen reader says nothing and the next Tab starts again from the top.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => window.terra.newWorld(20417, 'continent'));
+  const focused = () => pg.evaluate(() => { const a = document.activeElement; return a.id || (a.dataset.color ? 'color ' + a.dataset.color : a.dataset.v ? `chip ${a.dataset.v} ${a.getAttribute('aria-pressed')}` : a.tagName); });
+  const seen = [];
+  // A row in the Codex, the welcome's capital, a Nearest link and Found a town here open a page and focus its heading.
+  await pg.click('#tab-codex');
+  const row = pg.locator('#codexList .clist').nth(1).locator('.crow').nth(1), rowName = await row.locator('.nm').textContent();
+  await row.focus();
+  await pg.keyboard.press('Enter');
+  seen.push(['codex', await focused(), await pg.evaluate((n) => document.activeElement.textContent === n, rowName)]);
+  await pg.keyboard.press('Tab');
+  seen.push(['codex, then Tab', await focused()]);
+  await pg.evaluate(() => window.terra.select(null));
+  await pg.focus('#pane-inspect .welcome [data-goto]'); await pg.keyboard.press('Enter');
+  seen.push(['welcome link', await focused()]);
+  await pg.focus('#pane-inspect .facts [data-goto]'); await pg.keyboard.press('Enter');
+  seen.push(['nearest link', await focused()]);
+  const nin = await pg.evaluate(() => window.terra.places().find((p) => p.name === 'Ninten'));
+  await pg.evaluate(([x, y]) => window.terra.select({ type: 'loc', x: x + 6, y: y + 6 }), [nin.x, nin.y]);
+  if (await pg.locator('#locTown').count()) { await pg.focus('#locTown'); await pg.keyboard.press('Enter'); seen.push(['found a town', await focused()]); }
+  else seen.push(['found a town', 'no button']);
+  // On a capital's page: a colour, the title, the realm's name and the kind keep focus where it was.
+  await pg.evaluate((id) => window.terra.select({ type: 'place', id }), nin.id);
+  await pg.focus('[data-color]:not([aria-pressed="true"])');
+  const col = await pg.evaluate(() => document.activeElement.dataset.color);
+  await pg.keyboard.press('Enter');
+  seen.push(['colour', await focused() === 'color ' + col ? 'same colour' : await focused(), await pg.evaluate(() => document.activeElement.getAttribute('aria-pressed'))]);
+  await pg.focus('#rTitle'); await pg.keyboard.press('ArrowDown');
+  await pg.selectOption('#rTitle', 'Empire');
+  seen.push(['title', await focused()]);
+  await pg.focus('#rName'); await pg.keyboard.press('End'); await pg.keyboard.type('x'); await pg.keyboard.press('Tab');
+  seen.push(['realm name, then Tab', await focused(), await pg.evaluate(() => document.querySelector('#pane-inspect .eyebrow').textContent.includes('The Empire of Ainpaeanix'))]);
+  await pg.selectOption('#pKind', 'city');
+  seen.push(['kind', await focused()]);
+  // A chip on the sketch tool's bar.
+  await pg.evaluate(() => window.terra.setTool('sketch'));
+  await pg.focus('.chip[data-g="skmode"][data-v="sea"]'); await pg.keyboard.press('Enter');
+  seen.push(['chip', await focused()]);
+  await pg.keyboard.press('Tab');
+  seen.push(['chip, then Tab', await focused()]);
+  // Remove on a place's page focuses the Inspect tab.
+  await pg.evaluate((id) => window.terra.select({ type: 'place', id }), nin.id);
+  await pg.focus('#pDelete'); await pg.keyboard.press('Enter');
+  seen.push(['remove', await focused()]);
+  const want = [['codex', 'pTitle', true], ['codex, then Tab', 'showOnMap'], ['welcome link', 'pTitle'], ['nearest link', 'pTitle'], ['found a town', 'pTitle'], ['colour', 'same colour', 'true'], ['title', 'rTitle'], ['realm name, then Tab', 'rTitle', true], ['kind', 'pKind'], ['chip', 'chip sea true'], ['chip, then Tab', 'chip range false'], ['remove', 'tab-inspect']];
+  ok(JSON.stringify(seen) === JSON.stringify(want), `after a rebuild, focus stays on the control or goes to the new page's heading, never the page itself (${seen.map((s) => s.join(': ')).join('; ')})`);
   await c.close();
 }
 

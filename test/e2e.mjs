@@ -13,13 +13,13 @@
 // Back mid-sketch taken for a slip, a browser that won't keep the autosave, and saved worlds the page can't read or
 // that a newer version wrote, kept aside and given back by Download the old save. Five seeds that must keep growing the
 // same worlds, and a world file from an earlier build that must keep opening. Then nothing lost and nothing undone by
-// surprise: a pinch that paints nothing, a drag a pinch cuts short, a town dragged into the sea, a page left
-// mid-stroke, an autosave mid-stroke, Undo mid-stroke, a toast's Undo, Undo naming the places it takes (and the rumor
-// rolled for one), Found new realms and Clear naming the notes they take, a refused file, and two tabs on one world.
-// And sketches that keep what's on the map: rivers drawn into and beside lakes, a range across a lake's way out, a
-// river line across an inlet, figure-8s and loops drawn twice round, a drawn river's source going under the sea, edits
-// that change nothing saying so, and each brush, with its ring under a finger. The single-file copy for Claude's
-// viewer, from a file and over http.
+// surprise: a pinch that paints nothing, a drag a pinch cuts short (and a wobble it doesn't keep), a town dragged into
+// the sea, a page left mid-stroke, an autosave mid-stroke, Undo mid-stroke, a toast's Undo, Undo naming the places it
+// takes (and the rumor rolled for one), Found new realms and Clear naming the notes they take, a refused file, and two
+// tabs on one world. And sketches that keep what's on the map: rivers drawn into and beside lakes, a range across a
+// lake's way out, a river line across an inlet, figure-8s and loops drawn twice round, a drawn river's source going
+// under the sea, edits that change nothing saying so, and each brush, with its ring under a finger. The single-file
+// copy for Claude's viewer, from a file and over http.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -1712,7 +1712,8 @@ await oldCtx.close();
 
 // A town dragged and then pinched before the finger lifts stays where it was dragged to: the move is saved, the borders
 // follow it and its page shows where it is now. The pinch used to take over the drag before it was finished, so the
-// move was drawn but never saved, and a reload put the town back.
+// move was drawn but never saved, and a reload put the town back. (A real drag: 40 px over 400 ms. One just begun, or
+// a wobble, goes back; see the next test.)
 {
   const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const pg = watch(await c.newPage());
@@ -1724,7 +1725,7 @@ await oldCtx.close();
   const cap = (await pg.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
   const s = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), [cap.x, cap.y]), a = [b.x + s.x, b.y + s.y];
   await touch('touchStart', [a]);
-  for (let k = 1; k <= 8; k++) { await touch('touchMove', [[a[0] + k * 5, a[1]]]); await pg.waitForTimeout(20); }
+  for (let k = 1; k <= 8; k++) { await touch('touchMove', [[a[0] + k * 5, a[1]]]); await pg.waitForTimeout(50); }
   const held = [a[0] + 40, a[1]];
   await touch('touchStart', [held, [held[0] + 60, held[1] + 60]]);
   await touch('touchMove', [held, [held[0] + 70, held[1] + 70]]);
@@ -1748,6 +1749,33 @@ await oldCtx.close();
   ok(moved.x > cap.x + 5 && back.x === moved.x && back.y === moved.y, `${cap.name}, dragged and then pinched, keeps its new place after a reload (${cap.x} across, then ${moved.x.toFixed(1)}, then ${back.x.toFixed(1)})`);
   ok(shown === fresh, `and its page shows where it is now (${shown})`);
   ok(areasBefore === await areas(), 'and the borders followed it');
+  await c.close();
+}
+
+// A pinch that starts on a town leaves it where it was, though the first finger wobbled a few pixels first: the same
+// rule as a brush stroke, a drag under 300 ms old, or under 12 px and under a second, goes. A 5 px wobble moved the town
+// about 90 km (a pixel is about 17 km on a phone's whole map) and took an Undo step.
+{
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const pg = watch(await c.newPage());
+  const cdp = await c.newCDPSession(pg);
+  await pg.goto(base);
+  const b = await pg.locator('#map').boundingBox();
+  const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
+  const town = (await pg.evaluate(() => window.terra.places())).find((p) => p.kind === 'town');
+  const s = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), [town.x, town.y]), a = [b.x + s.x, b.y + s.y];
+  const undoBefore = (await pg.evaluate(() => window.terra.state())).undo;
+  await touch('touchStart', [a]);
+  await touch('touchMove', [[a[0] + 2.5, a[1]]]);
+  await touch('touchMove', [[a[0] + 5, a[1]]]);
+  await pg.waitForTimeout(30);
+  const f = [a[0] + 5, a[1]];
+  await touch('touchStart', [f, [f[0] + 50, f[1] + 50]]);
+  for (let k = 1; k <= 5; k++) await touch('touchMove', [[f[0] - k * 4, f[1] - k * 4], [f[0] + 50 + k * 4, f[1] + 50 + k * 4]]);
+  await touch('touchEnd', []);
+  await pg.waitForTimeout(300);
+  const now = (await pg.evaluate(() => window.terra.places())).find((p) => p.id === town.id), undo = (await pg.evaluate(() => window.terra.state())).undo;
+  ok(now.x === town.x && now.y === town.y && undo === undoBefore, `a pinch that starts on ${town.name} with a 5 px wobble leaves it where it was, with no Undo step (moved ${Math.hypot(now.x - town.x, now.y - town.y).toFixed(1)} cells)`);
   await c.close();
 }
 

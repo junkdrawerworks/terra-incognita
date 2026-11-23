@@ -1899,8 +1899,9 @@ canvas.addEventListener('pointerdown', e => {
     // way is kept, and so is a finger held still for a second or more, since a brush keeps painting where it's held.
     if (stroke) { const age = performance.now() - stroke.t0; if (age < 300 || (stroke.far < 12 && age < 1000)) cancelStroke(); else endStroke(); }
     if (sketchDraft) { sketchDraft = null; requestDraw(); }
-    // A drag the pinch cuts short keeps the ground it covered.
-    if (gesture && gesture.type === 'drag' && gesture.moved) finishDrag(gesture);
+    // A drag the pinch cuts short keeps the ground it covered, by the same rule as a stroke: one just begun, or a
+    // finger that has only wobbled, puts the place back.
+    if (gesture && gesture.type === 'drag' && gesture.moved) { const g = gesture, age = performance.now() - g.t0; if (age < 300 || (g.far < 12 && age < 1000)) takeBackDrag(g); else finishDrag(g); }
     const [a, b] = [...ptrs.values()];
     gesture = { type: 'pinch', d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 }; return;
   }
@@ -1916,7 +1917,7 @@ canvas.addEventListener('pointerdown', e => {
   if (BRUSH_TOOLS.has(ui.tool)) { if (w.x >= 0 && w.y >= 0 && w.x < W && w.y < H) { startStroke(pt.x, pt.y); gesture = { type: 'stroke' }; } else gesture = { type: 'pan', lx: pt.x, ly: pt.y }; return; }
   if (ui.tool === 'select') {
     const hit = hitTest(pt.x, pt.y);
-    if (hit) { select(hit); const o = findSel(hit); gesture = { type: 'drag', hit, sx: pt.x, sy: pt.y, gx: w.x - o.x, gy: w.y - o.y, ox: o.x, oy: o.y, moved: false, kept: null }; return; }
+    if (hit) { select(hit); const o = findSel(hit); gesture = { type: 'drag', hit, sx: pt.x, sy: pt.y, gx: w.x - o.x, gy: w.y - o.y, ox: o.x, oy: o.y, t0: performance.now(), far: 0, moved: false, kept: null }; return; }
   }
   gesture = { type: 'click', sx: pt.x, sy: pt.y, lx: pt.x, ly: pt.y, moved: false };
 });
@@ -1939,6 +1940,7 @@ canvas.addEventListener('pointermove', e => {
       if (Math.hypot(wx - P[P.length - 2], wy - P[P.length - 1]) >= 0.6) { P.push(wx, wy); requestDraw(); }
     }
     else if (g.type === 'drag') {
+      g.far = Math.max(g.far, Math.hypot(pt.x - g.sx, pt.y - g.sy));
       if (!g.moved && Math.hypot(pt.x - g.sx, pt.y - g.sy) > 3) { g.moved = true; g.kept = stepRoom(); pushUndo({ meta: true }); }
       if (g.moved) { const o = findSel(g.hit); if (o) { const w = toWorld(pt.x, pt.y); o.x = clamp(w.x - g.gx, 0.5, W - 0.5); o.y = clamp(w.y - g.gy, 0.5, H - 0.5); requestDraw(); } }
     }
@@ -1969,7 +1971,7 @@ function finishDrag(g) {
   if (g.hit.type === 'place' && o) {
     const i = cellAt(o.x, o.y);
     if (!isLand(i) || D.lake[i]) {
-      o.x = g.ox; o.y = g.oy; takeBackStep(g.kept); requestDraw(); renderInspector();
+      takeBackDrag(g);
       toast(`${o.kind === 'landmark' ? 'Landmarks' : 'Settlements'} need dry land. ${o.name} is back where it was.`);
       return true;
     }
@@ -1978,6 +1980,8 @@ function finishDrag(g) {
   requestDraw(); renderInspector(); markDirty();
   return false;
 }
+// A moved place or label put back where it was, and its Undo step taken back with it.
+function takeBackDrag(g) { const o = findSel(g.hit); if (o) { o.x = g.ox; o.y = g.oy; } takeBackStep(g.kept); requestDraw(); renderInspector(); }
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
 canvas.addEventListener('pointerleave', e => { if (e.pointerType !== 'touch') { hover = null; scheduleStatus(); requestDraw(); } });

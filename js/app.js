@@ -2712,7 +2712,17 @@ function bindWorldTab() {
     const noted = world.places.filter(p => p.lore.trim()).map(p => p.name);
     pushUndo({ meta: true }); populate(1 + Math.floor(Math.random() * 999998)); ui.selected = null; recomputePolitics(); refreshPanels(); requestDraw(); markDirty();
     const lost = noted.length === 1 ? ` ${noted[0]} and its notes were replaced.` : noted.length === 2 ? ` ${noted[0]} and ${noted[1]} and their notes were replaced.` : noted.length ? ` ${noted.length} places with notes were replaced, ${noted[0]} and ${noted[1]} among them.` : '';
-    toast('New realms founded.' + lost, { label: 'Undo', fn: undo }, noted.length ? 10000 : 0);
+    toast(foundedSay() + lost, { label: 'Undo', fn: undo }, noted.length ? 10000 : 0);
+  };
+  // The realms just founded, by name: 'Founded the Republic of Tiassium and the Commonwealth of Lenma, with 18
+  // settlements.', or with four or more, how many and the largest.
+  const foundedSay = () => {
+    const rs = D.realms.slice().sort((a, b) => b.area - a.area), n = world.places.filter(p => p.kind !== 'landmark').length;
+    const towns = `${n} settlement${n === 1 ? '' : 's'}`;
+    if (!rs.length) return `Founded ${towns}, with no realm among them.`;
+    const names = rs.map(realmMid);
+    const which = rs.length >= 4 ? `${rs.length} realms, ${names[0]} the largest` : names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+    return `Founded ${which}, with ${towns}.`;
   };
   $('#wClear').onclick = () => {
     const np = world.places.length, nl = world.labels.length, noted = world.places.filter(p => p.lore.trim()).length;

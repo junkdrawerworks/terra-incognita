@@ -261,6 +261,8 @@ await page.click('#wPopulate');
 await page.waitForTimeout(300);
 st = await state();
 ok(st.realms >= 1 && st.places >= 8, `new realms fill the island (${st.realms} realms, ${st.places} places)`);
+const foundedSaid = await page.textContent('#toast span'), islandRealms = (await realmRows()).map((r) => r.replace(/ [\d,]+ km²$/, '').replace(/^The /, 'the '));
+ok(st.realms > 3 || (foundedSaid.startsWith('Founded the ') && islandRealms.every((r) => foundedSaid.includes(r)) && foundedSaid.endsWith(` settlements.`)), `and the toast names them ("${foundedSaid}")`);
 
 // Open a town's page and roll a rumor into its notes.
 await page.keyboard.press('v');
@@ -2347,7 +2349,17 @@ await oldCtx.close();
   ok(notes.some((t) => t.startsWith('Found new realms replaces every place and label, with their notes')) && notes.some((t) => t.startsWith('Clear places and labels')), 'the World tab says Found new realms and Clear replace notes too');
   await pg.click('#wPopulate');
   const founded = await said();
-  ok(founded === `New realms founded. ${ps[3].name} and its notes were replaced.`, `Found new realms names the place with notes it replaced ("${founded}")`);
+  // It names the realms it founded as the Codex names them ('the Republic of Tiassium' mid-sentence), the largest by
+  // the Codex's areas first, and how many settlements they have. It used to say only 'New realms founded.'
+  const codexRealms = await pg.evaluate(() => {
+    document.getElementById('tab-codex').click();
+    const rows = [...document.querySelector('#codexList .clist').querySelectorAll('.crow')].map((r) => [r.querySelector('.nm').textContent.replace(/^The /, 'the '), +r.querySelector('.meta.mono').textContent.replace(/\D/g, '')]);
+    document.getElementById('tab-world').click();
+    return rows.sort((a, b) => b[1] - a[1]).map((r) => r[0]);
+  });
+  const towns = (await pg.evaluate(() => window.terra.places())).filter((p) => p.kind !== 'landmark').length;
+  const realmsSaid = codexRealms.length >= 4 ? `${codexRealms.length} realms, ${codexRealms[0]} the largest` : codexRealms.length === 1 ? codexRealms[0] : codexRealms.slice(0, -1).join(', ') + ' and ' + codexRealms.at(-1);
+  ok(codexRealms.length >= 1 && founded === `Founded ${realmsSaid}, with ${towns} settlements. ${ps[3].name} and its notes were replaced.`, `Found new realms names the realms it founded and the place with notes it replaced ("${founded}")`);
   await pg.click('#toast button');
   for (const p of ps.slice(0, 3)) await write(p.id, 'Notes.');
   await pg.click('#tab-world');

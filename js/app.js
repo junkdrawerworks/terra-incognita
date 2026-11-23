@@ -1939,7 +1939,7 @@ function welcomeHTML() {
   return `<div class="welcome">${head}
     <p>${stats} ${origin}</p>
     <ul class="tips">
-      ${world.places.length ? `<li>Click any place or patch of ground to read about it${cap ? `, or start with <button class="link" data-goto="${cap.id}">${esc(cap.name)}</button>` : ''}.</li>` : `<li><b>Found new realms</b> in the World tab fills this land with towns, borders and names. You can also place them yourself with the settle tool.</li>`}
+      ${world.places.length ? `<li>Click any place or patch of ground to read about it${cap ? `, or start with <button class="link" data-goto="${cap.id}">${esc(cap.name)}</button>` : ''}.</li>` : `<li><b>Found new realms</b> in the World tab fills this land with towns, borders and names. Do it before you found your own: it replaces every place.</li>`}
       <li>Use <b>Sketch</b> to draw new coastlines, carve bays, add a mountain range or run a river. <b>Raise</b> and <b>Lower</b> paint the details. Rivers, lakes and borders follow the terrain.</li>
       <li>Found a <b>capital</b> with the settle tool to start a realm of your own.</li>
       <li>Every place has a page for notes. ${CL ? 'Roll a rumor, or ask Claude to draft a history from the geography.' : 'Roll a rumor for a story to start from.'}</li>
@@ -2171,8 +2171,21 @@ function bindWorldTab() {
     const wet = seaDry ? drowned(seaDry) : []; seaDry = null;
     if (wet.length) toast(`The sea rose over ${someWet(wet)}.`, { label: 'Undo', fn: undo });
   });
-  $('#wPopulate').onclick = () => { if (!landShare()) { toast('New realms need dry land. Sketch some first.'); return; } pushUndo({ meta: true }); populate(1 + Math.floor(Math.random() * 999998)); ui.selected = null; recomputePolitics(); refreshPanels(); requestDraw(); markDirty(); toast('New realms founded.', { label: 'Undo', fn: undo }); };
-  $('#wClear').onclick = () => { pushUndo({ meta: true }); world.places = []; world.labels = []; ui.selected = null; recomputePolitics(); refreshPanels(); requestDraw(); markDirty(); toast('Cleared every place and label.', { label: 'Undo', fn: undo }); };
+  // Both replace places that may have notes in them, so the toast names what went, and stays up longer when notes did.
+  $('#wPopulate').onclick = () => {
+    if (!landShare()) { toast('New realms need dry land. Sketch some first.'); return; }
+    const noted = world.places.filter(p => p.lore.trim()).map(p => p.name);
+    pushUndo({ meta: true }); populate(1 + Math.floor(Math.random() * 999998)); ui.selected = null; recomputePolitics(); refreshPanels(); requestDraw(); markDirty();
+    const lost = noted.length === 1 ? ` ${noted[0]} and its notes were replaced.` : noted.length === 2 ? ` ${noted[0]} and ${noted[1]} and their notes were replaced.` : noted.length ? ` ${noted.length} places with notes were replaced, ${noted[0]} and ${noted[1]} among them.` : '';
+    toast('New realms founded.' + lost, { label: 'Undo', fn: undo }, noted.length ? 10000 : 0);
+  };
+  $('#wClear').onclick = () => {
+    const np = world.places.length, nl = world.labels.length, noted = world.places.filter(p => p.lore.trim()).length;
+    if (!np && !nl) { toast('There are no places or labels to clear.'); return; }
+    pushUndo({ meta: true }); world.places = []; world.labels = []; ui.selected = null; recomputePolitics(); refreshPanels(); requestDraw(); markDirty();
+    const count = (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`;
+    toast(`Cleared ${[np && count(np, 'place'), nl && count(nl, 'label')].filter(Boolean).join(' and ')}${noted ? `, and the notes on ${noted === np ? (np === 1 ? 'it' : 'all of them') : `${noted} of them`}` : ''}.`, { label: 'Undo', fn: undo }, noted ? 10000 : 0);
+  };
   for (const k of ['realms', 'rivers', 'labels', 'names', 'grid']) $('#ly' + k[0].toUpperCase() + k.slice(1)).onchange = e => { ui.layers[k] = e.target.checked; requestDraw(); savePrefs(); };
   $('#wSaveFile').onclick = () => saveFile(slug() + '.json', serialize(), 'World file saved.');
   $('#wSavePng').onclick = savePng;

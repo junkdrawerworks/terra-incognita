@@ -938,6 +938,33 @@ await oldCtx.close();
   await c.close();
 }
 
+// Found new realms and Clear places and labels say which notes they replaced, and the World tab says they will.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const write = (id, text) => pg.evaluate(([id, text]) => { window.terra.select({ type: 'place', id }); const ta = document.getElementById('pLore'); ta.value = text; ta.dispatchEvent(new Event('input')); }, [id, text]);
+  const said = () => pg.textContent('#toast span');
+  const ps = await pg.evaluate(() => window.terra.places()), st = await pg.evaluate(() => window.terra.state());
+  await write(ps[3].id, 'A town with a story.');
+  await pg.click('#tab-world');
+  const notes = await pg.locator('#pane-world .note').allTextContents();
+  ok(notes.some((t) => t.startsWith('Found new realms replaces every place and label, with their notes')) && notes.some((t) => t.startsWith('Clear places and labels')), 'the World tab says Found new realms and Clear replace notes too');
+  await pg.click('#wPopulate');
+  const founded = await said();
+  ok(founded === `New realms founded. ${ps[3].name} and its notes were replaced.`, `Found new realms names the place with notes it replaced ("${founded}")`);
+  await pg.click('#toast button');
+  for (const p of ps.slice(0, 3)) await write(p.id, 'Notes.');
+  await pg.click('#tab-world');
+  await pg.click('#wClear');
+  const cleared = await said();
+  ok(cleared === `Cleared ${st.places} places and ${st.labels} labels, and the notes on 4 of them.`, `Clear says how many places and labels went, and how many had notes ("${cleared}")`);
+  // On a world with land and no places yet, the welcome says to found new realms before founding your own.
+  await pg.click('#tab-inspect');
+  ok((await pg.textContent('#pane-inspect .tips li')).includes('Do it before you found your own: it replaces every place.'), 'the welcome says to found new realms before founding your own');
+  await c.close();
+}
+
 const real = problems.filter((p) => !/ERR_INTERNET_DISCONNECTED|net::ERR_FAILED/.test(p));
 ok(real.length === 0, 'no errors and nothing loaded from elsewhere' + (real.length ? ':\n' + real.join('\n') : ''));
 

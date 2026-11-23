@@ -902,6 +902,38 @@ await oldCtx.close();
   await c.close();
 }
 
+// Up close, names stop growing: a realm's at 42 px and a sea's at three times its size on the whole map (they were 166
+// and 115 px tall at the closest zoom). A sea name is clicked and dragged where it is drawn, not where its old size
+// reached.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => document.fonts.ready);
+  await pg.evaluate(() => { window.terra.newWorld(20417, 'continent'); window.terra.fitView(); });
+  const tall = (r) => r[3] - r[1];
+  const fit = await pg.evaluate(() => window.terra.boxes());
+  for (let k = 0; k < 14; k++) await pg.keyboard.press('+');
+  await pg.waitForTimeout(100);
+  const close = await pg.evaluate(() => window.terra.boxes());
+  const realmMax = Math.max(0, ...close.realms.map(tall)), seaMax = Math.max(0, ...close.seas.map(tall)), seaFit = Math.max(...fit.seas.map(tall));
+  ok(realmMax <= 42 * 1.2 + 0.5 && seaMax <= seaFit * 3 + 0.5, `at the closest zoom realm names are ${Math.round(realmMax / 1.2)} px and sea names ${Math.round(seaMax / 1.2)} px (${Math.round(seaFit / 1.2)} px on the whole map)`);
+  const sea = (await pg.evaluate(() => window.terra.labels())).find((l) => l.kind === 'sea');
+  await pg.evaluate(([x, y]) => window.terra.centerOn(x, y), [sea.x, sea.y]);
+  await pg.waitForTimeout(100);
+  const at = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), [sea.x, sea.y]);
+  const box = (await pg.evaluate(() => window.terra.boxes())).seas.find((r) => r[0] < at.x && r[2] > at.x && r[1] < at.y && r[3] > at.y) || [0, 0, 0, 0];
+  const m = await pg.locator('#map').boundingBox(), cx = m.x + (box[0] + box[2]) / 2, cy = m.y + (box[1] + box[3]) / 2;
+  await pg.mouse.click(cx, box[3] + m.y + tall(box) * 1.5);
+  const offIt = await pg.locator('#lText').count();
+  await pg.mouse.click(cx, cy);
+  const onIt = await pg.locator('#lText').inputValue().catch(() => '');
+  await pg.mouse.move(cx, cy); await pg.mouse.down(); await pg.mouse.move(cx + 30, cy + 20, { steps: 4 }); await pg.mouse.move(cx + 60, cy + 40, { steps: 4 }); await pg.mouse.up();
+  const moved = (await pg.evaluate(() => window.terra.labels())).find((l) => l.id === sea.id), s = await pg.evaluate(() => { const a = window.terra.toScreen(0, 0), b = window.terra.toScreen(1, 0); return b.x - a.x; });
+  ok(offIt === 0 && onIt === sea.text && Math.abs((moved.x - sea.x) * s - 60) < 3 && Math.abs((moved.y - sea.y) * s - 40) < 3, `up close a sea name is clicked where it is drawn, not below it, and drags with the pointer ("${onIt}" moved ${Math.round((moved.x - sea.x) * s)}, ${Math.round((moved.y - sea.y) * s)} px)`);
+  await c.close();
+}
+
 // A world file saved by an earlier build (with notes, a label, a drawn river's spring and a renamed, recolored realm)
 // still opens, every field intact: saving it again gives back the same file.
 {

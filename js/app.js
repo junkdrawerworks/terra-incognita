@@ -1073,11 +1073,14 @@ function drawGlyphs(c, v, vw, vh) {
     }
   }
 }
+// Realm names grow with the map up to 42 px (the saved map image's largest are 40.5 px), and fade from three times the
+// whole map's size to eight, so up close they don't cover the land they name.
+const realmNameSize = (r, s) => r.area < 40 ? 0 : Math.min(42, clamp(Math.sqrt(r.area) / 7.5, 4.2, 11) * s * 0.92);
 function drawRealmNames(c, v, atlas) {
-  const s = v.s;
+  const s = v.s, fade = 1 - 0.65 * clamp((s / v.s0 - 3) / 5, 0, 1);
+  c.save(); c.globalAlpha = fade;
   for (const r of D.realms) {
-    if (r.area < 40) continue;
-    const sz = clamp(Math.sqrt(r.area) / 7.5, 4.2, 11) * s * 0.92; if (sz < 8) continue;
+    const sz = realmNameSize(r, s); if (sz < 8) continue;
     const X = v.ox + r.lx * s, Y = v.oy + r.ly * s;
     c.textAlign = 'center'; c.textBaseline = 'middle';
     c.font = `italic ${Math.max(10, sz * 0.42)}px ${F_DISPLAY}`; c.letterSpacing = '1px';
@@ -1085,19 +1088,21 @@ function drawRealmNames(c, v, atlas) {
     c.font = `${sz}px ${F_SC}`; c.letterSpacing = `${(sz * 0.26).toFixed(1)}px`;
     haloText(c, r.name, X, Y, shade(r.color, 0.62), atlas ? 'rgba(241,231,203,0.6)' : 'rgba(255,255,255,0.55)', Math.max(2.5, sz * 0.12));
   }
-  c.letterSpacing = '0px';
+  c.restore(); c.letterSpacing = '0px';
 }
 function labelStyle(l, atlas) {
   if (l.kind === 'sea') return { font: 'italic', face: F_DISPLAY, fill: atlas ? '#35565f' : 'rgba(226,241,246,0.95)', halo: atlas ? 'rgba(205,219,212,0.8)' : null, sp: 0.22 };
   if (l.kind === 'range') return { font: 'italic', face: F_DISPLAY, fill: atlas ? '#58401f' : '#35291a', halo: atlas ? 'rgba(241,231,203,0.85)' : 'rgba(250,248,240,0.8)', sp: 0.16 };
   return { font: '', face: F_SC, fill: atlas ? '#4a3820' : '#1d2a31', halo: atlas ? 'rgba(241,231,203,0.85)' : 'rgba(250,251,251,0.8)', sp: 0.3 };
 }
+// A label's size on screen: it grows with the map up to three times its size on the whole map, where sea names were
+// 115 px tall at the closest zoom. Drawing, selecting, clicking and terra.boxes all use it, so they agree.
+const labelSize = (l, v) => Math.min(l.size * v.s, l.size * v.s0 * 3);
 function drawUserLabels(c, v, atlas) {
-  const s = v.s;
   for (const l of world.labels) {
-    const fs = l.size * s; if (fs < 6) continue;
+    const fs = labelSize(l, v); if (fs < 6) continue;
     const st = labelStyle(l, atlas);
-    c.save(); c.translate(v.ox + l.x * s, v.oy + l.y * s); c.rotate((l.angle || 0) * Math.PI / 180);
+    c.save(); c.translate(v.ox + l.x * v.s, v.oy + l.y * v.s); c.rotate((l.angle || 0) * Math.PI / 180);
     c.font = `${st.font} ${fs}px ${st.face}`; c.letterSpacing = `${(fs * st.sp).toFixed(1)}px`; c.textAlign = 'center'; c.textBaseline = 'middle';
     haloText(c, l.text, 0, 0, st.fill, st.halo, Math.max(2, fs * 0.16));
     c.restore();
@@ -1156,7 +1161,7 @@ function drawSelection(c, v, atlas) {
   if (sel.type === 'place') {
     c.beginPath(); c.arc(X, Y, 12, 0, Math.PI * 2); c.lineWidth = 4.5; c.strokeStyle = 'rgba(255,255,255,0.85)'; c.stroke(); c.lineWidth = 2; c.strokeStyle = acc; c.stroke();
   } else if (sel.type === 'label') {
-    const fs = o.size * v.s, st = labelStyle(o, atlas);
+    const fs = labelSize(o, v), st = labelStyle(o, atlas);
     c.save(); c.translate(X, Y); c.rotate((o.angle || 0) * Math.PI / 180);
     c.font = `${st.font} ${fs}px ${st.face}`; c.letterSpacing = `${(fs * st.sp).toFixed(1)}px`;
     const w = c.measureText(o.text).width;
@@ -1831,7 +1836,7 @@ function hitTest(sx, sy) {
   if (!ui.layers.labels) return null;
   const atlas = ui.style === 'atlas';
   for (let k = world.labels.length - 1; k >= 0; k--) {
-    const l = world.labels[k], fs = l.size * view.s, st = labelStyle(l, atlas);
+    const l = world.labels[k], fs = labelSize(l, view), st = labelStyle(l, atlas);
     ctx.save(); ctx.font = `${st.font} ${fs}px ${st.face}`; ctx.letterSpacing = `${(fs * st.sp).toFixed(1)}px`; const w = ctx.measureText(l.text).width; ctx.restore();
     const a = -(l.angle || 0) * Math.PI / 180, dx = sx - (view.ox + l.x * view.s), dy = sy - (view.oy + l.y * view.s);
     const rx = dx * Math.cos(a) - dy * Math.sin(a), ry = dx * Math.sin(a) + dy * Math.cos(a);
@@ -2605,12 +2610,12 @@ window.terra = {
   // What lies at a map cell: its height against sea level (below zero in the sea), whether it holds a lake or a river,
   // its rain (m, 0 to 1) and its kind of land.
   cell: (x, y) => { const i = cellAt(x, y); return { h: world.h[i] - world.sea, lake: !!D.lake[i], river: !!D.isR[i], m: world.m[i], kind: BIOME_NAME[D.biome[i]] }; },
-  // Where the scale bar's box, the sea names and the latitude labels sit on the screen, as drawn: [left, top, right,
-  // bottom] in CSS pixels.
+  // Where the scale bar's box, the sea names, the latitude labels and the realms' names sit on the screen, as drawn:
+  // [left, top, right, bottom] in CSS pixels.
   boxes: () => {
     const s = view.s, sb = scaleBar(view.ox, view.oy, H * s, W * s, s, view.ch, view.cw), seas = [], lats = [];
     for (const l of world.labels) {
-      const fs = l.size * s; if (l.kind !== 'sea' || fs < 6) continue;
+      const fs = labelSize(l, view); if (l.kind !== 'sea' || fs < 6) continue;
       const st = labelStyle(l, ui.style === 'atlas'); ctx.save(); ctx.font = `${st.font} ${fs}px ${st.face}`; ctx.letterSpacing = `${(fs * st.sp).toFixed(1)}px`;
       const w = ctx.measureText(l.text).width; ctx.restore();
       const X = view.ox + l.x * s, Y = view.oy + l.y * s; seas.push([X - w / 2, Y - fs * 0.6, X + w / 2, Y + fs * 0.6]);
@@ -2625,7 +2630,13 @@ window.terra = {
       }
       ctx.restore();
     }
-    return { scale: [sb.X - 6, sb.top, sb.right, sb.bottom], seas, lats };
+    const realms = [];
+    if (ui.layers.realms) for (const r of D.realms) {
+      const sz = realmNameSize(r, s); if (sz < 8) continue;
+      ctx.save(); ctx.font = `${sz}px ${F_SC}`; ctx.letterSpacing = `${(sz * 0.26).toFixed(1)}px`; const w = ctx.measureText(r.name).width; ctx.restore();
+      const X = view.ox + r.lx * s, Y = view.oy + r.ly * s; realms.push([X - w / 2, Y - sz * 0.6, X + w / 2, Y + sz * 0.6]);
+    }
+    return { scale: [sb.X - 6, sb.top, sb.right, sb.bottom], seas, lats, realms };
   },
   // What a seed and shape generated, to tell when that changes: the first 12 hex of the sha1 of the saved heights, of
   // the saved rainfall, and of the place names and label texts.

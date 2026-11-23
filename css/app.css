@@ -196,6 +196,8 @@ textarea{width:100%;min-height:130px;font:14px/1.55 var(--f-ui);border:1px solid
 .keys dd{margin:0;color:var(--muted)}
 kbd{font:11px var(--f-mono);border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:4px;padding:0 4px;background:var(--panel-2)}
 .readout{font:12.5px var(--f-mono);color:var(--ink)}
+/* The sea slider's two ends, under it, so it says which way is which. */
+.ends{display:flex;justify-content:space-between;margin-top:-7px;font-size:12px;color:var(--muted)}
 /* A touch screen with no mouse gets one line on moving the map in place of the keyboard shortcuts. */
 .touch-only{display:none}
 @media (hover: none) and (pointer: coarse){ .touch-only{display:flex} .keys-section{display:none} }
@@ -253,6 +255,10 @@ kbd{font:11px var(--f-mono);border:1px solid var(--line-strong);border-bottom-wi
   .crow{min-height:44px}
   .toast button{min-height:40px;padding:8px 12px}
   .link{padding-block:10px;margin-block:-10px} /* a bigger target, in the same place on the line */
+  /* A slider's box is as tall as a finger, and its track stays thin: a tap just off the line still takes it. */
+  input[type=range]{height:44px;margin-block:0}
+  .opt input[type=range]{width:140px}
+  .ends{margin-top:-13px}
   .pane>.link{margin-block:0}
 }
 @media (pointer: coarse) and (max-width:520px){

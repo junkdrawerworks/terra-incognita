@@ -191,6 +191,10 @@ const touchSizes = await S(() => {
 ok(touchSizes.fs.every(([, f]) => f >= 16), `text boxes on a touch screen are 16 px or more (${touchSizes.fs.map(([q, f]) => q + ' ' + f).join(', ')})`);
 const tooSmall = touchSizes.boxes.filter(([q, w, h]) => h < ({ '.chip': 38, '#wGen': 40 }[q] || 44) || (['.tool', '#btnUndo', '.zoom button'].includes(q) && w < 44));
 ok(tooSmall.length === 0, 'controls on a touch screen are big enough for a finger' + (tooSmall.length ? ': ' + JSON.stringify(tooSmall) : ''));
+// So are the sliders: they were 16 px tall, and a tap meant for the sea slider's thumb jumped the sea up. The tool's
+// own sliders are wider, and the sea slider says which end is which.
+const sliders = await S(() => [document.getElementById('wSea'), document.querySelector('.opt input[type=range]')].map((e) => { const r = e.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; }).concat([[...document.querySelectorAll('#pane-world .ends span')].map((e) => e.textContent).join(' | ')]));
+ok(sliders[0][1] >= 44 && sliders[1][1] >= 44 && sliders[1][0] >= 140 && sliders[2] === 'Less sea | More sea', `sliders on a touch screen are a finger's height (sea ${sliders[0].join(' x ')}, tool ${sliders[1].join(' x ')} px), and the sea slider's ends say Less sea and More sea`);
 // A link button on a line of its own (Download the old save, Remove this place) is a finger's height too.
 ok(await S(() => { const l = document.createElement('button'); l.className = 'link'; l.textContent = 'x'; document.getElementById('pane-world').append(l); const h = l.getBoundingClientRect().height; l.remove(); return h >= 36; }), 'a link button on its own line is tall enough to tap');
 const toastClearOfZoom = () => S(() => {

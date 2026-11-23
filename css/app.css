@@ -146,6 +146,10 @@ textarea{width:100%;min-height:130px;font:14px/1.55 var(--f-ui);border:1px solid
 .link.danger{color:var(--danger)}
 #wOldSaveDrop{display:block;margin-top:4px}
 .tool-link svg{vertical-align:-3px;margin-right:3px}
+/* A place's kind and realm run on as one line of text, which wraps beside Show on map, so the realm's colour stays
+   beside its name. */
+.eyebrow .eb-text{flex:1 1 0}
+.eyebrow .eb-text .swatch{margin:0 5px 0 2px}
 .eyebrow .show-on-map{margin-left:auto;text-transform:none;letter-spacing:0;font-size:12.5px}
 .facts .sep{margin:0 .4em;color:var(--muted)}
 .welcome .lede{font-family:var(--f-display);font-size:17px;line-height:1.4;color:var(--ink)}

@@ -320,6 +320,16 @@ ok(await desk.evaluate(() => document.getElementById('codexQ').getBoundingClient
 // With a mouse, the controls keep their laptop sizes.
 ok(JSON.stringify(await desk.evaluate(() => ['.tool', '#btnUndo', '.chip', '.zoom button', '#codexQ'].map((q) => { const e = document.querySelector(q); return e ? Math.round(e.getBoundingClientRect().height) : null; })))
   === JSON.stringify([38, 34, null, 32, 34]) && await desk.evaluate(() => getComputedStyle(document.getElementById('codexQ')).fontSize) === '14px', 'with a mouse the tools, buttons and boxes keep their sizes');
+// On a capital's page the realm's colour sits on the same line as the start of its name, beside Show on map, even
+// when the name wraps in the narrow panel.
+const eyebrowLine = await desk.evaluate(() => {
+  const cap = window.terra.places().find((p) => p.kind === 'capital'); window.terra.select({ type: 'place', id: cap.id });
+  const sw = document.querySelector('#pane-inspect .eyebrow .swatch'), r = document.createRange(), t = sw.nextSibling; r.setStart(t, 0); r.setEnd(t, 1);
+  const a = sw.getBoundingClientRect(), b = r.getBoundingClientRect(), show = document.getElementById('showOnMap').getBoundingClientRect();
+  window.terra.select(null);
+  return { swatch: Math.round(a.top + a.height / 2), name: Math.round(b.top + b.height / 2), showTop: Math.round(show.top), eyebrowTop: Math.round(document.querySelector('#pane-inspect .eyebrow').getBoundingClientRect().top) };
+});
+ok(Math.abs(eyebrowLine.swatch - eyebrowLine.name) <= 4 && eyebrowLine.showTop - eyebrowLine.eyebrowTop < 12, `a realm's colour stays beside its name on a capital's page (${JSON.stringify(eyebrowLine)})`);
 
 // A place by a sea labelled "Gulf of ..." is on the coast of the Gulf of ...
 const settingOf = (id) => desk.evaluate((id) => {

@@ -2162,7 +2162,7 @@ function placeHTML(p) {
   }
   const busy = draft.busy && draft.placeId === p.id;
   return `<div>
-      <p class="eyebrow"><span class="glyph">${kindGlyph(p, 15)}</span>${esc(kindLabel(p))}${f.realm ? ` · <span class="swatch" style="background:${f.realm.color}"></span>${esc(f.realm.display)}` : ''}${SHOW_ON_MAP}</p>
+      <p class="eyebrow"><span class="glyph">${kindGlyph(p, 15)}</span><span class="eb-text">${esc(kindLabel(p))}${f.realm ? ` · <span class="swatch" style="background:${f.realm.color}"></span>${esc(f.realm.display)}` : ''}</span>${SHOW_ON_MAP}</p>
       <div class="name-row"><label class="sr" for="pName">Name</label><input id="pName" class="name-input" value="${esc(p.name)}" autocomplete="off" spellcheck="false">
       <button class="icon-btn" id="pReroll" title="Suggest another name" aria-label="Suggest another name">${svgIcon('<path d="M16 4v4h-4"/><path d="M15.5 8A6.5 6.5 0 1 0 16 12"/>', 17)}</button></div>
     </div>

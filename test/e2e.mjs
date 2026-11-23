@@ -99,6 +99,11 @@ await page.click('.tool[data-tool="sketch"]');
 for (const m of ['sea', 'range', 'river', 'land']) { await page.click(`.chip[data-v="${m}"]`); tops.add(await mapTop()); }
 await page.click('.tool[data-tool="select"]');
 ok(tops.size === 1, `switching tools leaves the map where it is on a phone (${[...tops].join(', ')} px down the page)`);
+// Each brush that reshapes the ground says what it does first. They all said the same thing, so Smooth went unexplained.
+const brushHints = [];
+for (const t of ['raise', 'lower', 'smooth']) { await page.click(`.tool[data-tool="${t}"]`); brushHints.push(await page.textContent('#toolOpts .hint')); }
+await page.click('.tool[data-tool="select"]');
+ok(brushHints[0].startsWith('Builds the ground up under the brush. Hold and drag.') && brushHints[1].startsWith('Wears it down. Hold and drag.') && brushHints[2].startsWith('Softens peaks and fills dips. Hold and drag.'), `Raise, Lower and Smooth each say what they do (${brushHints.map((h) => '"' + h.split('.')[0] + '"').join(', ')})`);
 
 // The whole map on a phone: the scale bar keeps to its corner, and the zoom buttons stay off the map's east edge. They
 // used to cover the starting world's eastern capital, and the scale bar took half the map's width.
@@ -214,9 +219,19 @@ await drag([[170, 120], [235, 112], [300, 138]], 8);
 await drag([[175, 185], [240, 192], [305, 178]], 8);
 const afterRange = await state();
 ok(afterRange.lakes < afterRange.land * 0.004, `two tall ranges leave no valley flooded (${afterRange.lakes} lake cells)`);
+// The range's toast is short enough for a phone, and its hint says how high the peaks go, what happens to a valley
+// they block, and how wide the range is, in km. One drawn over open water says it made islands.
+const rangeSaid = await page.textContent('#toast span'), rangeHint = await page.textContent('#toolOpts .hint'), rangeWidth = await page.textContent('#optWidthOut');
+await drag([[40, 30], [90, 26], [140, 34]], 8);
+const chainSaid = await page.textContent('#toast span');
+await page.click('#btnUndo'); await page.waitForTimeout(300);
+ok(rangeSaid === 'Mountains raised.' && rangeHint.startsWith('Draw along the ridge line. Peaks rise to about 4,000 m. A valley they block drains through a gorge at the lowest pass.') && rangeWidth === '180 km' && chainSaid === 'Mountains rose out of the sea as an island chain.' && (await state()).land === afterRange.land,
+  `a range says it was raised, or rose out of the sea as islands, and its hint gives the peaks' height and its width in km ("${rangeHint}", Width ${rangeWidth})`);
 
 // A river drawn from inland out to sea.
 await page.click('.chip[data-v="river"]');
+const riverHint = await page.textContent('#toolOpts .hint'), valleyWidth = await page.textContent('#optValleyOut');
+ok(riverHint.startsWith('Draw from the source toward the sea. A valley forms so the water follows your line, and it gathers tributaries as rain drains into the valley.') && valleyWidth === '80 km', `the River hint says what a drawn river does, and its Valley is in km (${valleyWidth})`);
 const riversBefore = (await state()).rivers;
 const line = [[255, 150], [232, 165], [262, 182], [262, 215], [250, 262]];
 await drag(line, 8);

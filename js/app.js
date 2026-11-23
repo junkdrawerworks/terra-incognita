@@ -1346,6 +1346,14 @@ function chipGroup(name, opts, cur, g) { return `<div class="chips" role="group"
 // How high a Land loop rises at each Height, at its highest (measured on loops 4 to 23 cells across: 330-380 m,
 // 880-1,090 m and 2,320-2,410 m).
 const LAND_TOP = { low: '400', medium: '1,000', high: '2,500' };
+// How high a Mountain range's peaks rise at each Height, at their highest (measured on ranges 30, 80 and 160 cells long
+// and 3 to 24 wide, over open sea and over a Medium island: 890-1,380 m, 1,600-2,890 m and 2,490-4,980 m, with the
+// middle of each at 1,120, 2,290 and 4,140 m).
+const RANGE_TOP = { low: '1,100', medium: '2,300', high: '4,000' };
+// Width and Valley are set in cells out from the drawn line, on each side; they read as the whole width, in km.
+const acrossKm = n => `${n * 2 * KM} km`;
+// Each brush says what it does, before what they all share.
+const BRUSH_HINT = { raise: 'Builds the ground up under the brush.', lower: 'Wears it down.', smooth: 'Softens peaks and fills dips.' };
 // On a touch screen a finger draws or paints with these tools, and two fingers move the map.
 const TWO_FINGERS = TOUCH ? ' Two fingers move the map.' : '';
 // On the very first visit, until another tool is picked, the Select hint says what to try first.
@@ -1357,15 +1365,15 @@ function renderToolOpts() {
   if (BRUSH_TOOLS.has(t)) {
     h += `<label class="opt" for="optSize">Brush <input type="range" id="optSize" min="2" max="40" value="${ui.brush.size}"><output id="optSizeOut">${ui.brush.size}</output></label>
       <label class="opt" for="optStr">Strength <input type="range" id="optStr" min="1" max="10" value="${ui.brush.strength}"><output id="optStrOut">${ui.brush.strength}</output></label>
-      <span class="hint">${t === 'rain' || t === 'drought' ? 'Rainfall shifts forests, grassland and desert.' : 'Hold and drag. Rivers and borders settle when you let go.'}${TWO_FINGERS}</span>`;
+      <span class="hint">${t === 'rain' || t === 'drought' ? 'Rainfall shifts forests, grassland and desert.' : `${BRUSH_HINT[t]} Hold and drag. Rivers and borders settle when you let go.`}${TWO_FINGERS}</span>`;
   } else if (t === 'sketch') {
     const sk = ui.sketch;
     h += chipGroup('Sketch mode', [['land', 'Land'], ['sea', 'Sea'], ['range', 'Mountain range'], ['river', 'River']], sk.mode, 'skmode');
-    if (sk.mode === 'river') h += `<label class="opt" for="optValley">Valley <input type="range" id="optValley" min="2" max="12" value="${sk.valley}"><output id="optValleyOut">${sk.valley}</output></label>`;
-    else if (sk.mode === 'range') h += `<label class="opt" for="optWidth">Width <input type="range" id="optWidth" min="3" max="24" value="${sk.width}"><output id="optWidthOut">${sk.width}</output></label>`;
+    if (sk.mode === 'river') h += `<label class="opt" for="optValley">Valley <input type="range" id="optValley" min="2" max="12" value="${sk.valley}"><output id="optValleyOut">${acrossKm(sk.valley)}</output></label>`;
+    else if (sk.mode === 'range') h += `<label class="opt" for="optWidth">Width <input type="range" id="optWidth" min="3" max="24" value="${sk.width}"><output id="optWidthOut">${acrossKm(sk.width)}</output></label>`;
     else h += `<label class="opt" for="optRough">Coast <input type="range" id="optRough" min="0" max="10" value="${sk.rough}"><output id="optRoughOut" style="min-width:6.5ch">${ROUGH_WORD[sk.rough]}</output></label>`;
     if (sk.mode === 'land' || sk.mode === 'range') h += `<span class="opt">Height ${chipGroup('Height', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], sk.height, 'skh')}</span>`;
-    h += `<span class="hint">${sk.mode === 'land' ? `Draw a loop. Land rises inside it, to about ${LAND_TOP[sk.height] || LAND_TOP.medium} m.` : sk.mode === 'sea' ? 'Draw a loop to flood it: bays, straits, inland seas.' : sk.mode === 'river' ? 'Draw from the source toward the sea. A valley forms so the water follows your line.' : 'Draw along the ridge line.'}${TWO_FINGERS}</span>`;
+    h += `<span class="hint">${sk.mode === 'land' ? `Draw a loop. Land rises inside it, to about ${LAND_TOP[sk.height] || LAND_TOP.medium} m.` : sk.mode === 'sea' ? 'Draw a loop to flood it: bays, straits, inland seas.' : sk.mode === 'river' ? 'Draw from the source toward the sea. A valley forms so the water follows your line, and it gathers tributaries as rain drains into the valley.' : `Draw along the ridge line. Peaks rise to about ${RANGE_TOP[sk.height] || RANGE_TOP.medium} m. A valley they block drains through a gorge at the lowest pass.`}${TWO_FINGERS}</span>`;
   } else if (t === 'settle') {
     h += chipGroup('Settlement size', [['capital', 'Capital'], ['city', 'City'], ['town', 'Town'], ['village', 'Village']], ui.settleKind, 'settle') + `<span class="hint">${ui.settleKind === 'capital' ? 'A capital founds a new realm.' : `${TAP} dry land to found it.`}</span>`;
   } else if (t === 'landmark') {
@@ -1389,8 +1397,8 @@ function renderToolOpts() {
   });
   const lt = $('#optLabelText'); if (lt) lt.oninput = () => { ui.labelText = lt.value; };
   const ro = $('#optRough'); if (ro) ro.oninput = () => { ui.sketch.rough = +ro.value; $('#optRoughOut').textContent = ROUGH_WORD[ui.sketch.rough]; savePrefs(); };
-  const va = $('#optValley'); if (va) va.oninput = () => { ui.sketch.valley = +va.value; $('#optValleyOut').textContent = va.value; savePrefs(); };
-  const wd = $('#optWidth'); if (wd) wd.oninput = () => { ui.sketch.width = +wd.value; $('#optWidthOut').textContent = wd.value; savePrefs(); };
+  const va = $('#optValley'); if (va) va.oninput = () => { ui.sketch.valley = +va.value; $('#optValleyOut').textContent = acrossKm(ui.sketch.valley); savePrefs(); };
+  const wd = $('#optWidth'); if (wd) wd.oninput = () => { ui.sketch.width = +wd.value; $('#optWidthOut').textContent = acrossKm(ui.sketch.width); savePrefs(); };
 }
 function showBrushSize() { sizePreview = performance.now() + 700; requestDraw(); setTimeout(requestDraw, 720); }
 function updateCursor() {
@@ -1621,6 +1629,8 @@ function sketchRange(raw) {
   for (let k = 0; k < n; k++) { minX = Math.min(minX, pts[2 * k]); maxX = Math.max(maxX, pts[2 * k]); minY = Math.min(minY, pts[2 * k + 1]); maxY = Math.max(maxY, pts[2 * k + 1]); }
   const bx0 = clamp(Math.floor(minX - sh) - 1, 0, W - 1), bx1 = clamp(Math.ceil(maxX + sh) + 1, 0, W - 1), by0 = clamp(Math.floor(minY - sh) - 1, 0, H - 1), by1 = clamp(Math.ceil(maxY + sh) + 1, 0, H - 1);
   const nz1 = sketchNoise(4), nz2 = sketchNoise(5), taper = Math.min(Wd * 1.2, L / 3);
+  // A ridge drawn mostly over open water comes up as a chain of islands, and the toast says so.
+  let wetRidge = 0; for (let k = 0; k < n; k++) if (h[cellAt(pts[2 * k], pts[2 * k + 1])] < sea) wetRidge++;
   const kept = stepRoom();
   pushUndo({ h: true, meta: true });
   let rose = 0;
@@ -1650,7 +1660,7 @@ function sketchRange(raw) {
     return;
   }
   settleSketch(bx0, by0, bx1, by1);
-  toast('Mountains raised. Valleys they block drain through a gorge at the lowest pass.', { label: 'Undo', fn: undo });
+  toast(wetRidge > n / 2 ? 'Mountains rose out of the sea as an island chain.' : 'Mountains raised.', { label: 'Undo', fn: undo });
 }
 function resample(raw, step) {
   const out = [raw[0], raw[1]]; let px = raw[0], py = raw[1];
@@ -1774,7 +1784,7 @@ function sketchRiver(raw) {
   if (!world.springs) world.springs = [];
   world.springs.push({ x: pts[2 * first], y: pts[2 * first + 1], flow: RIVER_T * 1.25 });
   settleSketch(bx0, by0, bx1, by1);
-  toast(leftOut ? 'River drawn. The line crossed the sea, so only its longest stretch of land became a river.' : hAt(last) < sea ? 'River drawn. It gathers tributaries as rain drains into its valley.' : 'River drawn. It ends inland, so it finds its own way on from there.', { label: 'Undo', fn: undo });
+  toast(leftOut ? 'River drawn. The line crossed the sea, so only its longest stretch of land became a river.' : hAt(last) < sea ? 'River drawn.' : 'River drawn. It ends inland, so it finds its own way on from there.', { label: 'Undo', fn: undo });
 }
 // Cut a gorge from the bottom of a basin, along its overflow route, until the ground falls away on the far side. A lake
 // that was there before the sketch keeps its water: the gorge stops where its route reaches one, as the lake's own

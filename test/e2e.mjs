@@ -1543,7 +1543,7 @@ await oldCtx.close();
   const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   await c.addInitScript(() => {
     window.claude = { use: async (n) => {
-      if (n === 'sample') return async (prompt, o) => { o.onText && o.onText({ text: 'Founded' }); window.asked = prompt; return { text: 'Founded on salt and old quarrels.\nHook: a door nobody opens.' }; };
+      if (n === 'sample') return async (prompt, o) => { o.onText && o.onText({ text: 'Founded' }); window.asked = prompt; return { text: 'Founded on salt and old quarrels.\nHook: a door nobody opens.', truncated: !!window.cutShort }; };
       if (n === 'downloads') return { save: async (f) => { window.savedFile = { filename: f.filename, size: String(f.data).length }; } };
       throw Object.assign(new Error('no'), { code: 'not_declared' });
     } };
@@ -1562,6 +1562,16 @@ await oldCtx.close();
   await pg.waitForFunction(() => !document.getElementById('draftActions').hidden);
   const draft = await pg.evaluate(() => [document.getElementById('draftBox').textContent, (window.asked || '').includes('Write a short history')]);
   ok(draft[0].startsWith('Founded on salt') && draft[1], 'and Claude drafts it from the map');
+  // A warning stays for the draft it is about, not under the next rumor.
+  const note = () => pg.evaluate(() => { const n = document.getElementById('draftNote'); return [n.textContent, n.classList.contains('warn')]; });
+  const calm = await note();
+  await pg.evaluate(() => { window.cutShort = true; });
+  await pg.click('#pWrite');
+  await pg.waitForFunction(() => document.getElementById('draftNote').classList.contains('warn'));
+  const warned = await note();
+  await pg.click('#pRumor');
+  const after = await note();
+  ok(warned[0].includes('ran out of room') && !after[1] && after[0] === calm[0] && !calm[1], `a warning about a cut-short draft goes when a rumor is rolled ("${warned[0]}", then "${after[0]}")`);
   await pg.click('#tab-world');
   await pg.click('#wSaveFile');
   await pg.waitForFunction(() => window.savedFile);

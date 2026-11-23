@@ -2196,13 +2196,15 @@ function placeHTML(p) {
       </div>
       <div class="draft" id="draftBox" hidden></div>
       <div class="row" id="draftActions" hidden><button class="btn sm" id="dKeep">Keep in notes</button><button class="btn sm" id="dDiscard">Discard</button></div>
-      <p class="note" id="draftNote">${sampleFn ? 'Claude drafts a history from the geography and your notes. Nothing is added until you keep it.' : 'Rumors come from the map around this place. Keep the ones you like.'}</p>
+      <p class="note" id="draftNote">${draftNoteCopy()}</p>
     </div>
     <div class="section"><h3><label for="pLore">Notes and lore</label></h3>
       <textarea id="pLore" placeholder="Who rules here? What do travelers whisper about?${sampleFn ? ' Anything you write here also guides the history Claude drafts.' : ''}">${esc(p.lore)}</textarea>
     </div>
     <button class="link danger" id="pDelete">Remove ${esc(p.name)}</button>`;
 }
+// What the note under a draft says when nothing has gone wrong.
+const draftNoteCopy = () => sampleFn ? 'Claude drafts a history from the geography and your notes. Nothing is added until you keep it.' : 'Rumors come from the map around this place. Keep the ones you like.';
 function renderDraft() {
   const box = $('#draftBox'), act = $('#draftActions'), note = $('#draftNote'), wb = $('#pWrite');
   if (!box || !ui.selected || draft.placeId !== ui.selected.id) return;
@@ -2210,7 +2212,8 @@ function renderDraft() {
   box.hidden = !has; box.classList.toggle('busy', draft.busy && !draft.text);
   box.textContent = draft.busy && !draft.text ? 'Claude is thinking about this place…' : draft.text;
   act.hidden = draft.busy || !draft.text;
-  if (draft.note) { note.textContent = draft.note; note.classList.add('warn'); }
+  // A warning lasts until the next draft or rumor, not under it.
+  note.textContent = draft.note || draftNoteCopy(); note.classList.toggle('warn', !!draft.note);
   if (wb) { wb.textContent = draft.busy ? 'Stop' : (draft.kind === 'claude' && draft.text ? 'Write another' : 'Write its history'); wb.hidden = !sampleFn; }
 }
 const SAMPLE_OFF = ['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed'];

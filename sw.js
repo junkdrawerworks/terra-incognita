@@ -9,7 +9,7 @@
 // fingerprint of every file in SHELL: change any of them and test/e2e.mjs fails until FILES is changed to match (it
 // says what to), which changes this file, so every copy is made whole again at once.
 const CACHE = 'terra-incognita-v2'; // bump the number when the file list changes
-const FILES = '0deb17da'; // test/e2e.mjs checks this
+const FILES = 'f47b3a91'; // test/e2e.mjs checks this
 const SHELL = [
   './', 'index.html', 'css/app.css', 'js/app.js', 'js/edge-guard.js', 'manifest.webmanifest', 'icon.svg',
   'fonts/im-fell-english.woff2', 'fonts/im-fell-english-italic.woff2', 'fonts/im-fell-english-sc.woff2',

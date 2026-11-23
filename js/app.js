@@ -446,6 +446,7 @@ function riverName(m) {
 }
 
 // ------------------------------------------------------------------ atlas glyphs
+const TREE_STEP = 3.3; // cells between trees, reeds and dunes
 function buildGlyphs() {
   const g = []; D.glyphs = g;
   if (ui.style !== 'atlas') return;
@@ -458,16 +459,16 @@ function buildGlyphs() {
     if (E > 1450) g.push({ t: 0, x, y, z: 2.4 + clamp((E - 1450) / 2600, 0, 1) * 3.2, snow: D.biome[i] === B.SNOW });
     else if (E > 700 && ((r >>> 16) & 3) === 0) g.push({ t: 1, x, y, z: 1.7 });
   }
-  const S2 = 3.3;
+  const S2 = TREE_STEP;
   for (let gy = 0; gy * S2 < H; gy++) for (let gx = 0; gx * S2 < W; gx++) {
     const r = hash3(gx, gy, seed ^ 0x51f1); const x = (gx + ((r & 255) / 255) * 0.9 + 0.05) * S2, y = (gy + (((r >>> 8) & 255) / 255) * 0.9 + 0.05) * S2;
     if (x >= W - 1 || y >= H - 1) continue; const i = (y | 0) * W + (x | 0); if (h[i] < sea || D.lake[i]) continue;
     if (elevM(i) > 1250) continue;
-    const b = D.biome[i];
-    if (b === B.TAIGA) g.push({ t: 3, x, y, z: 1 });
-    else if (b === B.TFOREST || b === B.TRAIN || b === B.TROP || b === B.JUNGLE) { if (b !== B.TFOREST || ((r >>> 16) & 3) !== 0) g.push({ t: 2, x, y, z: 1 }); }
-    else if (b === B.MARSH && ((r >>> 16) & 1) === 0) g.push({ t: 4, x, y, z: 1 });
-    else if (b === B.DESERT && ((r >>> 16) & 7) === 0) g.push({ t: 5, x, y, z: 1 });
+    const b = D.biome[i], k = ((r >>> 20) & 255) / 255; // k: which go first when the map is too small for them all
+    if (b === B.TAIGA) g.push({ t: 3, x, y, z: 1, k });
+    else if (b === B.TFOREST || b === B.TRAIN || b === B.TROP || b === B.JUNGLE) { if (b !== B.TFOREST || ((r >>> 16) & 3) !== 0) g.push({ t: 2, x, y, z: 1, k }); }
+    else if (b === B.MARSH && ((r >>> 16) & 1) === 0) g.push({ t: 4, x, y, z: 1, k });
+    else if (b === B.DESERT && ((r >>> 16) & 7) === 0) g.push({ t: 5, x, y, z: 1, k });
   }
   g.sort((a, b) => a.y - b.y);
 }
@@ -1047,10 +1048,16 @@ function drawMap(c, k, vw, vh, v, opt) {
   drawCompass(c, Math.min(vw - 46, X0 + MW - 40), Math.max(46, Y0 + 42), 21, INK, HALO);
   drawScale(c, sb, INK, HALO);
 }
+// On a small map, trees, reeds and dunes would sit closer than they are wide and run into a solid mat (on a phone's
+// whole map they were 1.9 px apart, 3 px across), so only a share of them is drawn, enough to keep them about 5 px
+// apart, but never fewer than a quarter. Mountains keep their own spacing.
+const glyphShare = s => clamp((TREE_STEP * s / 5) ** 2, 0.25, 1);
 function drawGlyphs(c, v, vw, vh) {
   const s = v.s, ink = '#4a3920', paper = 'rgba(236,224,190,1)', shadeCol = 'rgba(92,70,40,0.38)';
+  const keep = glyphShare(s);
   c.lineJoin = 'round'; c.lineCap = 'round';
   for (const g of D.glyphs) {
+    if (g.t >= 2 && g.k > keep) continue;
     const X = v.ox + g.x * s, Y = v.oy + g.y * s;
     if (X < -40 || Y < -40 || X > vw + 40 || Y > vh + 40) continue;
     if (g.t === 0) {
@@ -2644,6 +2651,9 @@ window.terra = {
     const sha = async (s) => [...new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(s)))].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 12);
     return { h: await sha(packF(world.h)), m: await sha(packF(world.m)), names: await sha(world.places.map(p => p.name).join('|') + '\n' + world.labels.map(l => l.text).join('|')) };
   },
+  // The Atlas's trees, reeds and dunes: how many there are, how many the map draws at its size now, and how far apart
+  // those are on screen on average, in CSS pixels.
+  glyphs: () => { const all = D.glyphs.filter(g => g.t >= 2), keep = glyphShare(view.s), drawn = all.filter(g => g.k <= keep).length; return { all: all.length, drawn, spacing: drawn ? TREE_STEP * view.s * Math.sqrt(all.length / drawn) : 0 }; },
   // n names in a tongue as the map draws them (a third each bare, for a realm and plain), from a seed.
   names: (tongue, n, seed = 1) => { const rng = mulberry32(seed), out = []; for (let k = 0; k < n; k++) out.push(makeName(tongue, rng, [{ bare: true }, { realm: true }, {}][k % 3])); return out; },
   riverNear: (x, y, r = 1.5) => {

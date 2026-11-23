@@ -934,6 +934,25 @@ await oldCtx.close();
   await c.close();
 }
 
+// The Atlas on a phone's whole map draws a share of its trees, so they don't run into a solid mat (they were 1.9 px
+// apart and 3 px across); a laptop's whole map and a closer look draw them all.
+{
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => { window.terra.newWorld(20417, 'continent'); window.terra.setStyle('atlas'); window.terra.fitView(); });
+  const phone = await pg.evaluate(() => window.terra.glyphs());
+  for (let k = 0; k < 4; k++) { await pg.click('#zIn'); await pg.waitForTimeout(100); }
+  const closer = await pg.evaluate(() => window.terra.glyphs());
+  await c.close();
+  const d = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const dp = watch(await d.newPage());
+  await dp.goto(base);
+  const laptop = await dp.evaluate(() => { window.terra.newWorld(20417, 'continent'); window.terra.setStyle('atlas'); window.terra.fitView(); return window.terra.glyphs(); });
+  await d.close();
+  ok(phone.all > 1000 && phone.spacing >= 3.5 && phone.drawn < phone.all / 2 && closer.drawn === closer.all && laptop.drawn === laptop.all, `on a phone's whole map the Atlas draws ${phone.drawn} of its ${phone.all} trees, reeds and dunes, ${phone.spacing.toFixed(1)} px apart; zoomed in, and on a laptop, all of them`);
+}
+
 // A world file saved by an earlier build (with notes, a label, a drawn river's spring and a renamed, recolored realm)
 // still opens, every field intact: saving it again gives back the same file.
 {

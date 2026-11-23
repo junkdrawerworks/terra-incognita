@@ -1061,6 +1061,30 @@ await oldCtx.close();
   await c.close();
 }
 
+// Where a text box or list box is: its edge is 3:1 against the panel in both looks (WCAG 2.2, 1.4.11 Non-text Contrast).
+// It was 1.8:1 in the light look and 1.9:1 in the dark. The world's name is underlined, so it reads as one to change.
+{
+  const out = [];
+  for (const colorScheme of ['light', 'dark']) {
+    const c = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme });
+    const pg = watch(await c.newPage());
+    await pg.goto(base);
+    await pg.evaluate(() => { window.terra.newWorld(20417, 'continent'); const p = window.terra.places().find((q) => q.kind === 'capital'); window.terra.select({ type: 'place', id: p.id }); window.terra.setTool('label'); });
+    out.push(await pg.evaluate((scheme) => {
+      const rgb = (c) => c.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number);
+      const lum = (c) => rgb(c).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }).reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
+      const cr = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+      const root = getComputedStyle(document.documentElement), panels = ['--panel', '--panel-2'].map((v) => { const d = document.createElement('div'); d.style.color = `var(${v})`; document.body.append(d); const c = getComputedStyle(d).color; d.remove(); return c; });
+      const fields = { pName: 'Bottom', pKind: 'Top', rName: 'Top', pLore: 'Top', optLabelText: 'Top', codexQ: 'Top', wSeed: 'Top', wShape: 'Top' };
+      const worst = Math.min(...Object.entries(fields).flatMap(([id, side]) => panels.map((p) => cr(getComputedStyle(document.getElementById(id))[`border${side}Color`], p))));
+      const ground = (() => { const d = document.createElement('div'); d.style.color = 'var(--ground)'; document.body.append(d); const c = getComputedStyle(d).color; d.remove(); return c; })();
+      return `${scheme} ${Math.min(worst, cr(getComputedStyle(document.getElementById('worldName')).borderBottomColor, ground)).toFixed(2)}`;
+    }, colorScheme));
+    await c.close();
+  }
+  ok(out.every((s) => +s.split(' ')[1] >= 3), `text boxes and list boxes have edges at 3:1 or more against both panels, and the world's name underlined on the page, light and dark (${out.join(', ')})`);
+}
+
 // Up close, names stop growing: a realm's at 42 px and a sea's at three times its size on the whole map (they were 166
 // and 115 px tall at the closest zoom). A sea name is clicked and dragged where it is drawn, not where its old size
 // reached.

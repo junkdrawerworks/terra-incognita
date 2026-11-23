@@ -720,6 +720,45 @@ await oldCtx.close();
   await c.close();
 }
 
+// A pinch with a brush picked zooms and paints nothing. Every pinch starts with one finger, which used to start a stroke
+// that the second finger then kept: a dab of Raise, or of rain, and an Undo step nobody meant. A stroke already under
+// way when a second finger lands is kept, as before.
+{
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const pg = watch(await c.newPage());
+  const cdp = await c.newCDPSession(pg);
+  await pg.goto(base);
+  const b = await pg.locator('#map').boundingBox();
+  const at = async (x, y) => { const p = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), [x, y]); return [b.x + p.x, b.y + p.y]; };
+  const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
+  const look = () => pg.evaluate(async () => ({ undo: window.terra.state().undo, redo: !document.getElementById('btnRedo').disabled, cells: [[200, 150], [205, 152], [196, 147]].map(([x, y]) => window.terra.cell(x, y).h), print: await window.terra.fingerprint() }));
+  // Something to redo, which a pinch should leave alone too.
+  await pg.click('#tab-world');
+  await pg.fill('#worldName', 'Pinched');
+  await pg.click('#btnUndo');
+  for (const tool of ['raise', 'rain']) {
+    await pg.click(`.tool[data-tool="${tool}"]`);
+    const before = await look(), a = await at(200, 150), z = await at(215, 165);
+    await touch('touchStart', [a]);
+    await pg.waitForTimeout(60);
+    await touch('touchStart', [a, z]);
+    for (let k = 1; k <= 5; k++) await touch('touchMove', [[a[0] - k * 4, a[1] - k * 4], [z[0] + k * 4, z[1] + k * 4]]);
+    await touch('touchEnd', []);
+    await pg.waitForTimeout(400);
+    const after = await look();
+    ok(JSON.stringify(after) === JSON.stringify(before), `a pinch with ${tool === 'raise' ? 'Raise' : 'Wetter'} picked leaves the land, the rain and Undo and Redo as they were`);
+  }
+  await pg.click('.tool[data-tool="raise"]');
+  const undoBefore = (await look()).undo, a = await at(200, 150);
+  await touch('touchStart', [a]);
+  for (let k = 1; k <= 8; k++) { await touch('touchMove', [[a[0] + k * 4, a[1]]]); await pg.waitForTimeout(50); }
+  await touch('touchStart', [[a[0] + 32, a[1]], [a[0] + 80, a[1] + 60]]);
+  await touch('touchEnd', []);
+  await pg.waitForTimeout(400);
+  ok((await look()).undo === undoBefore + 1, 'a stroke already under way when a second finger lands is kept');
+  await c.close();
+}
+
 const real = problems.filter((p) => !/ERR_INTERNET_DISCONNECTED|net::ERR_FAILED/.test(p));
 ok(real.length === 0, 'no errors and nothing loaded from elsewhere' + (real.length ? ':\n' + real.join('\n') : ''));
 

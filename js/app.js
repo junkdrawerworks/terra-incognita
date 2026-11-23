@@ -1227,9 +1227,18 @@ function updateCursor() {
 // ------------------------------------------------------------------ brush
 let stroke = null;
 function startStroke(sx, sy) {
+  // What the Undo step about to go on displaces, so a stroke taken back by cancelStroke leaves no trace at all.
+  const kept = { redo: redoStack.slice(), dropped: undoStack.length >= 30 ? undoStack[0] : null };
   pushUndo(ui.tool === 'rain' || ui.tool === 'drought' ? { m: true } : { h: true });
-  stroke = { tool: ui.tool, x: sx, y: sy, lx: sx, ly: sy, dry: dryPlaces() };
+  stroke = { tool: ui.tool, x: sx, y: sy, lx: sx, ly: sy, sx, sy, far: 0, t0: performance.now(), kept, dry: dryPlaces() };
   requestAnimationFrame(strokeFrame);
+}
+// A stroke that turns out to be the first finger of a pinch is taken back, Undo step and all, rather than kept.
+function cancelStroke() {
+  if (!stroke) return; const kept = stroke.kept; stroke = null;
+  applySnap(undoStack.pop()); if (kept.dropped) undoStack.unshift(kept.dropped);
+  redoStack.length = 0; redoStack.push(...kept.redo); updateUndoButtons();
+  computeClimate(); renderBase(); buildCoast(); buildContours(); buildGlyphs(); requestDraw(); updateStatus();
 }
 function strokeFrame() {
   if (!stroke) return;
@@ -1605,7 +1614,9 @@ canvas.addEventListener('pointerdown', e => {
   canvas.setPointerCapture(e.pointerId);
   const pt = local(e); ptrs.set(e.pointerId, pt);
   if (ptrs.size === 2) {
-    if (stroke) endStroke();
+    // A second finger just after the first is a pinch, and whatever the first finger painted goes. A stroke well under
+    // way is kept.
+    if (stroke) { if (performance.now() - stroke.t0 < 300 || stroke.far < 12) cancelStroke(); else endStroke(); }
     if (sketchDraft) { sketchDraft = null; requestDraw(); }
     const [a, b] = [...ptrs.values()];
     gesture = { type: 'pinch', d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 }; return;
@@ -1639,7 +1650,7 @@ canvas.addEventListener('pointermove', e => {
       if (g.type === 'click' && !g.moved && Math.hypot(pt.x - g.sx, pt.y - g.sy) > 4) { g.moved = true; updateCursor(); }
       if (g.type === 'pan' || g.moved) { view.ox += pt.x - g.lx; view.oy += pt.y - g.ly; clampView(); requestDraw(); }
       g.lx = pt.x; g.ly = pt.y;
-    } else if (g.type === 'stroke' && stroke) { stroke.x = pt.x; stroke.y = pt.y; }
+    } else if (g.type === 'stroke' && stroke) { stroke.x = pt.x; stroke.y = pt.y; stroke.far = Math.max(stroke.far, Math.hypot(pt.x - stroke.sx, pt.y - stroke.sy)); }
     else if (g.type === 'sketch' && sketchDraft) {
       const w = toWorld(pt.x, pt.y), P = sketchDraft.pts, wx = clamp(w.x, 0, W), wy = clamp(w.y, 0, H);
       if (Math.hypot(wx - P[P.length - 2], wy - P[P.length - 1]) >= 0.6) { P.push(wx, wy); requestDraw(); }

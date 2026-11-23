@@ -16,8 +16,8 @@
 // surprise: a pinch that paints nothing, a drag a pinch cuts short, a page left mid-stroke, Undo mid-stroke, a toast's
 // Undo, Undo naming the places it takes, Found new realms and Clear naming the notes they take, a refused file, and two
 // tabs on one world. And sketches that keep what's on the map: rivers drawn into and beside lakes, a range across a
-// lake's way out, a river line across an inlet, figure-8s and loops drawn twice round, and a drawn river's source
-// going under the sea.
+// lake's way out, a river line across an inlet, figure-8s and loops drawn twice round, a drawn river's source going
+// under the sea, and edits that change nothing saying so.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -803,6 +803,29 @@ await oldCtx.close();
   await pg.click('.chip[data-v="land"]');
   await drag(island, 8, pg);
   ok(drawn.join() === '1,true' && drowned.join() === '0,0' && undone === 1 && redone === 0 && (await E(() => window.terra.state().springs)) === 0, `a drawn river's source goes when its island is flooded, comes back with an Undo, and stays gone when land is raised there again`);
+  // Edits that change nothing you can see say so, and leave no Undo step to use up: Raise and Wetter out on open sea, and
+  // a Land loop over mountains already higher than its coast would be. Each used to take an Undo step and say nothing,
+  // or "Land raised".
+  await fresh();
+  const quiet = async () => E(async () => ({ undo: window.terra.state().undo, print: await window.terra.fingerprint() }));
+  const openSea = [[25, 28], [35, 30], [45, 34]];
+  ok(await E((pts) => pts.every(([x, y]) => window.terra.cell(x, y).h < -0.05), openSea), 'the starting world has open sea in its north-west corner');
+  const said = [];
+  for (const t of ['raise', 'rain']) {
+    await pg.click(`.tool[data-tool="${t}"]`);
+    const before = await quiet();
+    await drag(openSea, 6, pg);
+    said.push([t, (await quiet()).undo === before.undo, await pg.textContent('#toast span')]);
+  }
+  ok(said[0][1] && said[0][2].startsWith('The sea floor rose, but not above the waves yet.') && said[1][1] && said[1][2] === 'Rain only changes the land.', `Raise and Wetter on open sea take no Undo step, and say why ("${said[0][2]}", "${said[1][2]}")`);
+  await pg.click('.tool[data-tool="sketch"]');
+  await pg.click('.chip[data-v="land"]');
+  await pg.click('.chip[data-v="low"]');
+  const peaks = await quiet(), ridge = []; for (let k = 0; k <= 16; k++) ridge.push([304 + 6 * Math.cos(k * Math.PI / 8), 136 + 6 * Math.sin(k * Math.PI / 8)]);
+  await drag(ridge, 3, pg);
+  const highToast = await pg.textContent('#toast span');
+  ok(JSON.stringify(await quiet()) === JSON.stringify(peaks) && highToast === 'That ground is already higher than a Low coast would make it. Use Raise, a higher Height, or a Mountain range to build it up.', `a Low Land loop over mountains changes nothing and takes no Undo step, and says why ("${highToast}")`);
+  await pg.click('.chip[data-v="medium"]');
   await c.close();
 }
 

@@ -1304,18 +1304,22 @@ function updateCursor() {
 
 // ------------------------------------------------------------------ brush
 let stroke = null;
+// What an Undo step about to go on displaces, so a step taken back again (by takeBackStep) leaves no trace at all.
+const stepRoom = () => ({ redo: redoStack.slice(), dropped: undoStack.length >= 30 ? undoStack[0] : null });
+function takeBackStep(kept, redo = true) {
+  undoStack.pop(); if (kept.dropped) undoStack.unshift(kept.dropped);
+  redoStack.length = 0; if (redo) redoStack.push(...kept.redo); updateUndoButtons();
+}
 function startStroke(sx, sy) {
-  // What the Undo step about to go on displaces, so a stroke taken back by cancelStroke leaves no trace at all.
-  const kept = { redo: redoStack.slice(), dropped: undoStack.length >= 30 ? undoStack[0] : null };
+  const kept = stepRoom();
   pushUndo(ui.tool === 'rain' || ui.tool === 'drought' ? { m: true } : { h: true, meta: true });
-  stroke = { tool: ui.tool, x: sx, y: sy, lx: sx, ly: sy, sx, sy, far: 0, t0: performance.now(), kept, dry: dryPlaces() };
+  stroke = { tool: ui.tool, x: sx, y: sy, lx: sx, ly: sy, sx, sy, far: 0, t0: performance.now(), kept, dry: dryPlaces(), box: [W, H, -1, -1] };
   requestAnimationFrame(strokeFrame);
 }
 // A stroke that turns out to be the first finger of a pinch is taken back, Undo step and all, rather than kept.
 function cancelStroke() {
   if (!stroke) return; const kept = stroke.kept; stroke = null;
-  applySnap(undoStack.pop()); if (kept.dropped) undoStack.unshift(kept.dropped);
-  redoStack.length = 0; redoStack.push(...kept.redo); updateUndoButtons();
+  applySnap(undoStack[undoStack.length - 1]); takeBackStep(kept);
   computeClimate(); renderBase(); buildCoast(); buildContours(); buildGlyphs(); requestDraw(); updateStatus();
 }
 function strokeFrame() {
@@ -1329,6 +1333,7 @@ function strokeFrame() {
     bx0 = Math.min(bx0, px - r); by0 = Math.min(by0, py - r); bx1 = Math.max(bx1, px + r); by1 = Math.max(by1, py + r);
   }
   stroke.lx = stroke.x; stroke.ly = stroke.y;
+  const sb = stroke.box; sb[0] = Math.min(sb[0], bx0); sb[1] = Math.min(sb[1], by0); sb[2] = Math.max(sb[2], bx1); sb[3] = Math.max(sb[3], by1);
   computeClimate(bx0 - 2, by0 - 2, bx1 + 2, by1 + 2); renderBase(bx0 - 2, by0 - 2, bx1 + 2, by1 + 2);
   if (stroke.tool !== 'rain' && stroke.tool !== 'drought') { buildCoast(); buildContours(); }
   buildGlyphs();
@@ -1355,8 +1360,23 @@ function dab(tool, cx, cy, r, amt) {
   }
 }
 function endStroke() {
-  if (!stroke) return; const dry = stroke.dry, tool = stroke.tool; stroke = null;
-  if (tool !== 'rain' && tool !== 'drought') dropDrownedSprings();
+  if (!stroke) return; const { dry, tool, kept, box } = stroke; stroke = null;
+  // A stroke that changed nothing leaves no Undo step. Nor does one that only raised the sea floor, or moved the rain
+  // over open sea, which changes nothing you can see; those say why.
+  const rain = tool === 'rain' || tool === 'drought', step = undoStack[undoStack.length - 1], was = rain ? step.m : step.h, now = rain ? world.m : world.h;
+  let changed = 0, land = 0;
+  for (let y = Math.max(0, Math.floor(box[1])); y <= Math.min(H - 1, Math.ceil(box[3])); y++) for (let x = Math.max(0, Math.floor(box[0])); x <= Math.min(W - 1, Math.ceil(box[2])); x++) {
+    const i = y * W + x; if (now[i] !== was[i]) { changed++; if (world.h[i] >= world.sea) land++; }
+  }
+  if (!changed) { takeBackStep(kept); return; }
+  if (!land && (tool === 'raise' || rain)) {
+    if (rain) { world.m.set(step.m); computeClimate(box[0] - 2, box[1] - 2, box[2] + 2, box[3] + 2); renderBase(box[0] - 2, box[1] - 2, box[2] + 2, box[3] + 2); buildGlyphs(); requestDraw(); }
+    takeBackStep(kept, rain);
+    toast(rain ? 'Rain only changes the land.' : 'The sea floor rose, but not above the waves yet. Keep painting, or use Sketch > Land to raise a coast in one loop.');
+    if (!rain) markDirty();
+    return;
+  }
+  if (!rain) dropDrownedSprings();
   recomputeAll(); markDirty();
   const wet = drowned(dry); if (wet.length) toast(`${someWet(wet)} ${wet.length === 1 ? 'is' : 'are'} under water now.`, { label: 'Undo', fn: undo });
 }
@@ -1433,21 +1453,31 @@ function sketchLoop(pts, mode) {
     for (let y = 0; y < bh && !floods; y++) for (let x = 0; x < bw; x++) { const gx = bx0 + x, gy = by0 + y; if (h[gy * W + gx] >= sea && depth(y * bw + x, gx, gy) > 0) { floods = true; break; } }
     if (!floods) { toast('Nothing to flood there. Draw the loop over land.'); return; }
   }
+  const kept = stepRoom();
   pushUndo({ h: true, meta: true });
   const dry = dryPlaces();
+  let rose = 0;
   // The ground crosses sea level at the drawn line itself, so the coast is as smooth as the line.
   for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
     const li = y * bw + x, gx = bx0 + x, gy = by0 + y, gi = gy * W + gx;
     const d = depth(li, gx, gy);
     if (mode === 'land') {
       if (d > 0) {
-        const t = smooth(0, R, d), hn = fbm(nz3, gx * 0.045, gy * 0.045, 4);
-        h[gi] = Math.max(h[gi], sea + 0.004 * Math.min(1, d) + rel * t * clamp(0.5 + 0.75 * hn, 0.1, 1.25));
+        const t = smooth(0, R, d), hn = fbm(nz3, gx * 0.045, gy * 0.045, 4), v = sea + 0.004 * Math.min(1, d) + rel * t * clamp(0.5 + 0.75 * hn, 0.1, 1.25);
+        if (v > h[gi]) { if (v > (D.lake[gi] ? D.filled[gi] : h[gi])) rose++; h[gi] = v; } // a lake's bed raised under its water shows no change
       } else if (-d < 14 && h[gi] < sea) h[gi] = Math.max(h[gi], sea - 0.006 * Math.min(1, -d) - 0.16 * smooth(0, 14, -d));
     } else {
       if (d > 0) h[gi] = Math.min(h[gi], sea - 0.006 * Math.min(1, d) - 0.2 * smooth(0, R, d));
       else if (-d < 6 && h[gi] >= sea) h[gi] = Math.min(h[gi], sea + 0.002 * Math.min(1, -d) + (h[gi] - sea) * smooth(0, 6, -d));
     }
+  }
+  // A Land loop over ground already higher than its coast would be (or over a lake's bed, below its water) raises
+  // nothing, and takes no Undo step.
+  if (mode === 'land' && !rose) {
+    h.set(undoStack[undoStack.length - 1].h); takeBackStep(kept);
+    const height = ui.sketch.height in HEIGHT_AMP ? ui.sketch.height : 'medium';
+    toast(`That ground is already higher than a ${height[0].toUpperCase() + height.slice(1)} coast would make it. ${height === 'high' ? 'Use Raise or' : 'Use Raise, a higher Height, or'} a Mountain range to build it up.`);
+    return;
   }
   settleSketch(bx0, by0, bx1, by1);
   const wet = mode === 'sea' ? drowned(dry) : [];

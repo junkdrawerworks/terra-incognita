@@ -591,7 +591,7 @@ function fertility(i) {
 }
 function rollPop(kind, i, rng) { const r = POP[kind]; if (!r) return 0; return roundSig(r[0] * Math.pow(r[1] / r[0], rng()) * fertility(i), 2); }
 function newRealm(tongue, rng) {
-  const used = new Set(world.places.filter(p => p.realm).map(p => p.realm.color));
+  const used = new Set(world.places.map(p => (p.realm || p.oldRealm || {}).color).filter(Boolean));
   const free = REALM_COLORS.filter(c => !used.has(c));
   return { name: makeName(tongue, rng, { realm: true }), title: pick(rng, TONGUES[tongue].titles), color: free.length ? pick(rng, free) : pick(rng, REALM_COLORS) };
 }
@@ -846,6 +846,10 @@ function applyWorld({ o, h, m }) {
       const color = /^#[0-9a-f]{6}$/i.test(r.color) ? r.color : REALM_COLORS.find(c => !colors.has(c)) || REALM_COLORS[0];
       colors.add(color); p.realm = { name: String(r.name || 'Nameless'), title: String(r.title || TONGUES[p.tongue].titles[0]), color };
     } else delete p.realm;
+    // A capital made something else keeps its realm's name, title and colour for when it is made a capital again.
+    const or = p.oldRealm;
+    if (p.kind === 'capital' || !or || typeof or !== 'object') delete p.oldRealm;
+    else p.oldRealm = { name: String(or.name || 'Nameless'), title: String(or.title || TONGUES[p.tongue].titles[0]), color: /^#[0-9a-f]{6}$/i.test(or.color) ? or.color : REALM_COLORS[0] };
   }
   for (const l of world.labels) { l.text = String(l.text == null ? '' : l.text); if (!['region', 'sea', 'range'].includes(l.kind)) l.kind = 'region'; l.size = clamp(+l.size || 5, 3, 16); l.angle = clamp(+l.angle || 0, -60, 60); }
   computeTN();
@@ -2265,16 +2269,34 @@ function bindPlace(p) {
   }
   renderDraft();
 }
+// A capital made something else ends its realm, and says where its places went; the place keeps the realm's name,
+// title and colour, so making it a capital again brings the same realm back. The population is rolled again only
+// when it doesn't fit the new kind, from numbers of the place's own, so switching back and forth comes back to it.
 function changeKind(p, val) {
   pushUndo({ meta: true });
-  const [kind, sub] = val.split(':');
-  if (kind === 'landmark') { p.kind = 'landmark'; p.sub = sub; delete p.realm; p.pop = 0; }
+  const [kind, sub] = val.split(':'), i = cellAt(p.x, p.y);
+  const ended = p.kind === 'capital' && kind !== 'capital' && p.realm ? D.realms.find(r => r.place === p) : null;
+  const held = ended ? world.places.filter(q => D.owner[cellAt(q.x, q.y)] === ended.idx) : [], display = ended && ended.display;
+  if (kind === 'capital') { if (!p.realm) p.realm = p.oldRealm || newRealm(p.tongue, Math.random); delete p.oldRealm; }
+  else if (p.realm) { p.oldRealm = p.realm; delete p.realm; }
+  if (kind === 'landmark') { p.kind = 'landmark'; p.sub = sub; p.pop = 0; }
   else {
-    if (kind === 'capital' && !p.realm) p.realm = newRealm(p.tongue, Math.random);
-    if (kind !== 'capital') delete p.realm;
-    p.kind = kind; delete p.sub; p.pop = rollPop(kind, cellAt(p.x, p.y), Math.random);
+    p.kind = kind; delete p.sub;
+    const r = POP[kind], f = fertility(i);
+    if (!(p.pop >= r[0] * f * 0.95 && p.pop <= r[1] * f * 1.05)) p.pop = rollPop(kind, i, mulberry32(hash3(world.seed, p.id, 41 + Object.keys(POP).indexOf(kind))));
   }
   recomputePolitics(); renderInspector(); refreshCodex(); requestDraw(); markDirty();
+  if (ended) toast(`${display} is no longer a realm. ${whereTheyWent(held)}`, { label: 'Undo', fn: undo }, 10000);
+}
+// Where the places a realm held went when it ended: 'Its 9 places now belong to the Republic of Seraora.'
+function whereTheyWent(held) {
+  const n = held.length, to = new Map(); let free = 0;
+  for (const q of held) { const o = D.owner[cellAt(q.x, q.y)]; if (o >= 0) to.set(o, (to.get(o) || 0) + 1); else free++; }
+  const names = [...to.keys()].map(o => realmMid(D.realms[o])), list = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0];
+  const its = n === 1 ? 'Its one place' : `Its ${n} places`, k = n - free;
+  if (!free) return `${its} now ${n === 1 ? 'belongs' : 'belong'} to ${list}.`;
+  if (!k) return `${its} now ${n === 1 ? 'lies' : 'lie'} unclaimed.`;
+  return `Of its ${n} places, ${k} now ${k === 1 ? 'belongs' : 'belong'} to ${list} and ${free} ${free === 1 ? 'lies' : 'lie'} unclaimed.`;
 }
 function labelHTML(l) {
   return `<div><p class="eyebrow">Map label${SHOW_ON_MAP}</p>

@@ -846,6 +846,33 @@ await oldCtx.close();
   await c.close();
 }
 
+// A capital made a town ends its realm, and says where its places went; made a capital again, it brings back the same
+// realm, name, title and colour, rather than founding a new one. Switching a village to a town and back keeps its
+// population after the first time, rather than rolling a new one each time.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => window.terra.newWorld(20417, 'continent'));
+  const riiel = await pg.evaluate(() => window.terra.places().find((p) => p.name === 'Riiel').id);
+  await pg.evaluate((id) => window.terra.select({ type: 'place', id }), riiel);
+  const realm = () => pg.evaluate(() => ({ name: document.getElementById('rName')?.value, title: document.getElementById('rTitle')?.value, color: document.querySelector('[data-color][aria-pressed=true]')?.dataset.color, realms: window.terra.state().realms }));
+  const before = await realm();
+  await pg.selectOption('#pKind', 'town');
+  const toast = await pg.textContent('#toast span'), mid = await realm();
+  ok(mid.realms === before.realms - 1 && new RegExp(`^The ${before.title} of ${before.name} is no longer a realm\\. (Its \\d+ places now belong to|Of its \\d+ places)`).test(toast) && await pg.locator('#toast button', { hasText: 'Undo' }).isVisible(), `a capital made a town ends its realm and says so ("${toast}")`);
+  await pg.selectOption('#pKind', 'capital');
+  const after = await realm();
+  ok(JSON.stringify(after) === JSON.stringify(before), `made a capital again, it rules the same realm (${before.title} of ${before.name}, ${before.color}; then ${after.title} of ${after.name}, ${after.color})`);
+  const pop = () => pg.evaluate(() => { const dd = [...document.querySelectorAll('#pane-inspect .facts dd')].find((d) => d.previousElementSibling.textContent === 'Population'); return dd ? +dd.textContent.replace(/[~,]/g, '') : 0; });
+  const village = await pg.evaluate(() => window.terra.places().find((p) => p.kind === 'village').id);
+  await pg.evaluate((id) => window.terra.select({ type: 'place', id }), village);
+  const pops = [await pop()];
+  for (const k of ['town', 'village', 'town', 'village']) { await pg.selectOption('#pKind', k); pops.push(await pop()); }
+  ok(pops[1] >= 2000 && pops[2] <= 2600 && pops[3] === pops[1] && pops[4] === pops[2], `a village made a town and back keeps each number after the first time (${pops.join(', ')})`);
+  await c.close();
+}
+
 // A world file saved by an earlier build (with notes, a label, a drawn river's spring and a renamed, recolored realm)
 // still opens, every field intact: saving it again gives back the same file.
 {

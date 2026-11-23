@@ -828,6 +828,56 @@ await oldCtx.close();
   await c.close();
 }
 
+// Ctrl+Z in the middle of a brush stroke or a drag takes back the whole of it, and the rest of the stroke paints
+// nothing. It used to take back the first half and leave the rest with no Undo step at all. Then thirty Land sketches,
+// each taken back by Undo, each leave the world exactly as it was.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const b = await pg.locator('#map').boundingBox();
+  const at = async (x, y) => { const p = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), [x, y]); return [b.x + p.x, b.y + p.y]; };
+  const look = () => pg.evaluate(async () => JSON.stringify({ ...window.terra.state(), print: await window.terra.fingerprint(), places: window.terra.places() }));
+  await pg.click('#tab-world');
+  await pg.fill('#worldName', 'Before the stroke');
+  const start = await look();
+  await pg.click('.tool[data-tool="raise"]');
+  const a = await at(200, 150);
+  await pg.mouse.move(...a); await pg.mouse.down();
+  for (let k = 1; k <= 10; k++) { await pg.mouse.move(a[0] + k * 4, a[1]); await pg.waitForTimeout(30); }
+  await pg.keyboard.press('Control+z');
+  for (let k = 11; k <= 30; k++) { await pg.mouse.move(a[0] + k * 4, a[1]); await pg.waitForTimeout(30); }
+  await pg.mouse.up();
+  await pg.waitForTimeout(300);
+  ok(await look() === start, 'Ctrl+Z in the middle of a brush stroke takes back the whole stroke, and the rest of it paints nothing');
+  await pg.keyboard.press('Control+Shift+z');
+  const redone = await look();
+  await pg.keyboard.press('Control+z');
+  ok(redone !== start && await look() === start, 'and Redo puts back what was painted before it, which one Undo takes away again');
+  await pg.click('.tool[data-tool="select"]');
+  const first = (await pg.evaluate(() => window.terra.places()))[0], f = await at(first.x, first.y);
+  await pg.mouse.move(...f); await pg.mouse.down();
+  for (let k = 1; k <= 6; k++) await pg.mouse.move(f[0] + k * 6, f[1]);
+  await pg.keyboard.press('Control+z');
+  for (let k = 7; k <= 12; k++) await pg.mouse.move(f[0] + k * 6, f[1]);
+  await pg.mouse.up();
+  await pg.waitForTimeout(300);
+  ok(await look() === start, `and so does Ctrl+Z in the middle of dragging ${first.name}`);
+  await pg.click('.tool[data-tool="sketch"]');
+  await pg.click('.chip[data-v="land"]');
+  const differ = [];
+  for (let k = 0; k < 30; k++) {
+    const cx = 40 + (k % 6) * 75, cy = 50 + Math.floor(k / 6) * 50, loop = [];
+    for (let t = 0; t <= 8; t++) loop.push([cx + Math.cos(t * Math.PI / 4) * 14, cy + Math.sin(t * Math.PI / 4) * 10]);
+    await drag(loop, 3, pg);
+    const sketched = await look();
+    await pg.click('#btnUndo');
+    if (sketched === start || await look() !== start) differ.push(k + 1);
+  }
+  ok(differ.length === 0, 'thirty Land sketches, each taken back by Undo, each leave the world as it was' + (differ.length ? ': not after ' + differ.join(', ') : ''));
+  await c.close();
+}
+
 const real = problems.filter((p) => !/ERR_INTERNET_DISCONNECTED|net::ERR_FAILED/.test(p));
 ok(real.length === 0, 'no errors and nothing loaded from elsewhere' + (real.length ? ':\n' + real.join('\n') : ''));
 

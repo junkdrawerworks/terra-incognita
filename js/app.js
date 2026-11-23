@@ -745,8 +745,16 @@ function applySnap(s) {
   }
   return inv;
 }
-function undo() { const s = undoStack.pop(); if (!s) return; redoStack.push(applySnap(s)); afterRestore(s.world); }
-function redo() { const s = redoStack.pop(); if (!s) return; undoStack.push(applySnap(s)); afterRestore(s.world); }
+function undo() { settleGesture(); const s = undoStack.pop(); if (!s) return; redoStack.push(applySnap(s)); afterRestore(s.world); }
+function redo() { settleGesture(); const s = redoStack.pop(); if (!s) return; undoStack.push(applySnap(s)); afterRestore(s.world); }
+// Undo or Redo in the middle of a brush stroke or a drag (Ctrl+Z, or a second finger on the button) ends it first, so
+// the whole stroke or drag is one step, and the rest of it can't carry on with no step to take it back. A half-drawn
+// sketch goes.
+function settleGesture() {
+  if (stroke) { endStroke(); gesture = null; }
+  else if (gesture && gesture.type === 'drag' && gesture.moved) { finishDrag(gesture); gesture = null; }
+  if (sketchDraft) { sketchDraft = null; if (gesture && gesture.type === 'sketch') gesture = null; requestDraw(); }
+}
 function afterRestore(otherWorld) {
   // Back to a different world: as with a new one, nothing from the world just left stays open.
   if (otherWorld) { ui.selected = null; dropDraft(); }

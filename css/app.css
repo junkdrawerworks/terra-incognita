@@ -13,6 +13,7 @@
   --field-line:#7A8994;
   --accent:#93640D; --accent-strong:#7A5209; --accent-soft:#F4E7C9; --on-accent:#FFFFFF;
   --plate:#C4CFD3; --danger:#A5382B; --focus:#2C6DB0;
+  /* --plate-ink, set only in the dark look: the map's frame on the near-black plate, where its own ink doesn't show. */
   --shadow:0 1px 2px rgba(18,33,42,.06),0 10px 30px rgba(18,33,42,.08);
   --f-display:"IM Fell English","Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
   --f-sc:"IM Fell English SC","IM Fell English",Georgia,serif;
@@ -25,7 +26,7 @@
     --ground:#0C1317; --panel:#141E24; --panel-2:#1B272E; --ink:#DCE5E8; --muted:#93A3AA; --faint:#6C7D86;
     --line:#26343C; --line-strong:#3A4B55; --field-line:#62747E;
     --accent:#E0AA45; --accent-strong:#F0C064; --accent-soft:#33291A; --on-accent:#1A1206;
-    --plate:#0A1014; --danger:#E27B6E; --focus:#7FB2E6;
+    --plate:#0A1014; --plate-ink:rgba(220,229,232,.5); --danger:#E27B6E; --focus:#7FB2E6;
     --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.3);
   }
 }
@@ -34,7 +35,7 @@
   --ground:#0C1317; --panel:#141E24; --panel-2:#1B272E; --ink:#DCE5E8; --muted:#93A3AA; --faint:#6C7D86;
   --line:#26343C; --line-strong:#3A4B55; --field-line:#62747E;
   --accent:#E0AA45; --accent-strong:#F0C064; --accent-soft:#33291A; --on-accent:#1A1206;
-  --plate:#0A1014; --danger:#E27B6E; --focus:#7FB2E6;
+  --plate:#0A1014; --plate-ink:rgba(220,229,232,.5); --danger:#E27B6E; --focus:#7FB2E6;
   --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.3);
 }
 [hidden]{display:none!important}

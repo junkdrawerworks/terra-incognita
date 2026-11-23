@@ -946,12 +946,14 @@ const dlReady = CL ? CL.use('downloads').then(d => { downloadsNS = d; }).catch((
 if (CL) CL.use('sample').then(s => { sampleFn = s; if (ui.selected && ui.selected.type === 'place') renderInspector(); }).catch(() => { });
 
 // ------------------------------------------------------------------ drawing
-let needsDraw = false, plateColor = '#C4CFD3';
-function refreshPlate() { plateColor = getComputedStyle(document.documentElement).getPropertyValue('--plate').trim() || '#C4CFD3'; requestDraw(); }
+let needsDraw = false, plateColor = '#C4CFD3', plateInk = '';
+// The plate round the map, and on the dark one the colour of the map's frame (none in the light look: the frame takes
+// the map's own ink).
+function refreshPlate() { const cs = getComputedStyle(document.documentElement); plateColor = cs.getPropertyValue('--plate').trim() || '#C4CFD3'; plateInk = cs.getPropertyValue('--plate-ink').trim(); requestDraw(); }
 function requestDraw() { if (needsDraw) return; needsDraw = true; requestAnimationFrame(() => { needsDraw = false; draw(); }); }
 function draw() {
   if (!world || !view.cw) return;
-  drawMap(ctx, view.dpr, view.cw, view.ch, view, { plate: plateColor });
+  drawMap(ctx, view.dpr, view.cw, view.ch, view, { plate: plateColor, frame: plateInk || null });
 }
 const LM_PATHS = {
   ruin: { d: 'M-5.5 3.2h11v1.6h-11z M-4.6 3.2v-7h2v7z M-1 3.2v-4.2h2v4.2z M2.6 3.2v-8.6h2v8.6z', fill: true },
@@ -972,8 +974,9 @@ function drawMap(c, k, vw, vh, v, opt) {
   const HALO = atlas ? 'rgba(241,231,203,0.92)' : 'rgba(250,251,251,0.9)';
   c.setTransform(k, 0, 0, k, 0, 0);
   c.fillStyle = opt.plate; c.fillRect(0, 0, vw, vh);
-  // map frame shadow
-  c.fillStyle = 'rgba(0,0,0,0.12)'; c.fillRect(ox + 3, oy + 4, W * s, H * s);
+  // The map's shadow on the plate, or on the dark plate, where a shadow can't show, a faint light rim.
+  if (opt.frame) { c.fillStyle = 'rgba(220,229,232,0.07)'; c.fillRect(ox - 3, oy - 3, W * s + 6, H * s + 6); }
+  else { c.fillStyle = 'rgba(0,0,0,0.12)'; c.fillRect(ox + 3, oy + 4, W * s, H * s); }
 
   c.setTransform(k * s, 0, 0, k * s, k * ox, k * oy);
   c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
@@ -1042,8 +1045,10 @@ function drawMap(c, k, vw, vh, v, opt) {
   c.restore();
 
   // neatline
-  c.strokeStyle = INK; c.lineWidth = 1.4; c.strokeRect(X0 - 0.5, Y0 - 0.5, MW + 1, MH + 1);
-  c.lineWidth = 0.7; c.strokeStyle = atlas ? 'rgba(70,52,30,.7)' : (opt.export ? 'rgba(20,34,43,.6)' : 'rgba(20,34,43,.45)'); c.strokeRect(X0 - 4.5, Y0 - 4.5, MW + 9, MH + 9);
+  c.strokeStyle = opt.frame || INK; c.lineWidth = 1.4; c.strokeRect(X0 - 0.5, Y0 - 0.5, MW + 1, MH + 1);
+  c.lineWidth = 0.7; c.strokeStyle = opt.frame || (atlas ? 'rgba(70,52,30,.7)' : (opt.export ? 'rgba(20,34,43,.6)' : 'rgba(20,34,43,.45)'));
+  if (opt.frame) c.globalAlpha = 0.6;
+  c.strokeRect(X0 - 4.5, Y0 - 4.5, MW + 9, MH + 9); c.globalAlpha = 1;
 
   if (!opt.export) drawCursor(c, v);
   if (!opt.export && mapKeys && document.activeElement === canvas) drawMiddle(c, vw, vh);

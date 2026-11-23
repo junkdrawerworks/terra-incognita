@@ -1121,6 +1121,29 @@ await oldCtx.close();
   await c.close();
 }
 
+// The map's frame shows on the plate in the dark look too: drawn in the map's own dark ink on the near-black plate, it
+// was 1.2:1 and the deep sea ran straight into the plate.
+{
+  const out = [];
+  for (const colorScheme of ['light', 'dark']) {
+    const c = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme });
+    const pg = watch(await c.newPage());
+    await pg.goto(base);
+    await pg.evaluate(() => { window.terra.newWorld(20417, 'continent'); window.terra.fitView(); });
+    await pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    // The map's frame, the line just outside its west edge halfway down, against the plate further out.
+    out.push(await pg.evaluate((scheme) => {
+      const cv = document.getElementById('map'), k = cv.width / cv.getBoundingClientRect().width, a = window.terra.toScreen(0, 150);
+      const px = (x) => [...cv.getContext('2d').getImageData(Math.round(x * k), Math.round(a.y * k), 1, 1).data].slice(0, 3);
+      const lum = (c) => c.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }).reduce((t, v, i) => t + v * [0.2126, 0.7152, 0.0722][i], 0);
+      const frame = px(a.x - 1), plate = px(a.x - 14), x = lum(frame), y = lum(plate);
+      return [scheme, (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)];
+    }, colorScheme));
+    await c.close();
+  }
+  ok(out.every(([, r]) => r >= 3), `the map's frame shows against the plate in both looks (${out.map(([s, r]) => `${s} ${r.toFixed(1)}:1`).join(', ')})`);
+}
+
 // Up close, names stop growing: a realm's at 42 px and a sea's at three times its size on the whole map (they were 166
 // and 115 px tall at the closest zoom). A sea name is clicked and dragged where it is drawn, not where its old size
 // reached.

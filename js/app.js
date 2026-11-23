@@ -2517,8 +2517,16 @@ function labelHTML(l) {
     <button class="link danger" id="lDelete">Remove this label</button>`;
 }
 function bindLabel(l) {
-  let pushed = false; const once = () => { if (!pushed) { pushUndo({ meta: true }); pushed = true; } };
+  let pushed = false, kept = null, step = null; const once = () => { if (!pushed) { kept = stepRoom(); pushUndo({ meta: true }); step = undoStack[undoStack.length - 1]; pushed = true; } };
+  const was = { text: l.text, kind: l.kind, size: l.size, angle: l.angle };
   $('#lText').addEventListener('input', e => { once(); l.text = e.target.value; requestDraw(); markDirty(); });
+  // Text cleared away gets the text back, as a place's name cleared away becomes Nameless: a label with no text can't
+  // be seen, but is still there to click and to save. With nothing else changed on the page, its Undo step goes too.
+  $('#lText').addEventListener('change', e => {
+    if (l.text.trim() || !was.text.trim()) return;
+    l.text = e.target.value = was.text; requestDraw(); markDirty();
+    if (pushed && undoStack[undoStack.length - 1] === step && l.kind === was.kind && l.size === was.size && l.angle === was.angle) { takeBackStep(kept); pushed = false; }
+  });
   $('#lKind').onchange = e => { once(); l.kind = e.target.value; requestDraw(); markDirty(); };
   $('#lSize').addEventListener('input', e => { once(); l.size = +e.target.value; requestDraw(); markDirty(); });
   $('#lAngle').addEventListener('input', e => { once(); l.angle = +e.target.value; requestDraw(); markDirty(); });

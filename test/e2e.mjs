@@ -2096,6 +2096,22 @@ await oldCtx.close();
   await c.close();
 }
 
+// A label whose text is cleared gets it back when the box is left, as a place cleared of its name becomes Nameless.
+// It stayed in the world with no text: invisible on the map, still clicked on, saved and counted.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const sea = (await pg.evaluate(() => window.terra.labels())).find((l) => l.kind === 'sea');
+  await pg.evaluate((id) => window.terra.select({ type: 'label', id }), sea.id);
+  const undoBefore = (await pg.evaluate(() => window.terra.state())).undo;
+  await pg.fill('#lText', '');
+  await pg.press('#lText', 'Tab');
+  const now = (await pg.evaluate(() => window.terra.labels())).find((l) => l.id === sea.id), box = await pg.inputValue('#lText');
+  ok(now.text === sea.text && box === sea.text && (await pg.evaluate(() => window.terra.state())).undo === undoBefore, `a label cleared of its text gets it back on leaving the box, and takes no Undo step ("${now.text}")`);
+  await c.close();
+}
+
 // Found new realms and Clear places and labels say which notes they replaced, and the World tab says they will.
 {
   const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });

@@ -100,7 +100,7 @@ button{touch-action:manipulation} /* a quick second tap on Undo doesn't zoom the
 .menu span{font-size:12.5px;line-height:1.4;color:var(--muted)}
 .toast{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:8px 8px 8px 14px;border-radius:9px;display:flex;align-items:center;gap:12px;font-size:13px;box-shadow:var(--shadow);max-width:calc(100% - 120px)}
 .toast{pointer-events:none}
-.toast button{pointer-events:auto;border:0;background:transparent;color:var(--accent-soft);font-weight:600;cursor:pointer;padding:4px 8px;border-radius:6px}
+.toast button{pointer-events:auto;border:0;background:transparent;color:var(--accent-soft);font-weight:600;cursor:pointer;padding:4px 8px;border-radius:6px;white-space:nowrap}
 .toast button:hover{background:rgba(127,127,127,.2)}
 /* A choice: the question on its own line, the answers under it. */
 .toast.choice{flex-wrap:wrap;column-gap:4px;row-gap:2px;padding-top:9px}
@@ -144,6 +144,7 @@ textarea{width:100%;min-height:130px;font:14px/1.55 var(--f-ui);border:1px solid
 .note.warn{color:var(--danger)}
 .link{border:0;background:transparent;padding:0;font:500 13px var(--f-ui);color:var(--muted);cursor:pointer;text-decoration:underline;text-underline-offset:3px;align-self:flex-start}
 .link.danger{color:var(--danger)}
+#wOldSaveDrop{display:block;margin-top:4px}
 .tool-link svg{vertical-align:-3px;margin-right:3px}
 .eyebrow .show-on-map{margin-left:auto;text-transform:none;letter-spacing:0;font-size:12.5px}
 .facts .sep{margin:0 .4em;color:var(--muted)}

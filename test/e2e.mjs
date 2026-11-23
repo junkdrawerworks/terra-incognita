@@ -696,6 +696,63 @@ await oldPage.reload();
 await oldPage.click('#tab-world');
 ok(await oldSaveHidden(oldPage), 'and gone once no old save is kept');
 await oldCtx.close();
+// Saving, said plainly. In Claude's viewer, where the view has no storage, the warning says the view can't keep an
+// autosave rather than blaming the person's browser.
+{
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await c.addInitScript(() => {
+    Storage.prototype.setItem = () => { throw new DOMException('denied', 'SecurityError'); };
+    window.claude = { use: (n) => n === 'downloads' ? Promise.resolve({ save: async () => {} }) : Promise.reject(Object.assign(new Error('off'), { code: 'not_declared' })) };
+  });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const said = await pg.evaluate(() => [document.getElementById('toast').textContent, document.getElementById('wSaveNote').textContent]);
+  ok(said[0] === "This view can't keep an autosave. Use Save world file to keep your work." && said[1] === said[0], `in Claude's viewer the autosave warning is about the view ("${said[0]}")`);
+  await c.close();
+}
+// Typing a world name after an Undo is a step of its own, even with the box still focused (as after a tap on Undo on a
+// phone, which leaves the keyboard up). It used to join the step before, which Undo had already taken back.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const name = await pg.inputValue('#worldName');
+  await pg.focus('#worldName');
+  await pg.keyboard.press('End');
+  await pg.keyboard.type(' One');
+  await pg.evaluate(() => document.getElementById('btnUndo').click());
+  const back = await pg.inputValue('#worldName');
+  await pg.keyboard.press('End');
+  await pg.keyboard.type(' Two');
+  const typed = await pg.inputValue('#worldName');
+  await pg.evaluate(() => document.getElementById('btnUndo').click());
+  const after = await pg.evaluate(() => [document.getElementById('worldName').value, document.activeElement.id]);
+  ok(back === name && typed === name + ' Two' && after[0] === name && after[1] === 'worldName', `a name typed after an Undo is its own step: Undo takes "${typed}" back to "${after[0]}"`);
+  await c.close();
+}
+// Once the old save has been downloaded it can be removed from the browser. A second save the page can't read doesn't
+// replace the one kept aside: it's offered as a download instead.
+{
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, acceptDownloads: true });
+  await c.addInitScript(() => { if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1'); localStorage.setItem('terra-incognita/world/v1', '{"format":"terra-incognita","version":1,"cut'); } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const kept = () => pg.evaluate(() => localStorage.getItem('terra-incognita/world/unreadable'));
+  const first = await kept();
+  await pg.evaluate(() => { localStorage.setItem('terra-incognita/world/v1', '{"format":"terra-incognita","version":1,"second'); });
+  await pg.reload();
+  const toast = await pg.textContent('#toast');
+  ok((await kept()) === first && toast.includes('An older save is kept in this browser already') && toast.endsWith('Download it'), 'a second save the page cannot read leaves the one kept aside, and says so');
+  const [dl2] = await Promise.all([pg.waitForEvent('download'), pg.click('#toast button')]);
+  ok((await readFile(await dl2.path(), 'utf8')).endsWith('"second') , `and its Download it saves that second one (${dl2.suggestedFilename()})`);
+  await pg.click('#tab-world');
+  ok(await pg.locator('#wOldSaveDrop').isHidden(), 'Remove it from this browser waits until the old save has been downloaded');
+  await Promise.all([pg.waitForEvent('download'), pg.click('#wOldSaveLink')]);
+  await pg.click('#wOldSaveDrop');
+  ok((await kept()) === null && await pg.locator('#wOldSave').isHidden() && (await pg.textContent('#toast')) === 'Removed the old save from this browser.', 'once downloaded, Remove it from this browser lets it go');
+  ok(await pg.locator('#pane-world .note', { hasText: 'Save world file keeps a copy that lasts' }).isVisible(), 'the World tab says a browser can clear what it keeps, and the file lasts');
+  await c.close();
+}
 
 // A seed and shape keep growing the same world, since people may have written seeds down: the saved heights and
 // rainfall, and the names, of five worlds, as sha1 (first 12 hex). If one of these fails, generation has changed: that

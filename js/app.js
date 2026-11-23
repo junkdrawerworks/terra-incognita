@@ -737,7 +737,10 @@ function takeSnap(parts) {
   if (parts.meta) s.meta = JSON.stringify({ name: world.name, seed: world.seed, shape: world.shape, sea: world.sea, places: world.places, labels: world.labels, springs: world.springs || [], nextId: world.nextId });
   return s;
 }
-function pushUndo(parts) { dropActionToast(); undoStack.push(takeSnap(parts)); if (undoStack.length > 30) undoStack.shift(); redoStack.length = 0; updateUndoButtons(); }
+// Typing in the world's name is one Undo step per run of typing: a step from anything else, an Undo or a Redo ends the
+// run, so the next letter typed starts a new step.
+let renaming = false;
+function pushUndo(parts) { renaming = false; dropActionToast(); undoStack.push(takeSnap(parts)); if (undoStack.length > 30) undoStack.shift(); redoStack.length = 0; updateUndoButtons(); }
 function applySnap(s) {
   const inv = takeSnap({ h: !!s.h, m: !!s.m, meta: !!s.meta, world: !!s.world });
   if (s.h) world.h.set(s.h);
@@ -782,6 +785,7 @@ function settleGesture() {
   if (sketchDraft) { sketchDraft = null; if (gesture && gesture.type === 'sketch') gesture = null; requestDraw(); }
 }
 function afterRestore(otherWorld) {
+  renaming = false;
   // Back to a different world: as with a new one, nothing from the world just left stays open.
   if (otherWorld) { ui.selected = null; dropDraft(); }
   else if (ui.selected && ui.selected.type !== 'loc' && !findSel(ui.selected)) ui.selected = null;
@@ -854,19 +858,22 @@ const stampOf = s => { if (s == null) return null; const m = /"savedAt":"([^"]*)
 function saveLocal() {
   if (otherClash) return false;
   try {
-    // A world kept in this browser that couldn't be read is copied aside before the first autosave goes over it.
-    if (unreadable !== null) { localStorage.setItem(UNREADABLE_KEY, unreadable); unreadable = null; syncOldSave(); }
+    // A world kept in this browser that couldn't be read is copied aside before the first autosave goes over it, unless
+    // one is kept aside already: that one stays, and this one is offered as a download instead (unkept).
+    if (unreadable !== null) { if (keptAside() === null) localStorage.setItem(UNREADABLE_KEY, unreadable); else unkept = unreadable; unreadable = null; syncOldSave(); }
     else if (stampOf(localStorage.getItem(STORE_KEY)) !== lastSavedAt) { askAboutOtherTab(); return false; }
     const at = new Date().toISOString();
     localStorage.setItem(STORE_KEY, serialize(at)); lastSavedAt = at; savedNote();
     return true;
   } catch (e) {
-    const msg = 'This browser would not keep an autosave. Use Save world file to keep your work.';
+    // In Claude's viewer it's the view that has no storage, not the person's browser.
+    const msg = CL ? 'This view can\'t keep an autosave. Use Save world file to keep your work.' : 'This browser would not keep an autosave. Use Save world file to keep your work.';
     setSaveNote(msg, true); if (!saveWarned) { saveWarned = true; toast(msg); }
     return false;
   }
 }
 let unreadable = null; // the autosave as it was stored, when it couldn't be read
+let unkept = null; // one that couldn't be kept aside, since another already is
 function loadLocal() {
   let s = null; try { s = localStorage.getItem(STORE_KEY); } catch (e) { return false; }
   if (!s) return false;
@@ -906,7 +913,7 @@ function askAboutOtherTab() {
 }
 // The save kept aside, as stored, or null when there isn't one. Download the old save shows only while there is.
 function keptAside() { try { return localStorage.getItem(UNREADABLE_KEY); } catch (e) { return null; } }
-function syncOldSave() { $('#wOldSave').hidden = keptAside() === null; }
+function syncOldSave() { const none = keptAside() === null; $('#wOldSave').hidden = none; if (none) $('#wOldSaveDrop').hidden = true; }
 function savePrefs() { try { localStorage.setItem(PREF_KEY, JSON.stringify({ style: ui.style, layers: ui.layers, brush: ui.brush, sketch: ui.sketch })); } catch (e) { } }
 function loadPrefs() { try { const p = JSON.parse(localStorage.getItem(PREF_KEY) || 'null'); if (p) { if (p.style === 'atlas' || p.style === 'terrain') ui.style = p.style; Object.assign(ui.layers, p.layers || {}); Object.assign(ui.brush, p.brush || {}); Object.assign(ui.sketch, p.sketch || {}); } } catch (e) { } }
 function setSaveNote(t, warn) { const el = $('#wSaveNote'); el.textContent = t; el.classList.toggle('warn', !!warn); }
@@ -2330,12 +2337,13 @@ function browserDownload(name, data) {
   a.href = url; a.download = name; document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
+// True once the file has gone to the browser's downloads, or Claude's viewer has saved it.
 async function saveFile(name, data, done) {
   await dlReady;
-  if (!CL) { browserDownload(name, data); toast(done); return; }
-  const dl = downloadsNS; if (!dl) { toast('Saving files is not available in this view.'); return; }
-  try { await dl.save({ filename: name, data }); toast(done); }
-  catch (e) { const c = e && e.code; if (c === 'declined') return; toast(c === 'rate_limited' ? 'A save is already waiting for your answer.' : 'The file could not be saved here.'); }
+  if (!CL) { browserDownload(name, data); toast(done); return true; }
+  const dl = downloadsNS; if (!dl) { toast('Saving files is not available in this view.'); return false; }
+  try { await dl.save({ filename: name, data }); toast(done); return true; }
+  catch (e) { const c = e && e.code; if (c === 'declined') return false; toast(c === 'rate_limited' ? 'A save is already waiting for your answer.' : 'The file could not be saved here.'); return false; }
 }
 // The whole map at S pixels per cell: what Save map image saves, with every name (or only capitals and cities).
 function renderMapImage(S = 4, allNames = true) {
@@ -2383,7 +2391,9 @@ function bindWorldTab() {
   $('#wSaveFile').onclick = () => saveFile(slug() + '.json', serialize(), 'World file saved.');
   $('#wSavePng').onclick = savePng;
   // Exactly the text that was kept, which may not open here at all; storage is left as it is.
-  $('#wOldSaveLink').onclick = () => { const s = keptAside(); if (s === null) { syncOldSave(); return; } saveFile('terra-incognita-old-save.json', s, 'Old save downloaded.'); };
+  // Once it has been downloaded, it can go from this browser.
+  $('#wOldSaveLink').onclick = async () => { const s = keptAside(); if (s === null) { syncOldSave(); return; } if (await saveFile('terra-incognita-old-save.json', s, 'Old save downloaded.')) $('#wOldSaveDrop').hidden = false; };
+  $('#wOldSaveDrop').onclick = () => { try { localStorage.removeItem(UNREADABLE_KEY); } catch (e) { } syncOldSave(); toast(keptAside() === null ? 'Removed the old save from this browser.' : 'The old save could not be removed.'); };
   $('#wOpenFile').onclick = () => $('#wFile').click();
   $('#wFile').onchange = e => {
     const file = e.target.files && e.target.files[0]; if (!file) return;
@@ -2476,7 +2486,6 @@ function init() {
   else recomputeAll();
   buildToolbar(); renderToolOpts(); bindWorldTab(); syncWorldTab(); updateUndoButtons(); updateCursor();
   if (MAC) { $('#btnUndo').title = 'Undo (⌘Z)'; $('#btnRedo').title = 'Redo (⇧⌘Z)'; $('#keyUndo').textContent = '⌘ Z'; }
-  let renaming = false; // one undo step per visit to the field
   $('#worldName').addEventListener('focus', () => { renaming = false; });
   $('#worldName').addEventListener('input', e => { if (!renaming) { pushUndo({ meta: true }); renaming = true; } world.name = e.target.value; markDirty(); if (!ui.selected) renderInspector(); });
   $('#btnUndo').onclick = undo; $('#btnRedo').onclick = redo;
@@ -2509,7 +2518,13 @@ function init() {
   syncOldSave();
   if (firstRun) {
     const kept = unreadable !== null;
-    if (saveLocal() && kept) toast('Your saved world could not be read, so a new one is open. The old save is kept in this browser: Download the old save is in the World tab.', null, 12000);
+    if (saveLocal() && kept) {
+      if (unkept === null) toast('Your saved world could not be read, so a new one is open. The old save is kept in this browser: Download the old save is in the World tab.', null, 12000);
+      else {
+        const text = unkept; unkept = null;
+        toast('Your saved world could not be read, so a new one is open. An older save is kept in this browser already, so this one isn\'t: download it to keep it.', { label: 'Download it', fn: () => saveFile('terra-incognita-unread-save.json', text, 'Save downloaded.') }, 20000);
+      }
+    }
   }
   refreshPlate();
   new ResizeObserver(resize).observe($('#mapwrap'));

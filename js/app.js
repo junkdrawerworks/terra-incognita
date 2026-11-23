@@ -1149,8 +1149,11 @@ function drawUserLabels(c, v, atlas) {
   c.letterSpacing = '0px';
 }
 const P_ORDER = { landmark: 0, village: 1, town: 2, city: 3, capital: 4 };
+// The selected place's name as drawPlaces last drew it, so drawSelection can draw it again over its ring.
+let selName = null;
 function drawPlaces(c, v, vw, vh, atlas, INK, HALO, opt, small = 1) {
   const s = v.s, zr = s / v.s0, sc = clamp(Math.pow(zr, 0.22), 1, 1.35) * small;
+  selName = null;
   const list = world.places.slice().sort((a, b) => P_ORDER[a.kind] - P_ORDER[b.kind]);
   const iconHalo = atlas ? '#f1e7cb' : '#ffffff';
   for (const p of list) {
@@ -1184,6 +1187,7 @@ function drawPlaces(c, v, vw, vh, atlas, INK, HALO, opt, small = 1) {
     c.letterSpacing = p.kind === 'capital' ? '0.6px' : '0px';
     c.textAlign = 'left'; c.textBaseline = 'middle';
     haloText(c, p.name, X + rr + 4, Y + 0.5, INK, HALO, 3.2);
+    if (ui.selected && ui.selected.type === 'place' && ui.selected.id === p.id) selName = { text: p.name, x: X + rr + 4, y: Y + 0.5, font: c.font, ls: c.letterSpacing, INK, HALO };
   }
   c.letterSpacing = '0px';
 }
@@ -1199,6 +1203,14 @@ function drawSelection(c, v, atlas) {
   const acc = atlas ? '#8a4b12' : '#c68a1a';
   if (sel.type === 'place') {
     c.beginPath(); c.arc(X, Y, 12, 0, Math.PI * 2); c.lineWidth = 4.5; c.strokeStyle = 'rgba(255,255,255,0.85)'; c.stroke(); c.lineWidth = 2; c.strokeStyle = acc; c.stroke();
+    // Where the ring crosses its name, the name goes back over it, halo and all, so the ring runs behind the first
+    // letters rather than through them. Only there: the rest of the name keeps its place under the symbols beside it.
+    const n = selName;
+    if (n) {
+      c.save(); c.beginPath(); c.rect(X, Y - 20, 16, 40); c.clip();
+      c.font = n.font; c.letterSpacing = n.ls; c.textAlign = 'left'; c.textBaseline = 'middle'; haloText(c, n.text, n.x, n.y, n.INK, n.HALO, 3.2);
+      c.restore(); c.letterSpacing = '0px';
+    }
   } else if (sel.type === 'label') {
     const fs = labelSize(o, v), st = labelStyle(o, atlas);
     c.save(); c.translate(X, Y); c.rotate((o.angle || 0) * Math.PI / 180);

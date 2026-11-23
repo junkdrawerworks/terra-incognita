@@ -1175,6 +1175,30 @@ await oldCtx.close();
   await c.close();
 }
 
+// The ring round a selected town runs behind its name, not through its first letters: it was drawn over the name, and
+// on a phone 'Vaimiuna' read 'iiuna'. Where the ring crosses the name, less of its colour shows than with names off.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => document.fonts.ready);
+  const nin = await pg.evaluate(() => window.terra.places().find((p) => p.name === 'Ninten'));
+  await pg.evaluate((p) => { window.terra.centerOn(p.x, p.y); window.terra.select({ type: 'place', id: p.id }); }, nin);
+  // Pixels of the ring's colour where its right side crosses the name's first letters.
+  const ringShows = () => pg.evaluate(async (p) => {
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const cv = document.getElementById('map'), k = cv.width / cv.getBoundingClientRect().width, at = window.terra.toScreen(p.x, p.y);
+    const d = cv.getContext('2d').getImageData(Math.round((at.x + 10) * k), Math.round((at.y - 5) * k), Math.round(4 * k), Math.round(10 * k)).data;
+    let n = 0; for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - 0xc6) < 30 && Math.abs(d[i + 1] - 0x8a) < 30 && Math.abs(d[i + 2] - 0x1a) < 40) n++;
+    return n;
+  }, nin);
+  const withName = await ringShows();
+  await pg.click('#tab-world'); await pg.uncheck('#lyNames');
+  const without = await ringShows();
+  ok(without > 20 && withName < without * 0.8, `the selection ring runs behind the selected town's name (${withName} pixels of the ring's colour across the name, ${without} with names off)`);
+  await c.close();
+}
+
 // Backspace on a button on a place's page (Suggest another name) leaves the place be; some screen reader users press
 // it for Back. Delete after clicking the place on the map still removes it.
 {

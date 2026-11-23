@@ -3015,8 +3015,8 @@ window.terra = {
   ring: () => ringShown && { ...ringShown },
   mapImage: (S = 2, allNames = true) => renderMapImage(S, allNames).toDataURL('image/png'),
   // What lies at a map cell: its height against sea level (below zero in the sea), whether it holds a lake or a river,
-  // its rain (m, 0 to 1) and its kind of land.
-  cell: (x, y) => { const i = cellAt(x, y); return { h: world.h[i] - world.sea, lake: !!D.lake[i], river: !!D.isR[i], m: world.m[i], kind: BIOME_NAME[D.biome[i]] }; },
+  // its rain (m, 0 to 1), its kind of land, its height in metres (a lake's surface on a lake) and its mean temperature.
+  cell: (x, y) => { const i = cellAt(x, y); return { h: world.h[i] - world.sea, lake: !!D.lake[i], river: !!D.isR[i], m: world.m[i], kind: BIOME_NAME[D.biome[i]], elev: surfaceM(i), temp: D.temp[i] }; },
   // Where the scale bar's box, the sea names, the latitude labels, the realms' names and every label sit on the screen,
   // as drawn: [left, top, right, bottom] in CSS pixels.
   boxes: () => {

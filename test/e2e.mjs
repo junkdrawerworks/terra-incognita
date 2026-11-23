@@ -2707,6 +2707,112 @@ await oldCtx.close();
   await h.close();
 }
 
+// What the tools and the files promise, end to end on a laptop with a mouse: a village, a landmark and a label placed on
+// the map, one taken off again with Erase, and Undo taking each step back; a world file the app saved opening as the
+// same world, notes and all; the Atlas look on the map and in Save map image; each Shape in the World tab; the
+// single-file fragment drawing inside a host's page; and the README's 6.5 °C cooler for every kilometre up.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 }, acceptDownloads: true });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.waitForFunction(() => window.terra && window.terra.state().places > 0);
+  const count = () => pg.evaluate(() => { const s = window.terra.state(); return [s.places, s.labels]; });
+  // Three spots of dry land well away from any place, and from each other.
+  const spots = await pg.evaluate(() => {
+    const ps = window.terra.places(), out = [];
+    for (let y = 60.5; y < 250 && out.length < 3; y += 6) for (let x = 60.5; x < 420 && out.length < 3; x += 6) {
+      const k = window.terra.cell(x, y); let dry = true;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const n = window.terra.cell(x + dx, y + dy); if (n.h <= 0 || n.lake || n.river) dry = false; }
+      if (dry && k.h > 0 && ps.every((p) => Math.hypot(p.x - x, p.y - y) > 10) && out.every(([a, b]) => Math.hypot(a - x, b - y) > 20)) out.push([x, y]);
+    }
+    return out;
+  });
+  const clickAt = async ([x, y]) => { const b = await pg.locator('#map').boundingBox(), p = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), [x, y]); await pg.mouse.click(b.x + p.x, b.y + p.y); await pg.waitForTimeout(250); };
+  const steps = [await count()];
+  await pg.click('.tool[data-tool="settle"]'); await pg.click('.chip[data-v="village"]'); await clickAt(spots[0]); steps.push(await count());
+  const village = (await pg.evaluate(([x, y]) => window.terra.places().filter((p) => Math.hypot(p.x - x, p.y - y) < 2), spots[0]))[0];
+  await pg.click('.tool[data-tool="landmark"]'); await clickAt(spots[1]); steps.push(await count());
+  await pg.click('.tool[data-tool="label"]'); await pg.click('.chip[data-v="region"]'); await clickAt(spots[2]); steps.push(await count());
+  await pg.click('.tool[data-tool="erase"]'); await clickAt(spots[0]); steps.push(await count());
+  const [p0, l0] = steps[0];
+  ok(spots.length === 3 && village && village.kind === 'village' && JSON.stringify(steps) === JSON.stringify([[p0, l0], [p0 + 1, l0], [p0 + 2, l0], [p0 + 2, l0 + 1], [p0 + 1, l0 + 1]]),
+    `with the mouse a village, a landmark and a label go on the map, and Erase takes the village off again (places and labels: ${steps.map((s) => s.join('/')).join(', ')})`);
+  const undone = [];
+  for (let k = 0; k < 4; k++) { await pg.keyboard.press('Control+z'); await pg.waitForTimeout(200); undone.push(await count()); }
+  ok(JSON.stringify(undone) === JSON.stringify(steps.slice(0, 4).reverse()), `and Undo takes each step back in turn (${undone.map((s) => s.join('/')).join(', ')})`);
+
+  // A world file the app saved opens as the same world, notes and all.
+  await pg.keyboard.press('v');
+  const cap = (await pg.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
+  await pg.evaluate((id) => window.terra.select({ type: 'place', id }), cap.id);
+  await pg.fill('#pLore', 'Kept in the file, and back out of it.');
+  const printBefore = await pg.evaluate(() => window.terra.fingerprint());
+  await pg.click('#tab-world');
+  const [fileDl] = await Promise.all([pg.waitForEvent('download'), pg.click('#wSaveFile')]);
+  const filePath = await fileDl.path();
+  await pg.evaluate(() => window.terra.newWorld(777, 'archipelago'));
+  const printOther = await pg.evaluate(() => window.terra.fingerprint());
+  await pg.setInputFiles('#wFile', filePath);
+  await pg.waitForFunction(() => document.querySelector('#toast span')?.textContent.startsWith('Opened'));
+  const printAfter = await pg.evaluate(() => window.terra.fingerprint());
+  const noteBack = await pg.evaluate((name) => { const p = window.terra.places().find((q) => q.name === name); window.terra.select({ type: 'place', id: p.id }); return document.getElementById('pLore').value; }, cap.name);
+  ok(JSON.stringify(printAfter) === JSON.stringify(printBefore) && JSON.stringify(printOther) !== JSON.stringify(printBefore) && noteBack === 'Kept in the file, and back out of it.', `a world file the app saved opens as the same world, with its notes (${printAfter.h}, ${printAfter.names})`);
+
+  // Atlas: pale inks on the map, where Terrain's sea is a deep blue, and a parchment margin on Save map image.
+  const parchment = () => pg.evaluate(() => { const cv = document.getElementById('map'), d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data; let n = 0, all = 0; for (let i = 0; i < d.length; i += 4 * 53) { all++; if (Math.min(d[i], d[i + 1], d[i + 2]) > 140) n++; } return n / all; });
+  await pg.evaluate(() => window.terra.select(null));
+  const terrainShare = await parchment();
+  await pg.click('#styleAtlas'); await pg.waitForTimeout(400);
+  const atlasShare = await parchment();
+  await pg.click('#tab-world');
+  const [atlasDl] = await Promise.all([pg.waitForEvent('download'), pg.click('#wSavePng')]);
+  const atlasPng = await readFile(await atlasDl.path());
+  const corner = await pg.evaluate((b64) => new Promise((done) => { const img = new Image(); img.onload = () => { const cv = document.createElement('canvas'); cv.width = img.width; cv.height = img.height; const g = cv.getContext('2d'); g.drawImage(img, 0, 0); done([...g.getImageData(4, 4, 1, 1).data.slice(0, 3)]); }; img.src = 'data:image/png;base64,' + b64; }), atlasPng.toString('base64'));
+  await pg.click('#styleTerrain');
+  ok(atlasShare > terrainShare + 0.3 && atlasPng.readUInt32BE(16) === 1980 && JSON.stringify(corner) === JSON.stringify([0xE9, 0xDF, 0xC6]),
+    `Atlas draws the map in pale inks (${Math.round(atlasShare * 100)}% of the frame pale, against ${Math.round(terrainShare * 100)}% in Terrain), and its Save map image on parchment (margin rgb ${corner.join(', ')})`);
+
+  // Each Shape grows its own kind of world, with land and realms on it.
+  const shapes = [];
+  for (const shape of await pg.evaluate(() => [...document.querySelectorAll('#wShape option')].map((o) => o.value))) {
+    await pg.selectOption('#wShape', shape); await pg.fill('#wSeed', '20417'); await pg.click('#wGen'); await pg.waitForTimeout(200);
+    const s = await pg.evaluate(() => window.terra.state());
+    shapes.push([shape, s.shape, s.land, s.places, s.realms]);
+  }
+  ok(shapes.map((s) => s[0]).join() === 'continent,archipelago,twin,inland' && shapes.every(([want, got, land, places, realms]) => want === got && land > 10000 && places >= 10 && realms >= 2) && new Set(shapes.map((s) => s[2])).size === 4,
+    `each Shape grows a world with land, places and realms (${shapes.map(([k, , l, p, r]) => `${k} ${l} cells, ${p} places, ${r} realms`).join('; ')})`);
+
+  // The README: 6.5 °C cooler for every kilometre up. Neighbouring cells on one row, a kilometre or so apart in height.
+  const lapse = await pg.evaluate(() => {
+    window.terra.newWorld(20417);
+    const rates = [];
+    for (let y = 0.5; y < 300; y += 1) for (let x = 0.5; x < 477; x += 1) {
+      const a = window.terra.cell(x, y); if (a.h < 0 || a.lake) continue;
+      for (let dx = 1; dx <= 3; dx++) { const b = window.terra.cell(x + dx, y); const dE = b.elev - a.elev; if (b.h < 0 || b.lake || Math.abs(dE) < 800 || Math.abs(dE) > 1200) continue; rates.push([-(b.temp - a.temp) / dE * 1000, a, b]); }
+    }
+    rates.sort((p, q) => p[0] - q[0]);
+    const [rate, a, b] = rates[rates.length >> 1];
+    return { n: rates.length, median: rate, pair: [Math.round(a.elev), Math.round(b.elev), +a.temp.toFixed(1), +b.temp.toFixed(1)] };
+  });
+  ok(lapse.n > 50 && Math.abs(lapse.median - 6.5) < 0.4, `ground a kilometre higher is about 6.5 °C cooler, as the README says (${lapse.median.toFixed(2)} °C a km over ${lapse.n} pairs of neighbours; ${lapse.pair[0]} m at ${lapse.pair[2]} °C beside ${lapse.pair[1]} m at ${lapse.pair[3]} °C)`);
+  await c.close();
+
+  // dist/artifact.html, the fragment published as an Artifact, inside a host's page: it draws the world, with no errors.
+  execSync('node scripts/build.mjs', { cwd: root, stdio: 'pipe' });
+  const fragment = await readFile(join(root, 'dist/artifact.html'), 'utf8');
+  const hc = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const hp = await hc.newPage();
+  const hostErrors = [];
+  hp.on('pageerror', (e) => hostErrors.push(e.message)); hp.on('console', (m) => { if (m.type() === 'error') hostErrors.push(m.text()); });
+  await hp.route('**/host.html', (r) => r.fulfill({ contentType: 'text/html', body: `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>${fragment}</body></html>` }));
+  await hp.goto(base + 'host.html');
+  await hp.waitForFunction(() => window.terra && window.terra.state().places > 0);
+  await hp.waitForTimeout(300);
+  const hostDrawn = await hp.evaluate(() => { const cv = document.getElementById('map'), d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data, seen = new Set(); for (let i = 0; i < d.length; i += 4 * 101) seen.add((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]); return seen.size; });
+  ok(hostDrawn > 50 && hostErrors.length === 0, `dist/artifact.html draws the world inside a host's page (${hostDrawn} colours)` + (hostErrors.length ? ': ' + hostErrors.join('; ') : ''));
+  await hc.close();
+}
+
 const real = problems.filter((p) => !/ERR_INTERNET_DISCONNECTED|net::ERR_FAILED/.test(p));
 ok(real.length === 0, 'no errors and nothing loaded from elsewhere' + (real.length ? ':\n' + real.join('\n') : ''));
 

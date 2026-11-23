@@ -1004,6 +1004,63 @@ await oldCtx.close();
   await c.close();
 }
 
+// The map from the keyboard: its label says the world's name and what is on it, Tab reaches it, the arrow keys pan it
+// (they did nothing, and the map took no focus), and Enter or Space reads the spot in the middle or opens the page of
+// the place there. After a click on the map with the mouse, Space and a drag still pan.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => { window.terra.newWorld(20417, 'continent'); window.terra.fitView(); });
+  const label = await pg.evaluate(() => [document.getElementById('map').getAttribute('aria-label'), window.terra.state()]);
+  const at00 = () => pg.evaluate(() => window.terra.toScreen(0, 0));
+  for (let k = 0; k < 3; k++) await pg.keyboard.press('+');
+  await pg.focus('.tool[data-tool="erase"]');
+  await pg.keyboard.press('Tab');
+  const onMap = await pg.evaluate(() => document.activeElement.id);
+  const view = await pg.evaluate(() => { const r = document.getElementById('map').getBoundingClientRect(); return [r.width, r.height]; });
+  const a = await at00(); await pg.keyboard.press('ArrowRight');
+  const b = await at00(); await pg.keyboard.press('Shift+ArrowDown');
+  const d = await at00();
+  // Enter in the middle of the map opens the page of the spot there and says what it is, and focus stays on the map.
+  await pg.keyboard.press('Enter');
+  const spot = await pg.evaluate(() => [document.querySelector('#pane-inspect h2').textContent, document.activeElement.id]);
+  const spotSaid = await pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r((document.getElementById('say') || {}).textContent)))));
+  // With a place in the middle, Enter opens its page; so does Space, with focus brought by the keyboard.
+  const places = await pg.evaluate(() => window.terra.places().filter((p) => p.kind !== 'landmark'));
+  let mid = null;
+  for (const p of places) {
+    const s = await pg.evaluate(([x, y]) => { window.terra.centerOn(x, y); return window.terra.toScreen(x, y); }, [p.x, p.y]);
+    if (Math.abs(s.x - view[0] / 2) < 3 && Math.abs(s.y - view[1] / 2) < 3) { mid = p; break; }
+  }
+  await pg.keyboard.press('Enter');
+  const enterPage = await pg.evaluate(() => document.getElementById('pTitle')?.textContent);
+  await pg.keyboard.press('Escape');
+  await pg.keyboard.press(' ');
+  const spacePage = await pg.evaluate(() => [document.getElementById('pTitle')?.textContent, document.activeElement.id]);
+  ok(/^Map of .+: \d+ realms, \d+ settlements and \d+ landmarks?\. The Codex tab lists every place\. With the map focused, the arrow keys pan it and Enter reads the spot in the middle\.$/.test(label[0]) && label[0].startsWith(`Map of ${label[1].name}:`),
+    `the map's label says the world's name, what is on it, and its keys ("${label[0]}")`);
+  ok(onMap === 'map' && Math.abs(b.x - (a.x - view[0] / 8)) < 0.5 && b.y === a.y && d.y < b.y && d.x === b.x && spot[1] === 'map' && spot[0] && spotSaid.startsWith(spot[0] + ',') && mid && enterPage === mid.name && spacePage[0] === mid.name && spacePage[1] === 'map',
+    `Tab reaches the map, the arrow keys pan it (right ${Math.round(a.x - b.x)} px of ${view[0]}, Shift and down ${Math.round(b.y - d.y)} px), and Enter or Space reads the spot in the middle ("${spotSaid}"; ${mid && mid.name}: ${enterPage}, ${spacePage[0]})`);
+  // After a click on the map with the mouse, Space and a drag still pan, and open nothing.
+  await pg.evaluate(() => window.terra.select(null));
+  const mb = await pg.locator('#map').boundingBox();
+  await pg.evaluate(() => window.terra.fitView());
+  for (let k = 0; k < 3; k++) await pg.click('#zIn');
+  await pg.mouse.click(mb.x + mb.width / 2, mb.y + mb.height / 2);
+  await pg.evaluate(() => window.terra.select(null));
+  const p0 = await at00();
+  await pg.keyboard.down(' '); await pg.mouse.down();
+  for (let k = 1; k <= 6; k++) await pg.mouse.move(mb.x + mb.width / 2 - k * 8, mb.y + mb.height / 2 - k * 5);
+  await pg.mouse.up(); await pg.keyboard.up(' ');
+  const p1 = await at00(), opened = await pg.locator('#pane-inspect .welcome').count();
+  ok(await pg.evaluate(() => document.activeElement.id) === 'map' && (p1.x !== p0.x || p1.y !== p0.y) && opened === 1, `after a click on the map, Space and a drag still pan and open nothing (moved ${Math.round(p0.x - p1.x)}, ${Math.round(p0.y - p1.y)} px)`);
+  // Blank ocean says so.
+  await pg.evaluate(() => window.terra.startBlank());
+  ok((await pg.evaluate(() => document.getElementById('map').getAttribute('aria-label'))).includes(': open water, no land yet.'), 'on blank ocean the map\'s label says open water');
+  await c.close();
+}
+
 // Up close, names stop growing: a realm's at 42 px and a sea's at three times its size on the whole map (they were 166
 // and 115 px tall at the closest zoom). A sea name is clicked and dragged where it is drawn, not where its old size
 // reached.

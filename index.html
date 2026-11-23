@@ -50,7 +50,7 @@
     <main class="stage">
       <div class="toolopts" id="toolOpts"></div>
       <div class="mapwrap" id="mapwrap">
-        <canvas id="map" aria-label="World map. Use the tools to sculpt land and place settlements."></canvas>
+        <canvas id="map" tabindex="0" role="application" aria-label="World map"></canvas>
         <div class="status" id="status" hidden></div>
         <div class="zoom">
           <button id="zIn" aria-label="Zoom in" title="Zoom in">+</button>
@@ -138,6 +138,8 @@
             <dt>Space + drag</dt><dd>Pan with any tool</dd>
             <dt>+ &minus;</dt><dd>Zoom in, out</dd>
             <dt>F</dt><dd>Show the whole map</dd>
+            <dt>Arrows</dt><dd>Pan the map once it has focus (add Shift to go farther)</dd>
+            <dt>Enter</dt><dd>Read the spot in the middle of the focused map, or use the tool there</dd>
             <dt id="keyUndo">Ctrl Z</dt><dd>Undo (add Shift to redo)</dd>
             <dt>Delete</dt><dd>Remove the selected place or label</dd>
             <dt>Esc</dt><dd>Cancel a sketch, clear the selection</dd>

@@ -858,6 +858,7 @@ function applyWorld({ o, h, m }) {
 // Save 0.9 s after the last change, and at least every 5 s while changes keep coming (typing a long note).
 let saveTimer = 0, saveBy = 0;
 function markDirty() {
+  syncMapLabel(); // every change comes through here, a new name or a place founded included
   const now = Date.now(); if (!saveTimer) saveBy = now + 5000;
   clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, Math.max(0, Math.min(900, saveBy - now)));
 }
@@ -1045,6 +1046,7 @@ function drawMap(c, k, vw, vh, v, opt) {
   c.lineWidth = 0.7; c.strokeStyle = atlas ? 'rgba(70,52,30,.7)' : (opt.export ? 'rgba(20,34,43,.6)' : 'rgba(20,34,43,.45)'); c.strokeRect(X0 - 4.5, Y0 - 4.5, MW + 9, MH + 9);
 
   if (!opt.export) drawCursor(c, v);
+  if (!opt.export && mapKeys && document.activeElement === canvas) drawMiddle(c, vw, vh);
   drawCompass(c, Math.min(vw - 46, X0 + MW - 40), Math.max(46, Y0 + 42), 21, INK, HALO);
   drawScale(c, sb, INK, HALO);
 }
@@ -1195,6 +1197,12 @@ function drawCursor(c, v) {
   const sym = { raise: '+', lower: '−', smooth: '~', rain: '≈', drought: '☼' }[ui.tool];
   c.font = `600 14px ${F_MONO}`; c.textAlign = 'center'; c.textBaseline = 'middle';
   haloText(c, sym, at.x, at.y, 'rgba(15,25,32,0.95)', 'rgba(255,255,255,0.85)', 3);
+}
+// The crosshair in the middle of the map while it has keyboard focus.
+function drawMiddle(c, vw, vh) {
+  const X = Math.round(vw / 2), Y = Math.round(vh / 2);
+  c.beginPath(); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { c.moveTo(X + dx * 4, Y + dy * 4); c.lineTo(X + dx * 12, Y + dy * 12); }
+  c.lineCap = 'round'; c.lineWidth = 4; c.strokeStyle = 'rgba(255,255,255,0.85)'; c.stroke(); c.lineWidth = 1.6; c.strokeStyle = 'rgba(15,25,32,0.95)'; c.stroke();
 }
 function drawCompass(c, X, Y, R, ink, halo) {
   c.save(); c.translate(X, Y);
@@ -1835,6 +1843,10 @@ function drawSketch(c, v) {
 
 // ------------------------------------------------------------------ pointer
 const ptrs = new Map(); let gesture = null, hover = null, hoverHit = null, spaceDown = false;
+// The map has focus from the keyboard, or its keys have been used: a crosshair marks the middle, where Enter acts.
+let mapKeys = false;
+canvas.addEventListener('focus', () => { let shown = false; try { shown = canvas.matches(':focus-visible'); } catch (e) { } mapKeys = shown; requestDraw(); });
+canvas.addEventListener('blur', () => { mapKeys = false; requestDraw(); });
 function local(e) { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
 function hitTest(sx, sy) {
   let best = null, bd = 14 * 14;
@@ -1854,6 +1866,7 @@ function hitTest(sx, sy) {
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 canvas.addEventListener('pointerdown', e => {
   canvas.setPointerCapture(e.pointerId);
+  if (mapKeys) { mapKeys = false; requestDraw(); }
   const pt = local(e); ptrs.set(e.pointerId, pt);
   if (ptrs.size === 2) {
     // A second finger just after the first is a pinch, and whatever the first finger painted goes. A stroke well under
@@ -1964,6 +1977,25 @@ function handleClick(sx, sy) {
     markDirty(); refreshCodex(); return;
   }
   if (t === 'label') addLabel(w.x, w.y, ui.labelKind, ui.labelText.trim());
+}
+// Enter on the focused map: the tool's click in the middle of the map, where a crosshair marks it. Select opens the
+// page of the place there, or of the spot, and says what it is.
+function keyClick() {
+  const cx = view.cw / 2, cy = view.ch / 2, t = ui.tool, w = toWorld(cx, cy), inside = w.x >= 0 && w.y >= 0 && w.x < W && w.y < H;
+  if (t === 'sketch') { toast('A sketch is drawn with a mouse, a pen or a finger: hold and drag on the map.'); return; }
+  if (BRUSH_TOOLS.has(t)) { if (inside) { startStroke(cx, cy); strokeFrame(); endStroke(); } return; }
+  if (t !== 'select') { handleClick(cx, cy); return; }
+  const sel = hitTest(cx, cy) || (inside ? { type: 'loc', x: w.x, y: w.y } : null);
+  if (!sel) { say('The middle of the map is off the edge of the world. Pan with the arrow keys.'); return; }
+  select(sel); say(spotWords(sel));
+}
+function spotWords(sel) {
+  const o = findSel(sel), f = facts(o.x, o.y, sel.type === 'place' ? o : null);
+  const realm = f.realm ? `, ${f.water ? 'in the waters of' : 'in'} ${realmMid(f.realm)}` : '';
+  if (sel.type === 'place') return `${o.name}, ${kindLabel(o)}${realm}. Its page is open in the Inspect tab.`;
+  if (sel.type === 'label') return `The label ${o.text}. Its page is open in the Inspect tab.`;
+  const height = f.water && !f.lake ? `${fmtInt(-f.E)} m deep` : f.E < 5 ? 'at sea level' : `${fmtInt(f.E)} m up`;
+  return `${locTitle(f, o)}, ${height}${realm}. More in the Inspect tab.`;
 }
 function addLabel(x, y, kind, text) {
   pushUndo({ meta: true });
@@ -2152,9 +2184,31 @@ function mapIntoView() {
 const toolLink = (id, text, kind) => `<button class="link tool-link" type="button" data-tool="${id}"${kind ? ` data-kind="${kind}"` : ''}>${svgIcon(ICONS[id], 15)}${text}</button>`;
 const SHOW_ON_MAP = '<button class="link show-on-map" id="showOnMap" type="button">Show on map</button>';
 const JD_FOOT = `<footer class="jd-foot">  <a href="https://junkdrawer.works/">Part of junkdrawer.works</a>  <span aria-hidden="true">·</span>  <a href="https://junkdrawer.works/privacy.html">Privacy</a></footer>`;
-function welcomeHTML() {
+// How many settlements and landmarks the world has, and how many cells of land.
+function tally() {
   const settl = world.places.filter(p => p.kind !== 'landmark').length, lms = world.places.length - settl;
   let land = 0; for (let i = 0; i < N; i++) if (world.h[i] >= world.sea) land++;
+  return { settl, lms, land };
+}
+// Only the parts there are, and "no realms" when there are none: "5 realms, 48 settlements and 6 landmarks".
+function whatsHere(realms, settl, lms) {
+  const count = (n, one) => `${fmtInt(n)} ${one}${n === 1 ? '' : 's'}`;
+  const parts = [realms && count(realms, 'realm'), settl && count(settl, 'settlement'), lms && count(lms, 'landmark'), !realms && 'no realms'].filter(Boolean);
+  return parts.length > 1 ? parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1] : parts[0];
+}
+// What the map says to a screen reader, which can't see it: the world's name, what is on it, where to find each place,
+// and how to move it from the keyboard.
+function mapLabel() {
+  const { settl, lms, land } = tally(), name = world.name.trim() || 'a world with no name';
+  const keys = ' With the map focused, the arrow keys pan it and Enter reads the spot in the middle.';
+  if (!land) return `Map of ${name}: open water, no land yet.${keys}`;
+  if (!world.places.length) return `Map of ${name}: land, with no towns or realms yet.${keys}`;
+  return `Map of ${name}: ${whatsHere(D.realms.length, settl, lms)}. The Codex tab lists every place.${keys}`;
+}
+let mapLabelSaid = '';
+function syncMapLabel() { const t = mapLabel(); if (t !== mapLabelSaid) canvas.setAttribute('aria-label', mapLabelSaid = t); }
+function welcomeHTML() {
+  const { settl, lms, land } = tally();
   const cap = world.places.find(p => p.kind === 'capital');
   const head = `<p class="eyebrow">Gazetteer</p><h2 class="display">${esc(world.name)}</h2>`;
   if (!land) return `<div class="welcome">${head}
@@ -2168,11 +2222,9 @@ function welcomeHTML() {
   const made = world.shape !== 'blank';
   const lede = made && world.places.length ? `<p class="lede">A world that doesn't exist, made for you from seed <span class="mono">${world.seed}</span>. Read about any town, or sketch your own coastlines, ranges and rivers.</p>` : '';
   const origin = !made ? ' Drawn by hand on open water.' : lede ? '' : ` Grown from seed <span class="mono">${world.seed}</span>.`;
-  // Only the parts there are, and "no realms" when there are none.
-  const realms = D.realms.length, count = (n, one) => `${fmtInt(n)} ${one}${n === 1 ? '' : 's'}`;
-  const parts = [realms && count(realms, 'realm'), settl && count(settl, 'settlement'), lms && count(lms, 'landmark'), !realms && 'no realms'].filter(Boolean);
+  const realms = D.realms.length;
   const stats = world.places.length
-    ? `${parts.length > 1 ? parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1] : parts[0]} across <span class="mono">${fmtInt(land * KM * KM)}</span> km² of land.`
+    ? `${whatsHere(realms, settl, lms)} across <span class="mono">${fmtInt(land * KM * KM)}</span> km² of land.`
     : `<span class="mono">${fmtInt(land * KM * KM)}</span> km² of land, with no towns or realms yet.`;
   const capitalTip = realms || !settl ? `Pick ${toolLink('settle', 'Found a settlement', 'capital')} and choose <b>Capital</b> to start a realm of your own.`
     : `No realm rules this land yet. Pick ${toolLink('settle', 'Found a settlement', 'capital')} and choose <b>Capital</b> to start one.`;
@@ -2343,9 +2395,9 @@ function bindLabel(l) {
   $('#lAngle').addEventListener('input', e => { once(); l.angle = +e.target.value; requestDraw(); markDirty(); });
   $('#lDelete').onclick = () => removeSel({ type: 'label', id: l.id });
 }
+const locTitle = (f, o) => f.water && !f.lake ? (nearestSeaLabel(o.x, o.y, new Set([D.body[f.i]])) || 'Open sea').replace(/^the /, 'The ') : f.biome;
 function locHTML(o) {
-  const f = facts(o.x, o.y, null);
-  const title = f.water && !f.lake ? (nearestSeaLabel(o.x, o.y, new Set([D.body[f.i]])) || 'Open sea').replace(/^the /, 'The ') : f.biome;
+  const f = facts(o.x, o.y, null), title = locTitle(f, o);
   return `<div><p class="eyebrow">Location${SHOW_ON_MAP}</p><h2 class="display">${esc(title)}</h2></div>
     ${factsHTML(f, null)}
     ${f.water || f.lake ? '' : `<div class="row"><button class="btn sm" id="locTown">Found a town here</button><button class="btn sm" id="locLabel">Label this spot</button></div>`}`;
@@ -2394,7 +2446,7 @@ function syncWorldTab() {
   for (const k of ['realms', 'rivers', 'labels', 'names', 'grid']) $('#ly' + k[0].toUpperCase() + k.slice(1)).checked = ui.layers[k];
   $('#styleTerrain').setAttribute('aria-pressed', String(ui.style === 'terrain')); $('#styleAtlas').setAttribute('aria-pressed', String(ui.style === 'atlas'));
 }
-function refreshPanels() { renderInspector(); refreshCodex(); if (ui.tab === 'world') syncWorldTab(); else $('#worldName').value = world.name; }
+function refreshPanels() { syncMapLabel(); renderInspector(); refreshCodex(); if (ui.tab === 'world') syncWorldTab(); else $('#worldName').value = world.name; }
 function setStyle(st) { if (ui.style === st) return; ui.style = st; buildContours(); buildGlyphs(); renderBase(); syncWorldTab(); requestDraw(); savePrefs(); }
 const slug = () => (world.name || 'world').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'world';
 function browserDownload(name, data) {
@@ -2529,6 +2581,14 @@ window.addEventListener('keydown', e => {
   if (mod && e.key.toLowerCase() === 'z' && !text) { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
   if (mod && e.key.toLowerCase() === 'y' && !text) { e.preventDefault(); redo(); return; }
   if (typing || mod || e.altKey) return;
+  // The map itself, focused: the arrow keys pan it, an eighth of the view at a time (with Shift, half), and Enter does
+  // what a click in its middle would. So does Space when focus came by keyboard; after a click on the map, Space and a
+  // drag still pan, below.
+  if (el === canvas) {
+    const ar = { ArrowLeft: [1, 0], ArrowRight: [-1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] }[e.key];
+    if (ar) { e.preventDefault(); const k = e.shiftKey ? 0.5 : 0.125; view.ox += ar[0] * view.cw * k; view.oy += ar[1] * view.ch * k; clampView(); mapKeys = true; requestDraw(); return; }
+    if (e.key === 'Enter' || (e.key === ' ' && keyFocus === canvas)) { e.preventDefault(); if (!e.repeat) { mapKeys = true; requestDraw(); keyClick(); } return; }
+  }
   // Space pans while the pointer is over the map, even with a button still focused from a click. Not on a control a
   // keyboard user has moved onto: there Space presses it.
   if (e.key === ' ' && (!el || el === document.body || el === canvas || (hover && el !== keyFocus))) { if (!spaceDown) { spaceDown = true; updateCursor(); } e.preventDefault(); return; }

@@ -92,6 +92,9 @@ const ALL_TITLES = [...new Set(TONGUE_IDS.flatMap(t => TONGUES[t].titles).concat
 const REALM_COLORS = ['#B4473A', '#3A6EA5', '#7B4F9C', '#C18A1E', '#2C8779', '#A33F6D', '#5D7F2B', '#CF6A36', '#4A549A'];
 const REALM_COLOR_NAMES = ['Red', 'Blue', 'Purple', 'Ochre', 'Teal', 'Rose', 'Olive', 'Orange', 'Indigo']; // what a screen reader says
 
+// Syllables thrown together now and then spell a slur or a crude word ('Bay of Cunt', 'Turdhald'), or a bare English
+// word that breaks every sentence it sits in (a village called 'The'). makeName draws again when one turns up.
+const UNFIT_NAME = /cunt|fuck|shit|nig|fag|rape|kike|coon|paki|spic|dyke|wank|twat|slut|whore|turd|poo|bum|sex|tard|anus|anal|porn|nazi|homo|jizz|spunk|cock|dick|piss|cum|arse|vag|^(pus|tit)|(pus|tit)$|^(the|and|of|an?)$/;
 function makeName(tg, rng, o = {}) {
   const T = TONGUES[tg] || TONGUES.vale;
   for (let tries = 0; tries < 30; tries++) {
@@ -108,7 +111,7 @@ function makeName(tg, rng, o = {}) {
     }
     n = n.toLowerCase().replace(/(.)\1\1+/g, '$1$1');
     if (n.length < 3 || n.length > 12) continue;
-    if (/[^aeiouy]{4,}/.test(n) || /[aeiouy]{4,}/.test(n)) continue;
+    if (/[^aeiouy]{4,}/.test(n) || /[aeiouy]{4,}/.test(n) || UNFIT_NAME.test(n)) continue;
     return n[0].toUpperCase() + n.slice(1);
   }
   return 'Nameless';
@@ -2585,6 +2588,8 @@ window.terra = {
     const sha = async (s) => [...new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(s)))].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 12);
     return { h: await sha(packF(world.h)), m: await sha(packF(world.m)), names: await sha(world.places.map(p => p.name).join('|') + '\n' + world.labels.map(l => l.text).join('|')) };
   },
+  // n names in a tongue as the map draws them (a third each bare, for a realm and plain), from a seed.
+  names: (tongue, n, seed = 1) => { const rng = mulberry32(seed), out = []; for (let k = 0; k < n; k++) out.push(makeName(tongue, rng, [{ bare: true }, { realm: true }, {}][k % 3])); return out; },
   riverNear: (x, y, r = 1.5) => {
     for (let dy = -Math.ceil(r); dy <= Math.ceil(r); dy++) for (let dx = -Math.ceil(r); dx <= Math.ceil(r); dx++) {
       if (dx * dx + dy * dy > r * r) continue; const i = cellAt(x + dx, y + dy); if (D.isR[i]) return true;

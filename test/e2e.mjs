@@ -786,8 +786,8 @@ await oldCtx.close();
   const changed = [];
   for (const [seed, shape, h, m, names] of [
     [20417, 'continent', '8b20efbd125e', '512fcd5bb05c', 'f39ec175df17'],
-    [96298, 'continent', '736cd99437ab', 'cd459cbe598b', 'cc070ee5d302'],
-    [950281, 'inland', '7ff144f0176e', '02cd964ad9ee', '2cc825ec9712'],
+    [96298, 'continent', '736cd99437ab', 'cd459cbe598b', '8b66c72f3740'],
+    [950281, 'inland', '7ff144f0176e', '02cd964ad9ee', '5fcab7c3aa94'],
     [857490, 'twin', '548a8b21cd78', 'be8627ced63b', 'bc17038f44e7'],
     [645278, 'inland', '358737c747f0', '14173dbaa8f3', 'f1aa3f465c81'],
   ]) {
@@ -795,6 +795,26 @@ await oldCtx.close();
     if (f.h !== h || f.m !== m || f.names !== names) changed.push(`${seed} ${shape}: h ${f.h}, m ${f.m}, names ${f.names}`);
   }
   ok(changed.length === 0, 'five seeds grow the same worlds as before' + (changed.length ? '. Generation changed, which must go to Mark with before and after pictures:\n' + changed.join('\n') : ''));
+  await c.close();
+}
+
+// Syllables thrown together can spell a slur or a crude word ('Bay of Cunt' was on one continent), or a bare English
+// word that breaks a sentence (a village called 'The'). Every tongue draws 50,000 names, a third each bare, for a realm
+// and plain, as towns, rivers, seas, landmarks and realms get them, and none is one of those.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const found = await pg.evaluate(() => {
+    const unfit = /cunt|fuck|shit|nig|fag|rape|kike|coon|paki|spic|dyke|wank|twat|slut|whore|turd|poo|bum|sex|tard|anus|anal|porn|nazi|homo|jizz|spunk|cock|dick|piss|cum|arse|vag|^(pus|tit)|(pus|tit)$|^(the|and|of|an?)$/;
+    const out = [];
+    for (const t of ['north', 'imperial', 'sylvan', 'ember', 'vale', 'lilting']) {
+      const names = window.terra.names(t, 50000, 7);
+      out.push([t, names.length, new Set(names).size, names.filter(n => unfit.test(n.toLowerCase()) || n === 'Nameless')]);
+    }
+    return out;
+  });
+  ok(found.every(([, n, u, bad]) => n === 50000 && u > 500 && bad.length === 0), 'no generated name is a slur, a crude word or a bare English word' + found.filter(f => f[3].length).map(([t, , , bad]) => `; ${t}: ${[...new Set(bad)].slice(0, 12).join(', ')}`).join(''));
   await c.close();
 }
 

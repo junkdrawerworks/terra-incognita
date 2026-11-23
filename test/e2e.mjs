@@ -759,6 +759,75 @@ await oldCtx.close();
   await c.close();
 }
 
+// A town dragged and then pinched before the finger lifts stays where it was dragged to: the move is saved, the borders
+// follow it and its page shows where it is now. The pinch used to take over the drag before it was finished, so the
+// move was drawn but never saved, and a reload put the town back.
+{
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const pg = watch(await c.newPage());
+  const cdp = await c.newCDPSession(pg);
+  await pg.goto(base);
+  const b = await pg.locator('#map').boundingBox();
+  const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
+  const position = () => pg.evaluate(() => [...document.querySelectorAll('#pane-inspect .facts dd')].find((d) => d.previousElementSibling.textContent === 'Position').textContent);
+  const cap = (await pg.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
+  const s = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), [cap.x, cap.y]), a = [b.x + s.x, b.y + s.y];
+  await touch('touchStart', [a]);
+  for (let k = 1; k <= 8; k++) { await touch('touchMove', [[a[0] + k * 5, a[1]]]); await pg.waitForTimeout(20); }
+  const held = [a[0] + 40, a[1]];
+  await touch('touchStart', [held, [held[0] + 60, held[1] + 60]]);
+  await touch('touchMove', [held, [held[0] + 70, held[1] + 70]]);
+  await touch('touchEnd', []);
+  await pg.waitForTimeout(400);
+  const moved = (await pg.evaluate(() => window.terra.places())).find((p) => p.id === cap.id), shown = await position();
+  await pg.evaluate((id) => { window.terra.select(null); window.terra.select({ type: 'place', id }); }, cap.id);
+  const fresh = await position();
+  // The realms' areas in the Codex, as drawn now and as worked out afresh from the saved world after a reload.
+  const areas = () => pg.evaluate(() => {
+    document.getElementById('tab-codex').click();
+    const rows = [...document.querySelector('#codexList .clist').querySelectorAll('.crow')].map((r) => r.textContent).join('|');
+    document.getElementById('tab-inspect').click();
+    return rows;
+  });
+  const areasBefore = await areas();
+  await pg.waitForTimeout(1200);
+  await pg.reload();
+  await pg.waitForTimeout(400);
+  const back = (await pg.evaluate(() => window.terra.places())).find((p) => p.id === cap.id);
+  ok(moved.x > cap.x + 5 && back.x === moved.x && back.y === moved.y, `${cap.name}, dragged and then pinched, keeps its new place after a reload (${cap.x} across, then ${moved.x.toFixed(1)}, then ${back.x.toFixed(1)})`);
+  ok(shown === fresh, `and its page shows where it is now (${shown})`);
+  ok(areasBefore === await areas(), 'and the borders followed it');
+  await c.close();
+}
+
+// Leaving the page in the middle of a brush stroke or a drag saves it, as a phone switching apps may never come back
+// to run the autosave's timer.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const stored = () => pg.evaluate(() => { const w = JSON.parse(localStorage.getItem('terra-incognita/world/v1')); return { h: w.h, ninten: w.places[0].x }; });
+  const b = await pg.locator('#map').boundingBox();
+  const at = async (x, y) => { const p = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), [x, y]); return [b.x + p.x, b.y + p.y]; };
+  const before = await stored();
+  await pg.click('.tool[data-tool="raise"]');
+  const a = await at(200, 150);
+  await pg.mouse.move(...a); await pg.mouse.down();
+  for (let k = 1; k <= 6; k++) { await pg.mouse.move(a[0] + k * 6, a[1]); await pg.waitForTimeout(40); }
+  await pg.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  const midStroke = await stored();
+  await pg.mouse.up();
+  await pg.click('.tool[data-tool="select"]');
+  const first = (await pg.evaluate(() => window.terra.places()))[0], f = await at(first.x, first.y);
+  await pg.mouse.move(...f); await pg.mouse.down();
+  for (let k = 1; k <= 6; k++) await pg.mouse.move(f[0] + k * 6, f[1]);
+  await pg.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  const midDrag = await stored();
+  await pg.mouse.up();
+  ok(midStroke.h !== before.h && midDrag.ninten > first.x, 'leaving the page mid-stroke or mid-drag saves it');
+  await c.close();
+}
+
 const real = problems.filter((p) => !/ERR_INTERNET_DISCONNECTED|net::ERR_FAILED/.test(p));
 ok(real.length === 0, 'no errors and nothing loaded from elsewhere' + (real.length ? ':\n' + real.join('\n') : ''));
 

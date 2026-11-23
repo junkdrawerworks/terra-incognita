@@ -799,8 +799,13 @@ function markDirty() {
   clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, Math.max(0, Math.min(900, saveBy - now)));
 }
 function saveNow() { clearTimeout(saveTimer); saveTimer = 0; saveLocal(); }
-// Leaving the page saves straight away: a phone may never run the timer once the app is in the background.
-function saveBeforeLeaving() { if (saveTimer) saveNow(); }
+// Leaving the page saves straight away: a phone may never run the timer once the app is in the background. A brush
+// stroke or a drag under way is finished first so it goes in too; a half-drawn sketch doesn't.
+function saveBeforeLeaving() {
+  if (stroke) endStroke();
+  if (gesture && gesture.type === 'drag' && gesture.moved) finishDrag(gesture);
+  if (saveTimer) saveNow();
+}
 let saveWarned = false; // the first time an autosave fails, say so over the map too, not only in the World tab
 function saveLocal() {
   try {
@@ -1618,6 +1623,8 @@ canvas.addEventListener('pointerdown', e => {
     // way is kept.
     if (stroke) { if (performance.now() - stroke.t0 < 300 || stroke.far < 12) cancelStroke(); else endStroke(); }
     if (sketchDraft) { sketchDraft = null; requestDraw(); }
+    // A drag the pinch cuts short keeps the ground it covered.
+    if (gesture && gesture.type === 'drag' && gesture.moved) finishDrag(gesture);
     const [a, b] = [...ptrs.values()];
     gesture = { type: 'pinch', d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 }; return;
   }
@@ -1675,12 +1682,14 @@ function endPointer(e) {
   if (g.type === 'stroke') endStroke();
   else if (g.type === 'sketch') { if (e.type === 'pointerup') finishSketch(); else { sketchDraft = null; requestDraw(); } }
   else if (g.type === 'click' && !g.moved && e.type === 'pointerup') handleClick(pt.x, pt.y);
-  else if (g.type === 'drag' && g.moved) {
-    const o = findSel(g.hit);
-    if (g.hit.type === 'place' && o && o.kind !== 'landmark') recomputePolitics();
-    requestDraw(); renderInspector(); markDirty();
-  }
+  else if (g.type === 'drag' && g.moved) finishDrag(g);
   updateCursor();
+}
+// A place or label dragged somewhere new: the borders follow a settlement, its page shows where it is, and it's saved.
+function finishDrag(g) {
+  const o = findSel(g.hit);
+  if (g.hit.type === 'place' && o && o.kind !== 'landmark') recomputePolitics();
+  requestDraw(); renderInspector(); markDirty();
 }
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);

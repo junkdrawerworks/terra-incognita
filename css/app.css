@@ -175,6 +175,8 @@ textarea{width:100%;min-height:130px;font:14px/1.55 var(--f-ui);border:1px solid
 .crow-text{display:flex;flex-direction:column;min-width:0}
 .crow-text .nm{white-space:normal;text-wrap:balance;overflow-wrap:anywhere}
 .crow-text .meta{overflow:hidden;text-overflow:ellipsis}
+.crow .excerpt{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-style:italic}
+.crow .noted{color:var(--muted);margin-left:6px;vertical-align:-1px}
 .group-h{display:flex;align-items:center;gap:8px;margin:10px 0 4px;font:600 11px var(--f-ui);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 .stat{font:12px var(--f-mono);color:var(--muted)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}

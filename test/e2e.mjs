@@ -340,6 +340,26 @@ const eyebrowLine = await desk.evaluate(() => {
 });
 ok(Math.abs(eyebrowLine.swatch - eyebrowLine.name) <= 4 && eyebrowLine.showTop - eyebrowLine.eyebrowTop < 12, `a realm's colour stays beside its name on a capital's page (${JSON.stringify(eyebrowLine)})`);
 
+// The Codex finds the names on the map as well as places, and words in a place's notes: a sea ("Lainho", from the Sea
+// of Lainho), a range ("Pol Teeth") and a word typed in a note each turn up, the note with its words around the match
+// and a pen beside the place's name. A label found there opens its page.
+{
+  const codexRows = (q) => desk.evaluate((q) => { const i = document.getElementById('codexQ'); i.value = q; i.dispatchEvent(new Event('input')); return [...document.querySelectorAll('#codexList .crow')].map((r) => r.textContent); }, q);
+  const noted = (await desk.evaluate(() => window.terra.places())).find((p) => p.kind === 'village');
+  await desk.evaluate((id) => window.terra.select({ type: 'place', id }), noted.id);
+  await desk.fill('#pLore', 'Market on Thursdays. The dragon Vorthax sleeps beneath the hill, and the village keeps its secret.');
+  await desk.click('#tab-codex');
+  const sea = await codexRows('Lainho'), range = await codexRows('pol teeth'), lore = await codexRows('vorthax'), nothing = await codexRows('zzqx');
+  const pen = await desk.evaluate(() => { const i = document.getElementById('codexQ'); i.value = ''; i.dispatchEvent(new Event('input')); return [...document.querySelectorAll('#codexList .crow')].filter((r) => r.querySelector('.noted')).map((r) => r.querySelector('.nm').textContent); });
+  ok(sea.some((t) => /Sea of Lainho\s*Sea or water/.test(t)) && range.some((t) => /The Pol Teeth\s*Mountains/.test(t)) && lore.length === 1 && lore[0].includes(noted.name) && lore[0].includes('dragon Vorthax sleeps')
+    && nothing.length === 0 && await desk.textContent('#codexList') !== '' && pen.length === 1 && pen[0] === `${noted.name}, has notes` && await desk.getAttribute('#codexQ', 'placeholder') === 'Search places, waters and notes',
+    `the Codex finds seas, ranges and notes (${JSON.stringify([sea[0], range[0], lore[0], pen[0]])})`);
+  await codexRows('Lainho');
+  await desk.click('#codexList .crow[data-label]');
+  ok(await desk.inputValue('#lText') === 'Sea of Lainho', 'and a sea found there opens its label');
+  await desk.evaluate(() => { const i = document.getElementById('codexQ'); i.value = ''; i.dispatchEvent(new Event('input')); window.terra.select(null); window.terra.fitView(); });
+}
+
 // A town's Realm row goes to its capital's page, where the realm's population is given to two figures, not to the
 // person. On the capital itself the realm's name is plain text.
 {

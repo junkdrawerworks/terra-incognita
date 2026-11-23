@@ -31,7 +31,7 @@ and sea stop them. Every town has a page for its story.
   towns push the border out. Each realm has its own tongue, so towns founded inside it sound like they belong there.
 - **Places.** Tap any town or patch of ground to see its position, elevation, climate, river, nearest neighbour and
   local goods. Keep notes for your lore, or roll a rumor built from the map around it. From the keyboard, Tab to the
-  map, pan it with the arrow keys and press Enter to read the spot in the middle; the Codex lists every place.
+  map, pan it with the arrow keys and press Enter to read the spot in the middle; the Codex lists every place and every name on the map, and finds words in your notes.
 - **Two looks.** Terrain is shaded relief; Atlas is parchment with drawn mountains and trees.
 - **No account and no server.** Your world saves itself in your browser. *Save world file* and *Open world file* keep it
   or move it to another device, and *Save map image* makes a picture of it. It works offline and installs to a phone's

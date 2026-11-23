@@ -2483,6 +2483,20 @@ function bindLoc(o) {
 
 // ------------------------------------------------------------------ codex
 function refreshCodex() { if (ui.tab === 'codex') renderCodex(); }
+// A few words of a place's notes around where they match the search, for the Codex row.
+function excerpt(text, q) {
+  const t = text.replace(/\s+/g, ' ').trim(), at = t.toLowerCase().indexOf(q); if (at < 0) return '';
+  let a = Math.max(0, at - 32), z = Math.min(t.length, at + q.length + 48);
+  if (a > 0) { const sp = t.indexOf(' ', a); if (sp >= 0 && sp < at) a = sp + 1; }
+  if (z < t.length) { const sp = t.lastIndexOf(' ', z); if (sp > at + q.length) z = sp; }
+  return (a > 0 ? '…' : '') + t.slice(a, z) + (z < t.length ? '…' : '');
+}
+const LABEL_KINDS = {
+  sea: { label: 'Sea or water', d: 'M1.5 6.5c2-1.6 3.5-1.6 5.5 0s3.5 1.6 5.5 0M1.5 10.5c2-1.6 3.5-1.6 5.5 0s3.5 1.6 5.5 0' },
+  range: { label: 'Mountains', d: 'M1 13 5.5 5l2.6 4.4L10 7l5 6z' },
+  region: { label: 'Region', d: 'M3 14V2.5M3 3h8.5l-2 3 2 3H3' },
+};
+const NOTED = '<svg class="noted" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 13.2 3.6 10l7.6-7.6a1.4 1.4 0 0 1 2 2L5.6 12z M2.5 14.5h11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg><span class="sr">, has notes</span>';
 function renderCodex() {
   const q = $('#codexQ').value.trim().toLowerCase();
   const match = s => !q || s.toLowerCase().includes(q);
@@ -2495,14 +2509,30 @@ function renderCodex() {
   const groups = D.realms.map(r => ({ title: r.name, color: r.color, items: world.places.filter(p => ownerOf(p) === r.idx) }));
   groups.push({ title: 'Unclaimed lands', color: null, items: world.places.filter(p => ownerOf(p) < 0) });
   let any = false;
+  // A place turns up by its name, its kind ('temple', 'village') or anything in its notes; one found by its notes
+  // shows the words around the match. A place with notes has a small pen beside its name.
+  const row = p => {
+    const noted = !!p.lore.trim(), byNotes = q && !match(p.name) && !match(kindLabel(p)) ? excerpt(p.lore, q) : '';
+    const meta = `<span class="meta">${esc(kindLabel(p))}${p.pop ? ` · <span class="mono">${fmtInt(p.pop)}</span><span class="sr"> people</span>` : ''}</span>`;
+    const nm = `<span class="nm">${esc(p.name)}${noted ? NOTED : ''}</span>`;
+    return `<button class="crow" data-id="${p.id}"><span class="ic">${kindGlyph(p, 15)}</span>${byNotes ? `<span class="crow-text">${nm}<span class="meta excerpt">${esc(byNotes)}</span></span>` : nm}${meta}</button>`;
+  };
   for (const g of groups) {
-    const items = g.items.filter(p => match(p.name)).sort((a, b) => P_ORDER[b.kind] - P_ORDER[a.kind] || (b.pop || 0) - (a.pop || 0));
+    const items = g.items.filter(p => match(p.name) || match(kindLabel(p)) || match(p.lore)).sort((a, b) => P_ORDER[b.kind] - P_ORDER[a.kind] || (b.pop || 0) - (a.pop || 0));
     if (!items.length) continue; any = true;
-    h += `<h3 class="group-h">${g.color ? `<span class="swatch" style="background:${g.color}"></span>` : ''}${esc(g.title)}</h3><div class="clist">` + items.map(p => `<button class="crow" data-id="${p.id}"><span class="ic">${kindGlyph(p, 15)}</span><span class="nm">${esc(p.name)}</span><span class="meta">${esc(kindLabel(p))}${p.pop ? ` · <span class="mono">${fmtInt(p.pop)}</span><span class="sr"> people</span>` : ''}</span></button>`).join('') + `</div>`;
+    h += `<h3 class="group-h">${g.color ? `<span class="swatch" style="background:${g.color}"></span>` : ''}${esc(g.title)}</h3><div class="clist">` + items.map(row).join('') + `</div>`;
   }
-  if (!realms.length && !any) h = `<p class="note">${q ? 'Nothing by that name yet.' : 'No places yet. Use the settle tool to found one.'}</p>`;
+  if (!realms.length && !any) h = q ? '' : `<p class="note">No places yet. Use the settle tool to found one.</p>`;
+  // The names on the map itself: seas and lakes, regions and ranges, A to Z.
+  const sortKey = l => l.text.replace(/^The /, '').toLowerCase();
+  const labels = world.labels.filter(l => l.text.trim() && match(l.text)).sort((a, b) => sortKey(a) < sortKey(b) ? -1 : sortKey(a) > sortKey(b) ? 1 : 0);
+  if (labels.length) {
+    h += `<h3 class="group-h">Seas, lands and ranges</h3><div class="clist">` + labels.map(l => { const k = LABEL_KINDS[l.kind] || LABEL_KINDS.region; return `<button class="crow" data-label="${l.id}"><span class="ic"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="${k.d}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg></span><span class="nm">${esc(l.text)}</span><span class="meta">${k.label}</span></button>`; }).join('') + `</div>`;
+  }
+  if (!h) h = `<p class="note">Nothing by that name or in your notes yet.</p>`;
   $('#codexList').innerHTML = h;
-  $('#codexList').querySelectorAll('.crow').forEach(b => b.onclick = () => { const p = world.places.find(x => x.id === +b.dataset.id); if (p) { select({ type: 'place', id: p.id }); centerOn(p.x, p.y); refocus('#pTitle'); } });
+  $('#codexList').querySelectorAll('.crow[data-id]').forEach(b => b.onclick = () => { const p = world.places.find(x => x.id === +b.dataset.id); if (p) { select({ type: 'place', id: p.id }); centerOn(p.x, p.y); refocus('#pTitle'); } });
+  $('#codexList').querySelectorAll('.crow[data-label]').forEach(b => b.onclick = () => { const l = world.labels.find(x => x.id === +b.dataset.label); if (l) { select({ type: 'label', id: l.id }); centerOn(l.x, l.y); refocus('#lText'); } });
 }
 
 // ------------------------------------------------------------------ tabs, world tab

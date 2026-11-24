@@ -1846,33 +1846,72 @@ function drawMap(c, k, vw, vh, v, opt) {
 // whole map they were 1.9 px apart, 3 px across), so only a share of them is drawn, enough to keep them about 5 px
 // apart, but never fewer than a quarter. Mountains keep their own spacing.
 const glyphShare = s => clamp((TREE_STEP * s / 5) ** 2, 0.25, 1);
+// The symbols are drawn a pass at a time, a whole set of them in one call, not one call each (thousands, most of each
+// Atlas frame on a slow phone), and they come out the same: each goes in the first set after every earlier symbol it
+// overlaps (with 2 px to spare), so overlapping symbols keep their order, and within a set none touch, so the order there
+// doesn't show.
+const GLYPH_PASSES = 12;
+let lastGlyphs = { calls: 0, drawn: 0 }; // the fills and strokes the symbols took when last drawn, and how many, for the test of them
 function drawGlyphs(c, v, vw, vh) {
   const s = v.s, ink = '#4a3920', paper = 'rgba(236,224,190,1)', shadeCol = 'rgba(92,70,40,0.38)';
-  const keep = glyphShare(s);
-  c.lineJoin = 'round'; c.lineCap = 'round';
+  const keep = glyphShare(s), lwM = Math.max(0.8, s * 0.2), lwH = Math.max(0.7, s * 0.16), lwT = Math.max(0.6, s * 0.14);
+  // Each pass's colour, line width (0 to fill) and the kind of symbol it belongs to.
+  const PASS = [[paper, 0], [shadeCol, 0], ['#fbf8ef', 0], [ink, lwM], ['rgba(74,57,32,0.7)', lwH], ['#a4ad78', 0], ['rgba(62,70,36,0.85)', lwT], ['rgba(62,70,36,0.85)', lwT], ['#8c9a6c', 0], ['rgba(52,62,34,0.85)', lwT], ['rgba(70,90,60,0.8)', lwT], ['rgba(120,90,50,0.6)', lwT]];
+  const sets = [], G = 24, grid = new Map(); let drawn = 0;
+  const cellKey = (gx, gy) => gx * 65536 + gy;
   for (const g of D.glyphs) {
     if (g.t >= 2 && g.k > keep) continue;
     const X = v.ox + g.x * s, Y = v.oy + g.y * s;
     if (X < -40 || Y < -40 || X > vw + 40 || Y > vh + 40) continue;
+    // Its box on screen, and the paths it adds to each pass.
+    let l, t, r, b; const add = [];
     if (g.t === 0) {
       const hg = g.z * s, w = hg * 0.95, pk = X - w * 0.08;
-      c.beginPath(); c.moveTo(X - w, Y); c.lineTo(pk, Y - hg); c.lineTo(X + w, Y); c.closePath(); c.fillStyle = paper; c.fill();
-      c.beginPath(); c.moveTo(pk, Y - hg); c.lineTo(X + w, Y); c.lineTo(X + w * 0.15, Y); c.closePath(); c.fillStyle = shadeCol; c.fill();
-      if (g.snow) { c.beginPath(); c.moveTo(pk, Y - hg); c.lineTo(pk - w * 0.32, Y - hg * 0.66); c.lineTo(pk + w * 0.34, Y - hg * 0.64); c.closePath(); c.fillStyle = '#fbf8ef'; c.fill(); }
-      c.beginPath(); c.moveTo(X - w, Y); c.lineTo(pk, Y - hg); c.lineTo(X + w, Y); c.lineWidth = Math.max(0.8, s * 0.2); c.strokeStyle = ink; c.stroke();
+      l = X - w; r = X + w; t = Y - hg; b = Y;
+      add.push([0, p => { p.moveTo(X - w, Y); p.lineTo(pk, Y - hg); p.lineTo(X + w, Y); p.closePath(); }]);
+      add.push([1, p => { p.moveTo(pk, Y - hg); p.lineTo(X + w, Y); p.lineTo(X + w * 0.15, Y); p.closePath(); }]);
+      if (g.snow) add.push([2, p => { p.moveTo(pk, Y - hg); p.lineTo(pk - w * 0.32, Y - hg * 0.66); p.lineTo(pk + w * 0.34, Y - hg * 0.64); p.closePath(); }]);
+      add.push([3, p => { p.moveTo(X - w, Y); p.lineTo(pk, Y - hg); p.lineTo(X + w, Y); }]);
     } else if (g.t === 1) {
-      const w = g.z * s; c.beginPath(); c.arc(X, Y, w, Math.PI * 1.1, Math.PI * 1.9); c.lineWidth = Math.max(0.7, s * 0.16); c.strokeStyle = 'rgba(74,57,32,0.7)'; c.stroke();
+      const w = g.z * s; l = X - w; r = X + w; t = Y - w; b = Y + w;
+      add.push([4, p => { p.moveTo(X + w * Math.cos(Math.PI * 1.1), Y + w * Math.sin(Math.PI * 1.1)); p.arc(X, Y, w, Math.PI * 1.1, Math.PI * 1.9); }]);
     } else if (g.t === 2) {
-      const r = Math.max(1.5, 0.85 * s); c.beginPath(); c.arc(X, Y - r, r, 0, Math.PI * 2); c.fillStyle = '#a4ad78'; c.fill(); c.lineWidth = Math.max(0.6, s * 0.14); c.strokeStyle = 'rgba(62,70,36,0.85)'; c.stroke();
-      c.beginPath(); c.moveTo(X, Y); c.lineTo(X, Y + r * 0.6); c.stroke();
+      const rr = Math.max(1.5, 0.85 * s); l = X - rr; r = X + rr; t = Y - 2 * rr; b = Y + rr * 0.6;
+      add.push([5, p => { p.moveTo(X + rr, Y - rr); p.arc(X, Y - rr, rr, 0, Math.PI * 2); }]);
+      add.push([6, p => { p.moveTo(X + rr, Y - rr); p.arc(X, Y - rr, rr, 0, Math.PI * 2); }]);
+      add.push([7, p => { p.moveTo(X, Y); p.lineTo(X, Y + rr * 0.6); }]);
     } else if (g.t === 3) {
-      const r = Math.max(1.6, 0.95 * s); c.beginPath(); c.moveTo(X, Y - r * 2.1); c.lineTo(X + r * 0.8, Y); c.lineTo(X - r * 0.8, Y); c.closePath(); c.fillStyle = '#8c9a6c'; c.fill(); c.lineWidth = Math.max(0.6, s * 0.14); c.strokeStyle = 'rgba(52,62,34,0.85)'; c.stroke();
+      const rr = Math.max(1.6, 0.95 * s); l = X - rr * 0.8; r = X + rr * 0.8; t = Y - rr * 2.1; b = Y;
+      const tri = p => { p.moveTo(X, Y - rr * 2.1); p.lineTo(X + rr * 0.8, Y); p.lineTo(X - rr * 0.8, Y); p.closePath(); };
+      add.push([8, tri]); add.push([9, tri]);
     } else if (g.t === 4) {
-      const r = Math.max(1.4, 0.8 * s); c.beginPath(); c.moveTo(X - r, Y); c.lineTo(X - r * 1.3, Y - r); c.moveTo(X, Y); c.lineTo(X, Y - r * 1.4); c.moveTo(X + r, Y); c.lineTo(X + r * 1.3, Y - r); c.lineWidth = Math.max(0.6, s * 0.14); c.strokeStyle = 'rgba(70,90,60,0.8)'; c.stroke();
+      const rr = Math.max(1.4, 0.8 * s); l = X - rr * 1.3; r = X + rr * 1.3; t = Y - rr * 1.4; b = Y;
+      add.push([10, p => { p.moveTo(X - rr, Y); p.lineTo(X - rr * 1.3, Y - rr); p.moveTo(X, Y); p.lineTo(X, Y - rr * 1.4); p.moveTo(X + rr, Y); p.lineTo(X + rr * 1.3, Y - rr); }]);
     } else if (g.t === 5) {
-      const r = Math.max(1.6, 1.1 * s); c.beginPath(); c.moveTo(X - r * 1.4, Y); c.quadraticCurveTo(X - r * 0.2, Y - r, X + r * 1.4, Y); c.lineWidth = Math.max(0.6, s * 0.14); c.strokeStyle = 'rgba(120,90,50,0.6)'; c.stroke();
+      const rr = Math.max(1.6, 1.1 * s); l = X - rr * 1.4; r = X + rr * 1.4; t = Y - rr; b = Y;
+      add.push([11, p => { p.moveTo(X - rr * 1.4, Y); p.quadraticCurveTo(X - rr * 0.2, Y - rr, X + rr * 1.4, Y); }]);
+    } else continue;
+    const pad = 2 + lwM; l -= pad; t -= pad; r += pad; b += pad;
+    // The first set after every earlier symbol whose box meets this one's.
+    let set = 0; const gx0 = Math.floor(l / G), gx1 = Math.floor(r / G), gy0 = Math.floor(t / G), gy1 = Math.floor(b / G);
+    for (let gx = gx0; gx <= gx1; gx++) for (let gy = gy0; gy <= gy1; gy++) {
+      const cell = grid.get(cellKey(gx, gy)); if (!cell) continue;
+      for (const o of cell) if (o.set >= set && o.l < r && o.r > l && o.t < b && o.b > t) set = o.set + 1;
     }
+    const box = { l, t, r, b, set };
+    for (let gx = gx0; gx <= gx1; gx++) for (let gy = gy0; gy <= gy1; gy++) { const k = cellKey(gx, gy); let cell = grid.get(k); if (!cell) grid.set(k, cell = []); cell.push(box); }
+    const paths = sets[set] || (sets[set] = new Array(GLYPH_PASSES).fill(null)); drawn++;
+    for (const [k, fn] of add) fn(paths[k] || (paths[k] = new Path2D()));
   }
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  let calls = 0;
+  for (const paths of sets) for (let k = 0; k < GLYPH_PASSES; k++) {
+    const p = paths[k]; if (!p) continue;
+    const [col, lw] = PASS[k];
+    if (lw) { c.lineWidth = lw; c.strokeStyle = col; c.stroke(p); } else { c.fillStyle = col; c.fill(p); }
+    calls++;
+  }
+  lastGlyphs = { calls, drawn };
 }
 // Realm names grow with the map up to 42 px (the saved map image's largest are 40.5 px), and fade from three times the
 // whole map's size to eight, so up close they don't cover the land they name.
@@ -4451,6 +4490,8 @@ window.terra = {
   startBlank, setStyle, setTool, fitView, select, centerOn,
   // How many times the coast has been traced, and the whole map drawn on screen, since the page opened.
   coastTraces: () => coastTraces, mapDraws: () => mapDraws,
+  // How many fills and strokes the Atlas's symbols took when the map was last drawn, and how many symbols it drew.
+  glyphCalls: () => ({ calls: lastGlyphs.calls, drawn: lastGlyphs.drawn }),
   // Whether a world is still being grown or opened after its message went up.
   busy: () => busyWith > 0,
   // The view: its scale against the whole map's (1 when it shows the whole map), and the part of the map in sight, in

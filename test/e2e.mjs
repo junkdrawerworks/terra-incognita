@@ -3046,6 +3046,18 @@ await oldCtx.close();
   await c.close();
 }
 
+// The Atlas's symbols are drawn a set at a time, a whole set in each fill or stroke, not one to four calls for each
+// symbol; symbols that overlap keep their order.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } }), pg = await c.newPage();
+  await pg.goto(base);
+  await pg.evaluate(() => { window.terra.setStyle('atlas'); window.terra.fitView(); });
+  await pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const g = await pg.evaluate(() => window.terra.glyphCalls());
+  ok(g.drawn > 1000 && g.calls * 2 < g.drawn, `the Atlas draws its ${g.drawn} symbols in ${g.calls} fills and strokes`);
+  await c.close();
+}
+
 // A touch screen says Tap, tells you two fingers move the map, and leaves out the keyboard shortcuts; a mouse says Click
 // and lists them, with ⌘ on a Mac. A Land loop's hint says how high it rises.
 {

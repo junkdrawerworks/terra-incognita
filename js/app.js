@@ -1873,7 +1873,8 @@ function endStroke() {
 // channel through it: along the way it ran before (the lowest way, then), the bed is cut back down so it runs downhill
 // all the way, never below where the ground was before the stroke, and the banks beside the cut ease down toward it.
 // Lakes on its way keep their level. Then, as after a sketch, a hollow left in the raised ground fills to its rim
-// rather than holding a pond. (prev is the ground before the stroke; the drainage is still the one from then.)
+// rather than holding a pond; a lake that was there before only grows shallower where its bed is raised, as it always
+// did. (prev is the ground before the stroke; the drainage is still the one from then.)
 function keepRiversThrough(prev, box) {
   const h = world.h, sea = world.sea, down = D.down, acc = D.acc, cut = [];
   for (let k = D.orderN - 1; k >= 0; k--) {
@@ -1890,9 +1891,11 @@ function keepRiversThrough(prev, box) {
       h[n] = Math.max(prev[n], Math.min(h[n], h[c] + (h[n] - h[c]) * 0.55 + 0.0005));
     }
   }
+  // A lake that was there before the stroke stays a lake where its bed was raised, only shallower, as before.
+  const wasLake = D.lake.slice();
   hydrology();
   for (let y = Math.max(0, Math.floor(box[1])); y <= Math.min(H - 1, Math.ceil(box[3])); y++) for (let x = Math.max(0, Math.floor(box[0])); x <= Math.min(W - 1, Math.ceil(box[2])); x++) {
-    const i = y * W + x; if (h[i] >= sea && h[i] !== prev[i] && D.filled[i] > h[i]) h[i] = D.filled[i];
+    const i = y * W + x; if (!wasLake[i] && h[i] >= sea && h[i] !== prev[i] && D.filled[i] > h[i]) h[i] = D.filled[i];
   }
 }
 

@@ -2000,6 +2000,14 @@ await oldCtx.close();
   const after = await grid(), raised = await pg.evaluate(() => window.terra.cell(160.5, 118.5).elev);
   const bed = before.filter((v, i) => v === 1 && after[i] === 2).length, ponds = before.filter((v, i) => v !== 2 && after[i] === 2).length;
   ok(riverCells > 30 && bed === 0 && ponds === 0 && after.filter((v) => v === 1).length >= riverCells * 0.9, `Raise over a river leaves it running, with no lake along its bed (${bed} bed cells and ${ponds} cells in all turned to lake; ${after.filter((v) => v === 1).length} of ${riverCells} river cells; ground raised to ${Math.round(raised)} m)`);
+  // A light dab in a lake that was already there only makes it shallower, as it always did: filling hollows mustn't
+  // turn the dabbed patch of the starting world's big lake into dry land at the water's level.
+  await pg.evaluate(() => { window.terra.newWorld(20417, 'continent'); window.terra.setTool('raise'); window.terra.centerOn(268.5, 143.5); });
+  await pg.evaluate(() => { for (const [id, v] of [['optSize', '4'], ['optStr', '3']]) { const r = document.getElementById(id); r.value = v; r.dispatchEvent(new Event('input')); } });
+  const lakes0 = await pg.evaluate(() => window.terra.state().lakes);
+  await pg.focus('#map'); await pg.keyboard.press('Enter'); await pg.waitForTimeout(300);
+  const [lakes1, mid] = await pg.evaluate(() => [window.terra.state().lakes, window.terra.cell(268.5, 143.5)]);
+  ok(mid.lake && lakes1 === lakes0, `a light Raise dab in a lake leaves it a lake (${lakes0} lake cells, then ${lakes1}; the middle is ${mid.kind})`);
   await c.close();
 }
 

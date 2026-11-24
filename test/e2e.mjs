@@ -918,7 +918,7 @@ for (const reducedMotion of ['no-preference', 'reduce']) {
 // Enter in Seed generates that world, as Generate from seed does, with its Undo.
 await desk.click('#tab-world');
 const seedWas = (await desk.evaluate(() => window.terra.state())).seed;
-await desk.fill('#wSeed', '4242'); await desk.press('#wSeed', 'Enter');
+await desk.fill('#wSeed', '4242'); await desk.press('#wSeed', 'Enter'); await desk.waitForFunction(() => !window.terra.busy());
 const seedSaid = await desk.textContent('#toast span');
 const genUndo = await desk.getAttribute('#btnUndo', 'aria-label');
 ok((await desk.evaluate(() => window.terra.state())).seed === 4242 && seedSaid.startsWith('Generated world 4242.') && await desk.locator('#toast button', { hasText: 'Undo' }).isVisible() && await desk.getAttribute('#wSeed', 'enterkeyhint') === 'go', `Enter in Seed generates world 4242, with Undo ("${seedSaid}")`);

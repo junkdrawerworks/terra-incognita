@@ -2334,10 +2334,11 @@ function compassAt(X0, Y0, MW, MH, vw, vh, u = 1) {
 
 // ------------------------------------------------------------------ view
 const canvas = $('#map'), ctx = canvas.getContext('2d');
-// The whole map fits inside these margins. On a narrow screen they leave room for the zoom buttons, so they don't cover
-// the map: below it where the buttons are a row (a phone held upright), beside it where they are a column.
+// The whole map fits inside these margins. On a narrow or short map they leave room for the zoom buttons, so they don't
+// cover the map: below it where the buttons are a row (a phone held upright), beside it where they are a column (a
+// phone held sideways).
 function fitMargins() {
-  if (view.cw >= 500) return { l: 26, r: 26, t: 26, b: 26 };
+  if (view.cw >= 500 && view.ch >= 400) return { l: 26, r: 26, t: 26, b: 26 };
   const z = $('.zoom'), zw = z.offsetWidth || 36, zh = z.offsetHeight || 98;
   return zw > zh ? { l: 12, r: 12, t: 12, b: 14 + zh } : { l: 12, r: 10 + zw, t: 12, b: 12 };
 }
@@ -3609,7 +3610,7 @@ function bindToolLinks(el, after) {
   el.querySelectorAll('[data-act="populate"]').forEach(b => b.onclick = () => { populateRealms(); mapIntoView(); refocus(after); });
 }
 function mapIntoView() {
-  if (!window.matchMedia('(max-width: 860px)').matches) return;
+  if (!window.matchMedia('(max-width: 860px), (orientation: landscape) and (max-height: 500px)').matches) return;
   $('#mapwrap').scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
 }
 // A tool's name as a button that picks it, with its icon, as on the toolbar.

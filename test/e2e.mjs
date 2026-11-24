@@ -1331,12 +1331,31 @@ const counted = readme.match(/(\w+) kinds of land/)[1].toLowerCase();
 const NUMBER = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
 ok(NUMBER.indexOf(counted) === landKinds.length, `the README's "${counted} kinds of land" are the ${landKinds.length} the map shows`);
 
-// A phone held sideways fits the whole map on screen, zoom buttons included.
-const side = await browser.newContext({ viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
-const sidePage = watch(await side.newPage());
-await sidePage.goto(base);
-ok(await sidePage.evaluate(() => document.getElementById('mapwrap').getBoundingClientRect().height <= innerHeight), 'a phone held sideways fits the whole map on screen');
-await side.close();
+// A phone held sideways fits the whole map on screen as the page opens, zoom buttons and the tool's options included:
+// the tools are a column down the left, the options a strip across the map's top, and the header one line. (Half the
+// world, the zoom buttons and the options were below the screen's bottom edge.)
+for (const [width, height] of [[844, 390], [667, 375]]) {
+  const side = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const sidePage = watch(await side.newPage());
+  await sidePage.goto(base);
+  await sidePage.click('.tool[data-tool="sketch"]');
+  const fit = await sidePage.evaluate(() => {
+    const r = (q) => document.querySelector(q).getBoundingClientRect(), wrap = r('#mapwrap'), a = window.terra.toScreen(0, 0), b = window.terra.toScreen(480, 300);
+    return { mapTop: wrap.top + a.y, mapBottom: wrap.top + b.y, zoom: r('.zoom').bottom, opts: r('#toolOpts').bottom, wrapTop: wrap.top, toolsRight: r('#tools').right, toolsBottom: r('#tools').bottom, wrapLeft: wrap.left,
+      header: r('.top').height, one: Math.abs(r('#btnNew').top - r('#btnUndo').top) < 2 && r('#worldName').bottom <= r('.top').bottom, map: Math.round(b.x - a.x) + ' x ' + Math.round(b.y - a.y), h: innerHeight, sw: document.documentElement.scrollWidth <= innerWidth };
+  });
+  ok(fit.mapTop >= 0 && fit.mapBottom <= fit.h && fit.zoom <= fit.h && fit.opts <= fit.wrapTop + 1 && fit.toolsRight <= fit.wrapLeft && fit.toolsBottom <= fit.h && fit.header <= 52 && fit.one && fit.sw,
+    `a phone held sideways at ${width} x ${height} shows the whole map (${fit.map} px), the zoom buttons, the tools down its left and the options across its top, under a one-line header`);
+  await side.close();
+}
+// On the smallest phones New world is its globe alone, and Undo, Redo, the look and New world share one row.
+{
+  const c = await browser.newContext({ viewport: { width: 320, height: 568 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }), pg = await c.newPage();
+  await pg.goto(base);
+  const row = await pg.evaluate(() => { const t = ['#btnUndo', '#btnRedo', '.seg', '#btnNew'].map((q) => document.querySelector(q).getBoundingClientRect()); return { tops: new Set(t.map((b) => Math.round(b.top))).size, right: Math.max(...t.map((b) => b.right)), name: document.getElementById('btnNew').textContent.trim(), w: innerWidth }; });
+  ok(row.tops === 1 && row.right <= row.w && row.name === 'New world', `at 320 px Undo, Redo, the look and New world share one row, New world still named for a screen reader`);
+  await c.close();
+}
 
 // On a touch screen the map keeps clear of the screen's sides, where Android's back gesture starts: 24 px from where a
 // finger reaches it to the edge of the screen, at any phone width. With a mouse, the page keeps its own margin.

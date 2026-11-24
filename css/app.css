@@ -278,6 +278,42 @@ kbd{font:11px var(--f-mono);border:1px solid var(--line-strong);border-bottom-wi
   .toast{font-size:12.5px;padding:6px 6px 6px 11px}
   .seg button{padding:0 10px}
 }
+/* On the smallest phones, under 360 px wide, New world is its globe alone (its name is still read out), so Undo, Redo,
+   the look and New world fit on one row. */
+@media (max-width:359px){
+  .top-actions{flex-wrap:nowrap;gap:5px}
+  .seg button{padding:0 8px}
+  #btnNew{padding:0;width:44px;justify-content:center}
+  #btnNew .nw-lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+}
+/* A phone held sideways: the tools in two columns down the left, the map as tall as the screen under a one-line header,
+   with its tool options in a strip across its top that scrolls sideways when they run long, and the zoom buttons a
+   column in its corner as on a laptop. The panel follows below. */
+@media (orientation:landscape) and (max-height:500px){
+  html,body{height:auto}
+  .app{height:auto;min-height:100%;gap:8px;padding-block:8px}
+  .top{flex-wrap:nowrap;gap:12px}
+  .brand-name{font-size:21px}
+  .world-name{flex:1 1 80px;font-size:18px}
+  .top-actions{margin-left:auto;flex-wrap:nowrap;gap:6px}
+  .btn .lbl{display:none}
+  #btnUndo,#btnRedo{width:44px;padding:0;justify-content:center}
+  .body{grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;gap:8px}
+  .tools{display:grid;grid-auto-flow:column;grid-template-rows:repeat(6,auto);gap:2px;padding:4px;align-self:start}
+  .tool-group{display:contents}
+  .tool-sep{display:none}
+  .stage{height:calc(100vh - 68px);height:calc(100svh - 68px);min-height:240px}
+  .toolopts{order:0;border-top:0;border-bottom:1px solid var(--line);flex-wrap:nowrap;overflow-x:auto;min-height:0;padding:3px 10px;white-space:nowrap;scrollbar-width:none;mask-image:linear-gradient(to left,transparent,#000 22px)}
+  .toolopts .tname{display:none}
+  .toolopts .chips{flex-wrap:nowrap}
+  .mapwrap{flex:1;height:auto;aspect-ratio:auto;min-height:0;max-height:none}
+  .zoom{flex-direction:column}
+  .zoom button+button{border-left:0;border-top:1px solid var(--line)}
+  .panel{grid-column:1/-1;min-height:460px}
+  .toast{position:fixed;z-index:30;left:50%;right:auto;bottom:calc(10px + env(safe-area-inset-bottom,0px));width:max-content;max-width:min(560px,calc(100vw - 32px));transform:translate(-50%,6px)}
+  .toast.show{transform:translate(-50%,0)}
+}
+@media (orientation:landscape) and (max-height:500px) and (max-width:760px){ .brand-name{display:none} }
 /* On a phone's touch screen the map keeps 24 px from the screen's sides (from the map's own edge, where a finger
    reaches it, inside its 1 px frame), clear of where Android's back gesture starts. The whole page takes the wider
    margin, so the map still lines up with the tools and the panel. */

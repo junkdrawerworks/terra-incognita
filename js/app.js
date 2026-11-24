@@ -1948,7 +1948,7 @@ function drawSymbol(c, kind, sub, X, Y, sc, color, INK, iconHalo) {
   c.restore(); return 6 * sc;
 }
 // Each place's symbol, then its name. Names are given their spots before any is drawn, in order of rank (capitals
-// first, then the selected place, then cities, towns, landmarks and villages, the more people first): to the right
+// first, then the selected place, then cities, towns, villages and landmarks, the more people first): to the right
 // of the symbol, or else to the left, above, below or at a corner, wherever the name is clear of the names and symbols
 // already there, the realms' names, the map's labels and river names, the compass and scale bar (opt.avoid) and the
 // map's edge. A town's, village's or landmark's name with no clear spot is left off until the map is zoomed in far
@@ -3840,7 +3840,7 @@ function renderMapKey() {
     const n = new Uint32Array(BIOME_NAME.length);
     for (let i = 0; i < N; i++) if (world.h[i] >= world.sea && !D.lake[i]) n[D.biome[i]]++;
     const kinds = BIOME_NAME.map((name, b) => ({ name, b })).filter(({ b }) => b !== B.OCEAN && b !== B.LAKE && n[b] >= 10);
-    if (kinds.length) html += `<li class="sub" aria-hidden="true">Land</li>` + kinds.map(({ name, b }) => item(`<span class="land" style="background:rgb(${TER[b].join(',')})"></span>`, name)).join('');
+    if (kinds.length) html += `<li class="sub">Land</li>` + kinds.map(({ name, b }) => item(`<span class="land" style="background:rgb(${TER[b].join(',')})"></span>`, name)).join('');
   }
   el.innerHTML = html;
 }
@@ -3894,6 +3894,7 @@ function keepStorage() {
 function savePng() {
   const cv = renderMapImage(4, true, { large: ui.pngLarge, title: true });
   cv.toBlob(blob => {
+    cv.width = cv.height = 0; // let the picture's pixels go now: a phone holds only so many big canvases at once
     if (!blob) { toast('The image could not be made.'); return; }
     const name = slug() + '.png', file = !CL && TOUCH && typeof File === 'function' && navigator.canShare ? new File([blob], name, { type: 'image/png' }) : null;
     if (!file || !navigator.canShare({ files: [file] })) { saveFile(name, blob, 'Map image saved.'); return; }
@@ -3910,7 +3911,7 @@ function savePng() {
 function fillPrint() {
   if (!world) return;
   const src = renderMapImage(4, true, { large: true, title: true, name: false }), cv = $('#printMap');
-  cv.width = src.width; cv.height = src.height; cv.getContext('2d').drawImage(src, 0, 0);
+  cv.width = src.width; cv.height = src.height; cv.getContext('2d').drawImage(src, 0, 0); src.width = src.height = 0;
   $('#printTitle').textContent = world.name || 'Untitled world';
 }
 window.addEventListener('beforeprint', fillPrint);

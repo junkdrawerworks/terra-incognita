@@ -27,7 +27,8 @@ and sea stop them. Every town has a page for its story.
   it.
 - **Water finds its way.** Every patch of ground drains downhill to the sea. Where enough rain gathers there's a river,
   and every river has a name of its own, which it keeps as you reshape the land (*Rename* on a place's River line gives
-  it one of yours); where water can't get out it pools into a lake.
+  it one of yours); where water can't get out it pools into a lake. A generated world names its open sea, its bays,
+  gulfs and sounds, every sea the land closes in and its lakes of 30,000 km² or more.
 - **Climate from where it lies and how high.** Cold in the north, warm in the south, 6.5 °C cooler for every kilometre up, and
   rainfall in millimetres a year, less where the air is too cold to carry much. In a generated world the rain comes in
   on a west wind, so a range is wet on its west side and leaves dry land behind it. Fourteen kinds of land, from ice

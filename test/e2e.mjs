@@ -1379,11 +1379,11 @@ await oldCtx.close();
   await pg.goto(base);
   const changed = [];
   for (const [seed, shape, h, m, names] of [
-    [20417, 'continent', '8b20efbd125e', '5a1b133e1280', 'd516eccd7a72'],
-    [96298, 'continent', '736cd99437ab', '0b2596e96d31', 'd9bc4747fc0c'],
-    [950281, 'inland', '7ff144f0176e', '1afc775afd2b', '588c0bcf7307'],
-    [857490, 'twin', '6c377492048c', 'e7bb04ba7404', 'f90dfd838c2d'],
-    [645278, 'inland', '358737c747f0', '049431645c33', '5769a4dc5adc'],
+    [20417, 'continent', '8b20efbd125e', '5a1b133e1280', '2ba02b08e72a'],
+    [96298, 'continent', '736cd99437ab', '0b2596e96d31', 'dfbfe15247cb'],
+    [950281, 'inland', '7ff144f0176e', '1afc775afd2b', '38f0d6c72332'],
+    [857490, 'twin', '6c377492048c', 'e7bb04ba7404', '60140eb60cda'],
+    [645278, 'inland', '358737c747f0', '049431645c33', '143fd960bf84'],
   ]) {
     const f = await pg.evaluate(([seed, shape]) => { window.terra.newWorld(seed, shape); return window.terra.fingerprint(); }, [seed, shape]);
     if (f.h !== h || f.m !== m || f.names !== names) changed.push(`${seed} ${shape}: h ${f.h}, m ${f.m}, names ${f.names}`);
@@ -1448,6 +1448,42 @@ await oldCtx.close();
     rs.forEach((r, k) => r.neighbours.forEach((j) => { if (j < k) return; pairs.push(1); if (alike.has(r.color + rs[j].color)) bad.push(`${seed}: ${r.name} (${r.color}) beside ${rs[j].name} (${rs[j].color})`); }));
   }
   ok(bad.length === 0 && pairs.length > 20, `neighbouring realms never get colours that look alike to colour-blind viewers (${pairs.length} borders in 8 worlds)` + (bad.length ? ': ' + bad.join('; ') : ''));
+  await c.close();
+}
+
+// Generated sea names follow the water. Bay, Gulf and Sound sit only on an inlet, water with land on three sides (125 of
+// 126 lay more than 300 km out in open ocean); an Inland sea world's sea is named, after its title ('The Shores of X'
+// lies on the X Sea; in 15 of 40 it had no name); and a lake of 30,000 km² or more has a name on it (none had).
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const inlets = [], open = [], inland = [], lakes = [];
+  for (const [seed, shape] of [[20417, 'continent'], [53527, 'continent'], [96298, 'continent'], [11, 'continent'], [222, 'continent'], [15939, 'twin'], [8020, 'twin'], [950281, 'inland'], [645278, 'inland'], [4242, 'inland'], [777, 'inland'], [31337, 'inland']]) {
+    const r = await pg.evaluate(([seed, shape]) => {
+      window.terra.newWorld(seed, shape);
+      const t = window.terra, out = { name: t.state().name, inlets: [], inland: null, lake: null };
+      for (const l of t.labels()) {
+        if (l.kind !== 'sea' || !/^(Bay of|Gulf of|The .+ Sound$)/.test(l.text)) continue;
+        let hits = 0;
+        for (let a = 0; a < 16; a++) for (let r = 1; r <= 32; r++) { const x = l.x + Math.cos(a * Math.PI / 8) * r, y = l.y + Math.sin(a * Math.PI / 8) * r; if (x < 0 || y < 0 || x >= 480 || y >= 300) break; if (t.cell(x, y).h >= 0) { hits++; break; } }
+        out.inlets.push([l.text, hits]);
+      }
+      const m = /^The Shores of (.+)$/.exec(out.name) || /^The (.+) Basin$/.exec(out.name);
+      if (m) { const l = t.labels().find((q) => q.text === `The ${m[1]} Sea`); out.inland = l ? [l.text, t.water(l.x, l.y)] : [`no The ${m[1]} Sea`, null]; }
+      // The biggest lake, and the labels on it.
+      let big = null;
+      for (let y = 0; y < 300; y += 2) for (let x = 0; x < 480; x += 2) { const w = t.cell(x + 0.5, y + 0.5).lake && t.water(x + 0.5, y + 0.5); if (w && (!big || w.cells > big.cells)) big = { cells: w.cells, x, y }; if (big && big.cells >= 300) break; }
+      if (big && big.cells >= 300) out.lake = [big.cells, t.labels().filter((l) => l.kind === 'sea' && t.cell(l.x, l.y).lake && t.water(l.x, l.y).cells === big.cells).map((l) => l.text)];
+      return out;
+    }, [seed, shape]);
+    for (const [text, hits] of r.inlets) (hits >= 10 ? inlets : open).push(`${seed} ${text} (land in ${hits} of 16 directions)`);
+    if (r.inland) inland.push(`${seed} ${r.inland[0]}${r.inland[1] && !r.inland[1].lake && !r.inland[1].open ? '' : ' NOT ON AN ENCLOSED SEA'}`);
+    if (r.lake) lakes.push(`${seed} ${r.lake[0]} cells: ${r.lake[1].join(', ') || 'NO NAME'}`);
+  }
+  ok(inlets.length >= 6 && open.length === 0, `Bay, Gulf and Sound name only inlets with land on three sides (${inlets.length} in 12 worlds)` + (open.length ? '; in open water: ' + open.join(', ') : ''));
+  ok(inland.length >= 4 && inland.every((t) => !/NOT|^\d+ no /.test(t)), `an Inland sea world's sea takes the name in its title (${inland.join('; ')})`);
+  ok(lakes.length >= 3 && lakes.every((t) => !t.includes('NO NAME')), `the biggest lake of 30,000 km² or more has a name (${lakes.join('; ')})`);
   await c.close();
 }
 

@@ -942,30 +942,108 @@ function populate(seed) {
   }
   autoLabels(rng);
 }
+// Where a generated name can go: wholly on the map, and clear of the compass in the top-right corner and of the scale
+// bar in the bottom-left, which on a laptop reaches about 180 cells along and 33 up (it is sized in pixels, so it
+// covers less of a bigger map).
+const clearSpot = (x, y, half, size) => x - half >= 2 && x + half <= W - 2 && y - size >= 6 && y + size <= H - 6 && !(x + half > W - 70 && y - size < 44) && !(x - half < 182 && y + size * 0.6 > H - 33);
+const nameHalf = (text, size) => Math.ceil(text.length * size * 0.36) + 2;
+// The name an Inland sea world's title gives its sea: X, from 'The Shores of X' or 'The X Basin'.
+const titleCore = name => { const m = /^The Shores of (.+)$/.exec(name || '') || /^The (.+) Basin$/.exec(name || ''); return m ? m[1] : null; };
+const LAKE_DIST = new Int16Array(N);
+// Names for the water, as a map would have them: Ocean or Sea for the open water, beside the land rather than in a
+// corner of the map; Bay, Gulf or Sound only on an inlet, water with land on three sides; every enclosed sea of
+// 30,000 km² or more (on an Inland sea world the biggest takes the title's name, so 'The Shores of X' is on the X Sea);
+// and the lakes of 30,000 km² or more. Each is named in the tongue of the realm that holds the water, where one does.
 function autoLabels(rng) {
   const h = world.h, sea = world.sea, dist = D.dist, q = D.q; dist.fill(-1); let qh = 0, qt = 0;
+  buildBodies();
   for (let i = 0; i < N; i++) if (h[i] >= sea) { dist[i] = 0; q[qt++] = i; }
   while (qh < qt) {
     const c = q[qh++], x = c % W, y = (c / W) | 0;
     for (let k = 0; k < 4; k++) { const nx = x + NBX[k], ny = y + NBY[k]; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; const n = ny * W + nx; if (dist[n] < 0) { dist[n] = dist[c] + 1; q[qt++] = n; } }
   }
   const tg = () => D.realms.length ? pick(rng, D.realms).tongue : pick(rng, TONGUE_IDS);
-  let first = null;
-  for (let pass = 0; pass < 2; pass++) {
-    const core = makeName(tg(), rng, { bare: true });
-    const text = (pass === 0 ? pick(rng, ['The % Ocean', 'The % Sea', 'Sea of %']) : pick(rng, ['Gulf of %', 'The % Sound', 'Bay of %', 'The % Sea'])).replace('%', core);
-    const size = pass ? 5.5 : 7, half = Math.ceil(text.length * size * 0.36) + 6;
-    let best = -1, bd = pass ? 11 : 8;
-    for (let y = 26; y < H - 24; y++) for (let x = half; x < W - half; x++) {
-      // Keep clear of the compass in the top-right corner, and of the scale bar in the bottom-left, which on a laptop
-      // reaches about 180 cells along and 33 up (it is sized in pixels, so it covers less of a bigger map).
-      if ((x > W - 70 && y < 44) || (x - half < 182 && y + size * 0.6 > H - 33)) continue;
-      const i = y * W + x; if (dist[i] > bd && (!first || Math.hypot(x - first.x, y - first.y) > 150)) { bd = dist[i]; best = i; }
+  // The tongue of the realm that holds most of some water, or any realm's.
+  const tongueOf = cells => { const n = new Map(); for (const i of cells) { const o = D.owner[i]; if (o >= 0 && D.realms[o]) n.set(o, (n.get(o) || 0) + 1); } let best = -1, bn = 0; for (const [o, c] of n) if (c > bn) { bn = c; best = o; } return best >= 0 ? D.realms[best].tongue : tg(); };
+  const named = [], far = (x, y, d) => named.every(l => Math.hypot(l.x - x, l.y - y) > d);
+  const put = (text, i, size) => { const l = { id: world.nextId++, kind: 'sea', text, x: i % W + 0.5, y: ((i / W) | 0) + 0.5, size, angle: 0 }; world.labels.push(l); named.push(l); return l; };
+  // The spot among some cells that is deepest in the water (by score), where the whole name fits.
+  // A name keeps off the places and the realms' names too, so it doesn't print over them.
+  const pts = world.places.map(p => [p.x, p.y, 2, 3]).concat(D.realms.map(r => [r.lx, r.ly, r.name.length * 3.5, 9]));
+  const bare = (x, y, half, size) => pts.every(([px, py, w, t]) => Math.abs(px - x) > half + w || Math.abs(py - y) > size * 0.7 + t);
+  const spot = (cells, text, size, score) => { const half = nameHalf(text, size); let best = -1, bs = -Infinity; for (const i of cells) { const x = i % W + 0.5, y = ((i / W) | 0) + 0.5; if (!clearSpot(x, y, half, size) || !bare(x, y, half, size)) continue; const sc = score(i, x, y, half); if (sc > bs) { bs = sc; best = i; } } return best; };
+  // Each stretch of sea: its cells, and whether it reaches the edge of the map (open water) or is enclosed.
+  const bodies = [];
+  for (let i = 0; i < N; i++) { const b = D.body[i]; if (b < 0) continue; const o = bodies[b] || (bodies[b] = { cells: [], open: false }); o.cells.push(i); const x = i % W, y = (i / W) | 0; if (x === 0 || y === 0 || x === W - 1 || y === H - 1) o.open = true; }
+  // The enclosed seas, biggest first.
+  D.mainSea = null;
+  const core = world.shape === 'inland' ? titleCore(world.name) : null;
+  bodies.filter(o => o && !o.open && o.cells.length >= 300).sort((a, b) => b.cells.length - a.cells.length).slice(0, 3).forEach((o, k) => {
+    const text = k === 0 && core ? `The ${core} Sea` : pick(rng, ['The % Sea', 'Sea of %']).replace('%', makeName(tongueOf(o.cells), rng, { bare: true }));
+    const size = o.cells.length >= 3000 ? 6.5 : 5, i = spot(o.cells, text, size, j => dist[j]);
+    if (i >= 0) { const l = put(text, i, size); if (k === 0) D.mainSea = l; }
+  });
+  // The open water: the ocean's name beside the land, well out from the shore, and on a big ocean a sea's name far from it.
+  let lx = 0, ly = 0, ln = 0; for (let i = 0; i < N; i++) if (h[i] >= sea) { lx += i % W; ly += (i / W) | 0; ln++; }
+  lx = ln ? lx / ln : W / 2; ly = ln ? ly / ln : H / 2;
+  const open = bodies.filter(o => o && o.open).sort((a, b) => b.cells.length - a.cells.length);
+  const wet = (x, y, half) => { for (let dx = -half + 4; dx <= half - 4; dx += 3) { const j = cellAt(x + dx, y); if (dist[j] < 2) return false; } return true; };
+  if (open.length) {
+    const cells = open[0].cells.filter(i => dist[i] >= 6), sizes = [7, 6];
+    for (const [k, fmt] of [[0, ['The % Ocean', 'The % Sea', 'Sea of %']], [1, ['The % Sea']]]) {
+      const text = pick(rng, fmt).replace('%', makeName(tg(), rng, { bare: true }));
+      const i = spot(cells, text, sizes[k], (j, x, y, half) => (k && (dist[j] < 10 || !far(x, y, 170))) || !wet(x, y, half) ? -Infinity : Math.min(dist[j], 14) - 0.03 * Math.hypot(x - lx, y - ly));
+      if (i < 0 || (k && !far(i % W, i / W, 170))) break;
+      put(text, i, sizes[k]);
     }
-    if (best < 0) continue;
-    const x = best % W + 0.5, y = ((best / W) | 0) + 0.5;
-    world.labels.push({ id: world.nextId++, kind: 'sea', text, x, y, size, angle: 0 });
-    if (!first) first = { x, y };
+  }
+  // Inlets of the open sea: water with land on three sides, found on every third cell by looking 320 km out in 16
+  // directions and finding land in 11 or more. Inlets that touch make one; the two biggest are named, Gulf for a big one,
+  // Sound for a long one and Bay for the rest.
+  const S = 3, GW = Math.ceil(W / S), GH = Math.ceil(H / S), inlet = new Uint8Array(GW * GH);
+  for (let gy = 0; gy < GH; gy++) for (let gx = 0; gx < GW; gx++) {
+    const x = gx * S + 1, y = gy * S + 1; if (x >= W || y >= H) continue; const i = y * W + x;
+    if (dist[i] < 1 || dist[i] > 24 || !bodies[D.body[i]].open) continue;
+    let hits = 0;
+    for (let a = 0; a < 16; a++) {
+      const dx = Math.cos(a * Math.PI / 8), dy = Math.sin(a * Math.PI / 8);
+      for (let r = 1; r <= 32; r++) { const px = Math.round(x + dx * r), py = Math.round(y + dy * r); if (px < 0 || py < 0 || px >= W || py >= H) break; if (h[py * W + px] >= sea) { hits++; break; } }
+    }
+    if (hits >= 11) inlet[gy * GW + gx] = 1;
+  }
+  const inlets = [];
+  for (let g = 0; g < GW * GH; g++) {
+    if (inlet[g] !== 1) continue;
+    const comp = [g]; inlet[g] = 2;
+    for (let k = 0; k < comp.length; k++) { const c = comp[k], cx = c % GW, cy = (c / GW) | 0; for (let n = 0; n < 8; n++) { const nx = cx + NBX[n], ny = cy + NBY[n]; if (nx < 0 || ny < 0 || nx >= GW || ny >= GH) continue; const m = ny * GW + nx; if (inlet[m] === 1) { inlet[m] = 2; comp.push(m); } } }
+    if (comp.length < 5) continue;
+    let x0 = W, x1 = 0, y0 = H, y1 = 0; const cells = comp.map(c => { const x = (c % GW) * S + 1, y = ((c / GW) | 0) * S + 1; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); return y * W + x; });
+    inlets.push({ cells, long: Math.max(x1 - x0, y1 - y0) + S >= 2.6 * (Math.min(x1 - x0, y1 - y0) + S) });
+  }
+  let bays = 0;
+  for (const o of inlets.sort((a, b) => b.cells.length - a.cells.length)) {
+    if (bays >= 2) break;
+    const fmt = o.cells.length >= 70 ? 'Gulf of %' : o.long ? 'The % Sound' : 'Bay of %', size = o.cells.length >= 70 ? 5.5 : 4.8;
+    const text = fmt.replace('%', makeName(tongueOf(o.cells), rng, { bare: true }));
+    const i = spot(o.cells, text, size, (j, x, y) => far(x, y, 50) ? dist[j] : -Infinity);
+    if (i < 0 || !far(i % W, i / W, 50)) continue;
+    put(text, i, size); bays++;
+  }
+  // The lakes of 30,000 km² or more, the three biggest, each named at the spot farthest from its shore.
+  LAKE_DIST.fill(-1); qh = qt = 0;
+  for (let i = 0; i < N; i++) if (!D.lake[i]) { LAKE_DIST[i] = 0; q[qt++] = i; }
+  while (qh < qt) { const c = q[qh++], x = c % W, y = (c / W) | 0; for (let k = 0; k < 4; k++) { const nx = x + NBX[k], ny = y + NBY[k]; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; const n = ny * W + nx; if (LAKE_DIST[n] < 0) { LAKE_DIST[n] = LAKE_DIST[c] + 1; q[qt++] = n; } } }
+  const seen = new Uint8Array(N), lakes = [];
+  for (let i = 0; i < N; i++) {
+    if (!D.lake[i] || seen[i]) continue;
+    const cells = [i]; seen[i] = 1;
+    for (let k = 0; k < cells.length; k++) { const c = cells[k], cx = c % W, cy = (c / W) | 0; for (let n = 0; n < 8; n++) { const nx = cx + NBX[n], ny = cy + NBY[n]; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; const m = ny * W + nx; if (D.lake[m] && !seen[m]) { seen[m] = 1; cells.push(m); } } }
+    if (cells.length >= 300) lakes.push(cells);
+  }
+  for (const cells of lakes.sort((a, b) => b.length - a.length).slice(0, 3)) {
+    const text = pick(rng, ['Lake %', 'Lake %', 'Lake %', 'The % Water']).replace('%', makeName(tongueOf(cells), rng, { bare: true }));
+    const i = spot(cells, text, 4.6, j => LAKE_DIST[j]);
+    if (i >= 0) put(text, i, 4.6);
   }
   const peaks = [];
   for (let k = 0; k < 5000; k++) { const i = (rng() * N) | 0; if (h[i] >= sea && elevM(i) > 2100) peaks.push(i); }
@@ -991,11 +1069,13 @@ function newWorld(seed, shape, opts = {}) {
   if (world && !opts.noUndo) pushUndo({ h: true, m: true, meta: true, world: true });
   const t = generateTerrain(seed, shape);
   if (!world) world = { h: t.h, m: t.m }; else { world.h.set(t.h); world.m.set(t.m); }
-  Object.assign(world, { seed, shape, sea: 0.5, places: [], labels: [], springs: [], rivers: [], nextId: 1, editedAt: null, filedAt: null });
+  Object.assign(world, { seed, shape, name: '', sea: 0.5, places: [], labels: [], springs: [], rivers: [], nextId: 1, editedAt: null, filedAt: null });
   forgetRivers(); computeTN(); hydrology(); fillPits(); snapToSave(world.h); snapToSave(world.m); hydrology(); computeClimate(); buildRivers();
   populate(seed);
   const rng = mulberry32(seed + 404);
   world.name = worldTitle(shape, rng, D.realms.length ? D.realms[0].tongue : 'vale');
+  // An Inland sea world's sea takes the name in its title: 'The Shores of X' lies on the X Sea.
+  const core = shape === 'inland' && titleCore(world.name); if (core && D.mainSea) { D.mainSea.text = `The ${core} Sea`; keepLabelIn(D.mainSea); }
   ui.selected = null; dropDraft();
   recomputeAll();
 }
@@ -3750,6 +3830,15 @@ window.terra = {
   },
   // Each realm: its name, the name of its colour, and the realms whose land meets its own, by their place in this list.
   realms: () => { const nb = realmNeighbours(); return D.realms.map((r, k) => ({ name: r.name, color: REALM_COLOR_NAMES[REALM_COLORS.indexOf(r.color)], neighbours: nb[k] })); },
+  // The water at a spot: a stretch of sea (its size in cells, and whether it reaches the map's edge), a lake (its size),
+  // or null on dry land.
+  water: (x, y) => {
+    const i = cellAt(x, y);
+    if (D.lake[i]) return { lake: true, cells: lakeCells(i).size };
+    const b = D.body[i]; if (b < 0) return null; let cells = 0, open = false;
+    for (let j = 0; j < N; j++) if (D.body[j] === b) { cells++; const jx = j % W, jy = (j / W) | 0; if (!jx || !jy || jx === W - 1 || jy === H - 1) open = true; }
+    return { lake: false, cells, open };
+  },
   // The open world as a world file has it.
   worldText: () => serialize(new Date().toISOString(), true),
   riverNear: (x, y, r = 1.5) => {

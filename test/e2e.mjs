@@ -2256,6 +2256,27 @@ await oldCtx.close();
   await c.close();
 }
 
+// Printing prints the map, not the app: one landscape page with the world's name over the whole map at the large size,
+// with its key and border. Ctrl+P printed the toolbar, the tabs and the part of the map on screen. (Checked as a PDF;
+// no printer here.)
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => document.fonts.ready);
+  await pg.evaluate(() => { window.terra.newWorld(20417, 'continent'); window.__printed = null; addEventListener('beforeprint', () => { const cv = document.getElementById('printMap'); window.__printed = [cv.width, cv.height, document.getElementById('printTitle').textContent]; }); });
+  await pg.emulateMedia({ media: 'print' });
+  const shown = await pg.evaluate(() => [...document.body.children].filter((e) => getComputedStyle(e).display !== 'none').map((e) => e.id || e.className));
+  await pg.emulateMedia({ media: null });
+  const pdf = await pg.pdf({ format: 'A4', preferCSSPageSize: true, printBackground: true });
+  const text = pdf.toString('latin1'), pages = (text.match(/\/Type\s*\/Page[^s]/g) || []).length, box = (/\/MediaBox\s*\[([^\]]*)\]/.exec(text) || [, '0 0 0 0'])[1].trim().split(/\s+/).map(Number);
+  const printed = await pg.evaluate(() => window.__printed), after = await pg.evaluate(() => document.getElementById('printMap').width), onScreen = await pg.isVisible('#printSheet');
+  ok(shown.join() === 'printSheet' && !onScreen, `printed, the page shows only the map sheet (${shown.join(', ')}), which never shows on screen`);
+  ok(pages === 1 && box[2] > box[3] && printed && printed[0] === 3960 && printed[1] === 2520 && printed[2] === 'Valtaea' && after === 0 && pdf.length > 1e6,
+    `it prints on one landscape page (${Math.round(box[2])} x ${Math.round(box[3])} pt) under "${printed && printed[2]}", at ${printed && printed[0]} x ${printed && printed[1]}, and lets the picture go afterwards`);
+  await c.close();
+}
+
 // A place name's spot is worked out from its width in the map's own lettering: the page draws the map before its fonts
 // arrive, and widths measured then, in the fallback font, were kept, so names were placed for words of another size.
 {

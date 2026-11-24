@@ -1758,7 +1758,7 @@ function drawMap(c, k, vw, vh, v, opt) {
     c.letterSpacing = '0px';
   }
   if (L.labels) drawUserLabels(c, v, atlas, HALO, opt);
-  const panels = opt.title ? imagePanels(c, X0, Y0, MW, MH, u, atlas) : null;
+  const panels = opt.title ? imagePanels(c, X0, Y0, MW, MH, u, atlas, opt.name !== false) : null;
   if (opt.title && atlas) { cp.R *= 1.5; cp.X = X0 + MW - cp.R * 1.6; cp.Y = Y0 + cp.R * 1.75; } // the Atlas sheet's bigger rose
   const avoid = [[sb.X - 6 * u, sb.top, sb.right, sb.bottom], [cp.X - cp.R, cp.Y - cp.R * 1.7, cp.X + cp.R, cp.Y + cp.R]];
   if (panels) avoid.push(panels.title.box, panels.key.box);
@@ -2179,12 +2179,12 @@ function paperGrain() {
 // The saved image's title and key: the world's name in a panel in the top-left corner, in the map's display lettering,
 // and in the bottom-right corner a key to what is on this map: each kind of place it has, each kind of landmark, and a
 // river, a road and a realm's border where the map shows them. Place names keep clear of both.
-function imagePanels(c, X0, Y0, MW, MH, u, atlas) {
+function imagePanels(c, X0, Y0, MW, MH, u, atlas, named = true) {
   const pad = 9 * u, L = ui.layers;
   let fs = 24 * u; c.font = `italic ${fs}px ${F_DISPLAY}`; c.letterSpacing = '0px';
   const text = world.name || 'Untitled world'; let tw = textW(c, text);
   if (tw > MW * 0.4) { fs *= MW * 0.4 / tw; tw = MW * 0.4; }
-  const tx = X0 + 12 * u, ty = Y0 + 12 * u, title = { text, fs, x: tx + pad, y: ty + pad + fs * 0.5, box: [tx, ty, tx + tw + pad * 2, ty + fs + pad * 2] };
+  const tx = X0 + 12 * u, ty = Y0 + 12 * u, title = named ? { text, fs, x: tx + pad, y: ty + pad + fs * 0.5, box: [tx, ty, tx + tw + pad * 2, ty + fs + pad * 2] } : { text: '', box: [tx, ty, tx, ty] };
   const kinds = new Set(world.places.map(p => p.kind === 'landmark' ? 'lm:' + p.sub : p.kind)), rows = [];
   for (const k of ['capital', 'city', 'town', 'village']) if (kinds.has(k)) rows.push({ kind: k, label: k[0].toUpperCase() + k.slice(1) });
   for (const k of Object.keys(LANDMARKS)) if (kinds.has('lm:' + k)) rows.push({ kind: 'landmark', sub: k, label: LANDMARKS[k].label });
@@ -2205,9 +2205,12 @@ function drawPanels(c, P, u, atlas, INK, HALO) {
     c.strokeStyle = INK; c.lineWidth = u; c.strokeRect(b[0] + u / 2, b[1] + u / 2, b[2] - b[0] - u, b[3] - b[1] - u);
     c.lineWidth = 0.5 * u; c.strokeRect(b[0] + 3 * u, b[1] + 3 * u, b[2] - b[0] - 6 * u, b[3] - b[1] - 6 * u);
   };
-  const T = P.title; panel(T.box);
-  c.font = `italic ${T.fs}px ${F_DISPLAY}`; c.letterSpacing = '0px'; c.fillStyle = INK; c.textAlign = 'left'; c.textBaseline = 'middle';
-  c.fillText(T.text, T.x, T.y);
+  const T = P.title;
+  if (T.text) {
+    panel(T.box);
+    c.font = `italic ${T.fs}px ${F_DISPLAY}`; c.letterSpacing = '0px'; c.fillStyle = INK; c.textAlign = 'left'; c.textBaseline = 'middle';
+    c.fillText(T.text, T.x, T.y);
+  }
   const K = P.key; if (!K.rows.length) return;
   panel(K.box);
   const pad = 9 * u, x0 = K.box[0] + pad, y0 = K.box[1] + pad * 0.7;
@@ -3857,12 +3860,13 @@ async function saveFile(name, data, done) {
   catch (e) { const c = e && e.code; if (c === 'declined') return false; toast(c === 'rate_limited' ? 'A save is already waiting for your answer.' : 'The file could not be saved here.'); return false; }
 }
 // The whole map at S pixels per cell: what Save map image saves, with every name (or only capitals and cities), and
-// with o.title its title and key. The compass, scale bar and frame grow with S, at their screen size when S is 2.
-// o.large draws all of it at twice the pixels (3,960 by 2,520 at S 4), for printing.
+// with o.title its title, key and border (o.name false leaves out the title, for printing under a heading). The
+// compass, scale bar and frame grow with S, at their screen size when S is 2. o.large draws all of it at twice the
+// pixels (3,960 by 2,520 at S 4), for printing.
 function renderMapImage(S = 4, allNames = true, o = {}) {
   const M = Math.round(S * 7.5), cw = W * S + M * 2, ch = H * S + M * 2, k = o.large ? 2 : 1;
   const cv = document.createElement('canvas'); cv.width = cw * k; cv.height = ch * k;
-  drawMap(cv.getContext('2d'), k, cw, ch, { s: S, ox: M, oy: M, s0: allNames ? S / 2 : S }, { plate: ui.style === 'atlas' ? '#E9DFC6' : '#DCE3E5', export: true, allNames, unit: S / 2, title: !!o.title });
+  drawMap(cv.getContext('2d'), k, cw, ch, { s: S, ox: M, oy: M, s0: allNames ? S / 2 : S }, { plate: ui.style === 'atlas' ? '#E9DFC6' : '#DCE3E5', export: true, allNames, unit: S / 2, title: !!o.title, name: o.name !== false });
   return cv;
 }
 async function saveWorldFile() {
@@ -3899,6 +3903,16 @@ function savePng() {
     share();
   }, 'image/png');
 }
+// Printing (Ctrl+P, or the browser's menu) prints the whole map at the large size, with its key and border, under the
+// world's name, in place of the app; the picture goes again once printing is done.
+function fillPrint() {
+  if (!world) return;
+  const src = renderMapImage(4, true, { large: true, title: true, name: false }), cv = $('#printMap');
+  cv.width = src.width; cv.height = src.height; cv.getContext('2d').drawImage(src, 0, 0);
+  $('#printTitle').textContent = world.name || 'Untitled world';
+}
+window.addEventListener('beforeprint', fillPrint);
+window.addEventListener('afterprint', () => { const cv = $('#printMap'); cv.width = cv.height = 0; });
 // Found new realms (the World tab's button, and the welcome's on land with no places yet): a fresh set of realms and
 // places grown from the terrain. It replaces places that may have notes in them, so the toast names what went, and
 // stays up longer when notes did.

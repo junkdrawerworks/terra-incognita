@@ -1487,6 +1487,29 @@ await oldCtx.close();
   await c.close();
 }
 
+// A Sea label left blank on water that already has a name opens that name rather than making up a second one for the
+// same water, and offers to name a bay there instead.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => { window.terra.newWorld(20417, 'continent'); window.terra.setTool('label'); });
+  await pg.click('.chip[data-v="sea"]');
+  const before = await pg.evaluate(() => window.terra.labels());
+  const ocean = before.find((l) => l.kind === 'sea' && !/^(Bay|Gulf|Lake)/.test(l.text));
+  // A spot on the same water, 20 cells below the name.
+  const spot = await pg.evaluate(([x, y]) => { for (let d = 20; d < 60; d += 4) for (const [dx, dy] of [[0, d], [0, -d], [d, 0], [-d, 0]]) { const w = window.terra.water(x + dx, y + dy), here = window.terra.water(x, y); if (w && !w.lake && here && w.cells === here.cells) return [x + dx, y + dy]; } return null; }, [ocean.x, ocean.y]);
+  const b = await pg.locator('#map').boundingBox(), at = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), spot);
+  await pg.mouse.click(b.x + at.x, b.y + at.y);
+  await pg.waitForTimeout(200);
+  const said = await pg.textContent('#toast span'), opened = await pg.inputValue('#lText'), after = await pg.evaluate(() => window.terra.labels().length);
+  await pg.click('#toast button');
+  const bay = (await pg.evaluate(() => window.terra.labels())).filter((l) => !before.some((o) => o.id === l.id));
+  ok(said === `${ocean.text} is already named here. Name a bay instead?` && opened === ocean.text && after === before.length && bay.length === 1 && /^Bay of /.test(bay[0].text),
+    `a blank Sea label on water already named opens its name and offers a bay instead ("${said}", then ${bay.map((l) => l.text).join(', ')})`);
+  await c.close();
+}
+
 // No two realms share a name. A realm's name was drawn without looking at the others, so now and then two came out
 // the same (two Oaklands among 30 realms). Here two towns of one tongue are made capitals with the same roll of the
 // dice, which drew the same name for both.

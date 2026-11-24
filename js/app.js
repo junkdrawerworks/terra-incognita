@@ -2779,12 +2779,19 @@ function spotWords(sel) {
   const height = f.water && !f.lake ? `${fmtInt(-f.E)} m deep` : f.E < 5 ? 'at sea level' : `${fmtInt(f.E)} m up`;
   return `${locTitle(f, o)}, ${height}${realm}. More in the Inspect tab.`;
 }
-function addLabel(x, y, kind, text) {
+// A Sea label left blank on water that already has a name doesn't make up a second one for it: it opens the name the
+// water has, and offers to name a bay there instead.
+function addLabel(x, y, kind, text, bay = false) {
+  const i = cellAt(x, y);
+  if (kind === 'sea' && !text && !bay) {
+    const has = D.lake[i] ? lakesNear(i, 0, x, y).label : D.body[i] >= 0 ? nearestSeaLabel(x, y, new Set([D.body[i]]), true) : null;
+    if (has) { select({ type: 'label', id: has.id }); toast(`${has.text.replace(/^the /, 'The ')} is already named here. Name a bay instead?`, { label: 'Name a bay', fn: () => addLabel(x, y, kind, '', true) }, 8000); return; }
+  }
   pushUndo({ meta: true });
-  const tg = D.owner[cellAt(x, y)] >= 0 ? D.realms[D.owner[cellAt(x, y)]].tongue : pick(Math.random, TONGUE_IDS);
+  const tg = D.owner[i] >= 0 ? D.realms[D.owner[i]].tongue : pick(Math.random, TONGUE_IDS);
   const core = makeName(tg, Math.random, { bare: true });
-  const onLake = kind === 'sea' && !!D.lake[cellAt(x, y)];
-  const auto = onLake ? pick(Math.random, ['Lake %', 'Lake %', '% Mere', '% Water']) : kind === 'sea' ? pick(Math.random, ['The % Sea', 'Bay of %', 'Gulf of %', 'The % Sound']) : kind === 'range' ? pick(Math.random, ['The % Mountains', 'The % Hills', 'The % Range']) : pick(Math.random, ['The % Downs', 'The % Wold', 'The % Reach', '%', 'The % Wastes', 'The % Weald']);
+  const onLake = kind === 'sea' && !!D.lake[i];
+  const auto = bay ? 'Bay of %' : onLake ? pick(Math.random, ['Lake %', 'Lake %', '% Mere', '% Water']) : kind === 'sea' ? pick(Math.random, ['The % Sea', 'Bay of %', 'Gulf of %', 'The % Sound']) : kind === 'range' ? pick(Math.random, ['The % Mountains', 'The % Hills', 'The % Range']) : pick(Math.random, ['The % Downs', 'The % Wold', 'The % Reach', '%', 'The % Wastes', 'The % Weald']);
   const l = { id: world.nextId++, kind, text: text || auto.replace('%', core), x, y, size: onLake ? 4.6 : kind === 'sea' ? 6 : kind === 'range' ? 4.6 : 5, angle: 0 };
   keepLabelIn(l); world.labels.push(l); select({ type: 'label', id: l.id }); markDirty();
 }

@@ -783,8 +783,8 @@ function applySnap(s) {
   return inv;
 }
 // A whole world brought back (from New world, Generate or Open) is named, as it was when it came.
-function undo() { if (settleGesture()) return; dropActionToast(); const s = undoStack.pop(); if (!s) return; if (s.switchFrom) { leaveFor(s.switchFrom, true); return; } const was = world.places; redoStack.push(applySnap(s)); afterRestore(s.world); if (s.world) toast(`Back to ${world.name}.`, { label: 'Redo', fn: redo }, 6000); else tellPlaces(was, true); }
-function redo() { if (settleGesture()) return; dropActionToast(); const s = redoStack.pop(); if (!s) return; if (s.switchTo) { leaveFor(s.switchTo, false); return; } const was = world.places; undoStack.push(applySnap(s)); afterRestore(s.world); if (s.world) toast(`${world.name} again.`, { label: 'Undo', fn: undo }, 6000); else tellPlaces(was, false); }
+function undo() { if (settleGesture()) return; dropActionToast(); const s = undoStack.pop(); if (!s) return; if (s.switchFrom) { leaveFor(s.switchFrom, true); return; } const was = world.places; redoStack.push(applySnap(s)); if (!s.world) touched(); afterRestore(s.world); if (s.world) toast(`Back to ${world.name}.`, { label: 'Redo', fn: redo }, 6000); else tellPlaces(was, true); }
+function redo() { if (settleGesture()) return; dropActionToast(); const s = redoStack.pop(); if (!s) return; if (s.switchTo) { leaveFor(s.switchTo, false); return; } const was = world.places; undoStack.push(applySnap(s)); if (!s.world) touched(); afterRestore(s.world); if (s.world) toast(`${world.name} again.`, { label: 'Undo', fn: undo }, 6000); else tellPlaces(was, false); }
 // Undo and Redo say so when places go or come back, and when notes go with them (a place founded with notes in it,
 // by another tab or a file, has no step of its own for them).
 function tellPlaces(was, undid) {
@@ -1101,7 +1101,10 @@ async function openWorld(id, said) {
   if (id === worldId || switching || otherClash) return;
   switching = true;
   try {
-    currentText(); await syncStore();
+    // The open world goes into the larger store first: the autosave is about to hold the other one, so a world the
+    // store refused would lose its latest changes.
+    currentText();
+    if (!(await syncStore())) { toast(`This browser would not keep ${world.name} in Your worlds just now, so it stays open. Save world file keeps a copy.`, null, 10000); return; }
     let text = null; try { text = await storeGet(id); } catch (e) { }
     if (typeof text === 'string') text = freshest(id, text);
     if (typeof text !== 'string') { toast('That world is no longer kept in this browser.'); unindexWorld(id); renderWorlds(); return; }

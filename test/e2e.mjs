@@ -2673,6 +2673,31 @@ await oldCtx.close();
   await n.close();
 }
 
+// When the browser's larger store refuses a write (it is full, say), opening another of Your worlds leaves the open one
+// on screen and says so: the autosave would otherwise go to the other world, and this one's latest changes with it.
+// And an Undo after Save world file is newer work than the file, so Keep your world says so again.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 }, acceptDownloads: true });
+  const pg = watch(await c.newPage());
+  await pg.goto(base); await pg.waitForTimeout(600);
+  await pg.click('#tab-world');
+  await pg.click('#wDice'); await pg.click('#tab-world');
+  await pg.fill('#worldName', 'Full store'); await pg.waitForTimeout(400);
+  await pg.evaluate(() => { IDBObjectStore.prototype.put = function () { this.transaction.abort(); }; });
+  await pg.click('#worldList [data-wopen]');
+  await pg.waitForFunction(() => !document.getElementById('toast').hidden && /would not keep/.test(document.querySelector('#toast span').textContent));
+  const kept = await pg.evaluate(() => [window.terra.state().name, document.querySelector('#toast span').textContent, JSON.parse(localStorage.getItem('terra-incognita/world/v1')).name]);
+  ok(kept[0] === 'Full store' && kept[2] === 'Full store', `with the store refusing writes, Open leaves the open world on screen and in the autosave ("${kept[1]}")`);
+  await pg.fill('#worldName', 'Filed'); await pg.waitForTimeout(400);
+  await Promise.all([pg.waitForEvent('download'), pg.click('#wSaveFile')]); await pg.waitForTimeout(300);
+  const filed = await pg.evaluate(() => document.getElementById('wFileNote').hidden);
+  await pg.waitForTimeout(1100);
+  await pg.click('#btnUndo'); await pg.waitForTimeout(300);
+  const undone = await pg.evaluate(() => [document.getElementById('wFileNote').hidden, document.getElementById('wFileNote').textContent]);
+  ok(filed && !undone[0] && /^Not saved to a file since /.test(undone[1]), `an Undo after Save world file is newer than the file, and Keep your world says so ("${undone[1]}")`);
+  await c.close();
+}
+
 // A seed link. Copy seed link copies …/#seed=N&shape=S for the world open; opening one grows that world, adds it to
 // Your worlds with an Undo, and takes the link from the address bar, so a reload doesn't grow it again. On a first
 // visit it grows in place of the starting world. A world sketched from blank ocean has no seed to share.

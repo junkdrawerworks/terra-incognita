@@ -674,7 +674,7 @@ function territories() {
   for (const p of world.places) { if (p.kind === 'landmark') continue; const o = own[cellAt(p.x, p.y)]; if (o >= 0) { D.realms[o].pop += p.pop || 0; D.realms[o].count++; } }
 }
 // What crossing each cell costs a realm spreading over it: nothing, or on a big river (more than 6 times the water a
-// river needs to show) from 10 up to 24 for the greatest.
+// river needs to show) from 20 up to 40 for the greatest.
 function riverCrossing() {
   const a = D.cross, big = RIVER_T * 6;
   for (let i = 0; i < N; i++) a[i] = D.isR[i] && D.acc[i] > big && world.h[i] >= world.sea ? Math.min(40, 20 + 6 * Math.log2(D.acc[i] / big)) : 0;
@@ -849,7 +849,6 @@ function fertility(i) {
   return f;
 }
 function rollPop(kind, i, rng) { const r = POP[kind]; if (!r) return 0; return roundSig(r[0] * Math.pow(r[1] / r[0], rng()) * fertility(i), 2); }
-// A realm's name is one no other realm has, or had (a capital made a town keeps its realm for later).
 // Pairs of realm colours that look alike to someone with colour blindness: less than 10 apart (CIEDE2000) once
 // simulated for protanopia, deuteranopia or tritanopia at full strength, with the matrices of Machado, Oliveira and
 // Fernandes, 'A Physiologically-based Model for Simulation of Color Vision Deficiency' (IEEE TVCG, 2009), table 1.
@@ -887,6 +886,7 @@ function colourRealms(rng, keep = new Set()) {
   go(0, 0);
   if (best) rs.forEach((r, k) => { r.place.realm.color = best[k]; });
 }
+// A realm's name is one no other realm has, or had (a capital made a town keeps its realm for later).
 function newRealm(tongue, rng) {
   const used = new Set(world.places.map(p => (p.realm || p.oldRealm || {}).color).filter(Boolean));
   const free = REALM_COLORS.filter(c => !used.has(c)), taken = new Set();
@@ -2884,7 +2884,8 @@ function handleClick(sx, sy) {
   if (t === 'erase') {
     const hit = hitTest(sx, sy); if (hit) { removeSel(hit); return; }
     const sp = sourceAt(sx, sy); if (sp) { removeSource(sp); return; }
-    const rd = drawnRoadAt(sx, sy); if (rd) { removeRoad(rd); return; }
+    // A road hidden by the Roads layer isn't there to erase, as a label hidden by Map labels isn't.
+    const rd = ui.layers.roads && drawnRoadAt(sx, sy); if (rd) { removeRoad(rd); return; }
     if (ui.layers.roads && townRoadAt(sx, sy)) { toast('That road joins towns, so it comes and goes with them. The Roads layer in the World tab hides them.'); return; }
     toast(`Nothing to remove there. ${TAP} a place, a label, a road you drew or where a river you drew starts.`); return;
   }

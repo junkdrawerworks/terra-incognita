@@ -1601,6 +1601,13 @@ await oldCtx.close();
   await pg.click('#toast button');
   const back = await pg.evaluate(() => window.terra.drawnRoads().length);
   ok(erased[0] === 'Took away the road.' && erased[1] === 0 && back === 1, `Erase on a drawn road takes it away and Undo brings it back ("${erased[0]}")`);
+  // With the Roads layer off, the road isn't shown, so Erase there leaves it be, as it does a hidden label.
+  await pg.click('#tab-world'); await pg.uncheck('#lyRoads');
+  await pg.mouse.click(box.x + at.x, box.y + at.y);
+  await pg.waitForTimeout(200);
+  const hidden = [await pg.textContent('#toast span'), await pg.evaluate(() => window.terra.drawnRoads().length)];
+  await pg.check('#lyRoads');
+  ok(hidden[1] === 1 && hidden[0].startsWith('Nothing to remove there.'), `Erase doesn't take away a road the Roads layer hides ("${hidden[0]}")`);
   // Erase on a road between towns: the longest one, where it is farthest from any place.
   const town = await clear(await pg.evaluate(() => window.terra.roads().sort((p, q) => q.cells.length - p.cells.length)[0].cells.map(([x, y]) => [x + 0.5, y + 0.5])));
   const tAt = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), town);

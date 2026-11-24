@@ -232,20 +232,20 @@ kbd{font:11px var(--f-mono);border:1px solid var(--line-strong);border-bottom-wi
 @media (max-width:860px){
   html,body{height:auto}
   .app{height:auto;min-height:100%}
-  .body{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto auto}
+  .body{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto auto;container-type:inline-size}
   /* The tools wrap a group at a time: a group goes on to the next row whole, and only one wider than a row breaks. The
      space between groups marks them, since a line between them would be left hanging where a row ends. */
   .tools{flex-direction:row;flex-wrap:wrap;align-self:stretch;gap:3px 8px}
   .tool-group{flex-direction:row;flex-wrap:wrap;gap:2px}
   .tool-sep{display:none}
-  .stage{height:auto;container-type:inline-size}
+  .stage{height:auto}
   /* A tool's options sit under the map here, so switching tools never moves the map. The map keeps the zoom
      buttons' shadow to itself rather than letting it fall on them. */
   .toolopts{order:1;border-bottom:0;border-top:1px solid var(--line)}
   /* The zoom buttons are a row under the map's bottom-right corner, and the frame is as tall as the whole map at its
      full width plus that row (12 px above the map, the row's height and 14 px below it), so the map fills the frame's
-     width. (--zh is the row's height.) */
-  .mapwrap{flex:none;--zh:34px;aspect-ratio:480/336;height:calc((100cqw - 24px) * .625 + 26px + var(--zh));min-height:200px;max-height:calc(100vh - 24px);max-height:calc(100svh - 24px);overflow:hidden}
+     width. (100cqw is the page's width inside its margins, 2 px more than the frame's; --zh is the row's height.) */
+  .mapwrap{flex:none;--zh:34px;aspect-ratio:480/336;height:calc((100cqw - 26px) * .625 + 26px + var(--zh));min-height:200px;max-height:calc(100vh - 24px);max-height:calc(100svh - 24px);overflow:hidden}
   .zoom{flex-direction:row}
   .zoom button+button{border-top:0;border-left:1px solid var(--line)}
   .panel{min-height:460px}
@@ -258,6 +258,17 @@ kbd{font:11px var(--f-mono);border:1px solid var(--line-strong);border-bottom-wi
   .toast{position:fixed;left:16px;right:16px;bottom:calc(12px + env(safe-area-inset-bottom,0px));transform:translateY(6px);max-width:none;z-index:30}
   .toast.show{transform:none}
   .toast>span{flex:1 1 auto}
+}
+/* On a phone held upright with room to spare (700 px tall or more), the map stays at the top of the screen while the
+   page scrolls on under it, so the World tab's sea level, layers and new realms change a map in view. The map's frame
+   is pinned on its own, its tool options scrolling on with the panel, and what the keyboard reaches is scrolled to
+   below it. */
+@media (max-width:600px) and (orientation:portrait) and (min-height:700px){
+  html{scroll-padding-top:calc((100vw - 72px) * .625 + 84px)}
+  .stage{display:contents}
+  .mapwrap{order:1;position:sticky;top:0;z-index:5;aspect-ratio:auto;border:1px solid var(--line);border-radius:12px 12px 0 0;height:calc((100cqw - 26px) * .625 + 28px + var(--zh))}
+  .toolopts{order:2;margin-top:-12px;background:var(--panel);border:1px solid var(--line);border-top:0;border-radius:0 0 12px 12px}
+  .panel{order:3}
 }
 @media (max-width:520px){
   .top{gap:10px 12px}

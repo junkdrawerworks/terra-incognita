@@ -150,6 +150,22 @@ for (const w of [360, 320]) {
   await p.goto(base); wrapped.push(await toolRows(p)); await c.close();
 }
 ok(wrapped.every((r) => r.split === 0 && r.rows === 2), `on a phone each group of tools keeps to one row, in two rows at 390, 360 and 320 px (${wrapped.map((r) => r.rows).join(', ')})`);
+// On a phone held upright and 700 px tall or more, the map stays at the top of the screen while the World tab scrolls
+// under it, so the sea slider changes a map in view; on a shorter one it scrolls away with the page as before.
+const pinned = async (pg) => pg.evaluate(async () => {
+  document.getElementById('tab-world').click();
+  document.getElementById('wSea').scrollIntoView({ block: 'end' });
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const m = document.getElementById('mapwrap').getBoundingClientRect(), sea = document.getElementById('wSea').getBoundingClientRect();
+  const out = { top: Math.round(m.top), bottom: Math.round(m.bottom), sea: Math.round(sea.top), scrolled: Math.round(scrollY) };
+  document.getElementById('tab-inspect').click(); scrollTo(0, 0);
+  return out;
+});
+const pinTall = await pinned(page);
+const shortCtx = await browser.newContext({ viewport: { width: 320, height: 568 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }), shortPage = await shortCtx.newPage();
+await shortPage.goto(base); const pinShort = await pinned(shortPage); await shortCtx.close();
+ok(pinTall.scrolled > 400 && pinTall.top === 0 && pinTall.bottom <= pinTall.sea && pinTall.bottom < 300 && pinShort.bottom < 0,
+  `on a tall upright phone the map stays at the top (0 to ${pinTall.bottom} px) above the sea slider (${pinTall.sea} px) with the page scrolled ${pinTall.scrolled} px; on a 568 px tall one it scrolls away (bottom at ${pinShort.bottom} px)`);
 // Zoomed in, it keeps to about a third of the screen: it was sized by the whole map's width, and covered over half of
 // it. (A little over a third when the shortest step that fits under its own length is twice the one before.)
 const zoomShares = [];

@@ -1740,6 +1740,8 @@ function drawMap(c, k, vw, vh, v, opt) {
 
   // ---- screen space
   c.setTransform(k, 0, 0, k, 0, 0);
+  // The saved Atlas sheet gets a faint paper grain, under its lettering.
+  if (opt.title && atlas) { c.save(); c.globalCompositeOperation = 'multiply'; c.fillStyle = c.createPattern(paperGrain(), 'repeat'); c.fillRect(0, 0, vw, vh); c.restore(); }
   const u = opt.unit || 1, X0 = ox, Y0 = oy, MW = W * s, MH = H * s, sb = scaleBar(X0, Y0, MH, MW, s, vh, vw, u), cp = compassAt(X0, Y0, MW, MH, vw, vh, u);
   c.save(); c.beginPath(); c.rect(X0, Y0, MW, MH); c.clip();
   if (atlas) drawGlyphs(c, v, vw, vh);
@@ -1757,6 +1759,7 @@ function drawMap(c, k, vw, vh, v, opt) {
   }
   if (L.labels) drawUserLabels(c, v, atlas, HALO, opt);
   const panels = opt.title ? imagePanels(c, X0, Y0, MW, MH, u, atlas) : null;
+  if (opt.title && atlas) { cp.R *= 1.5; cp.X = X0 + MW - cp.R * 1.6; cp.Y = Y0 + cp.R * 1.75; } // the Atlas sheet's bigger rose
   const avoid = [[sb.X - 6 * u, sb.top, sb.right, sb.bottom], [cp.X - cp.R, cp.Y - cp.R * 1.7, cp.X + cp.R, cp.Y + cp.R]];
   if (panels) avoid.push(panels.title.box, panels.key.box);
   if (!opt.export && v.zoomBox) avoid.push(v.zoomBox);
@@ -1767,15 +1770,18 @@ function drawMap(c, k, vw, vh, v, opt) {
   if (panels) drawPanels(c, panels, u, atlas, INK, HALO);
   c.restore();
 
-  // neatline
-  c.strokeStyle = opt.frame || INK; c.lineWidth = 1.4 * u; c.strokeRect(X0 - 0.5 * u, Y0 - 0.5 * u, MW + u, MH + u);
-  c.lineWidth = 0.7 * u; c.strokeStyle = opt.frame || (atlas ? 'rgba(70,52,30,.7)' : (opt.export ? 'rgba(20,34,43,.6)' : 'rgba(20,34,43,.45)'));
-  if (opt.frame) c.globalAlpha = 0.6;
-  c.strokeRect(X0 - 4.5 * u, Y0 - 4.5 * u, MW + 9 * u, MH + 9 * u); c.globalAlpha = 1;
+  // neatline: on the saved sheet a graduated border of dark and light bars, five to each square of the grid.
+  if (opt.title) drawGraduated(c, X0, Y0, MW, MH, s, u, INK, atlas ? '#f1e7cb' : '#fafbfb');
+  else {
+    c.strokeStyle = opt.frame || INK; c.lineWidth = 1.4 * u; c.strokeRect(X0 - 0.5 * u, Y0 - 0.5 * u, MW + u, MH + u);
+    c.lineWidth = 0.7 * u; c.strokeStyle = opt.frame || (atlas ? 'rgba(70,52,30,.7)' : (opt.export ? 'rgba(20,34,43,.6)' : 'rgba(20,34,43,.45)'));
+    if (opt.frame) c.globalAlpha = 0.6;
+    c.strokeRect(X0 - 4.5 * u, Y0 - 4.5 * u, MW + 9 * u, MH + 9 * u); c.globalAlpha = 1;
+  }
 
   if (!opt.export) drawCursor(c, v);
   if (!opt.export && mapKeys && document.activeElement === canvas) drawMiddle(c, vw, vh);
-  drawCompass(c, cp.X, cp.Y, cp.R, INK, HALO);
+  drawCompass(c, cp.X, cp.Y, cp.R, INK, HALO, opt.title && atlas);
   drawScale(c, sb, INK, HALO);
   furniture[opt.export ? 'image' : 'screen'] = { size: [vw, vh], compass: cp.R, scale: [sb.X - 6 * u, sb.top, sb.right, sb.bottom], scaleText: 10.5 * u, leagues: sb.lg, km: sb.km,
     title: panels && { text: panels.title.text, box: panels.title.box }, key: panels && { rows: panels.key.rows.map(r => r.label), box: panels.key.box } };
@@ -2092,9 +2098,16 @@ function drawMiddle(c, vw, vh) {
   c.beginPath(); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { c.moveTo(X + dx * 4, Y + dy * 4); c.lineTo(X + dx * 12, Y + dy * 12); }
   c.lineCap = 'round'; c.lineWidth = 4; c.strokeStyle = 'rgba(255,255,255,0.85)'; c.stroke(); c.lineWidth = 1.6; c.strokeStyle = 'rgba(15,25,32,0.95)'; c.stroke();
 }
-function drawCompass(c, X, Y, R, ink, halo) {
+function drawCompass(c, X, Y, R, ink, halo, rose = false) {
   c.save(); c.translate(X, Y);
   const f = R / 21;
+  // The rose: a ring round the points, marked every eighth of a quarter.
+  if (rose) {
+    c.beginPath(); c.arc(0, 0, R * 1.08, 0, Math.PI * 2); c.fillStyle = hexA('#f1e7cb', 0.75); c.fill();
+    c.lineWidth = 0.9 * f; c.strokeStyle = ink; c.stroke();
+    c.beginPath(); c.arc(0, 0, R * 0.96, 0, Math.PI * 2); c.lineWidth = 0.5 * f; c.stroke();
+    c.beginPath(); for (let t = 0; t < 32; t++) { const a = t * Math.PI / 16, r0 = t % 4 ? R * 0.99 : R * 0.9; c.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); c.lineTo(Math.cos(a) * R * 1.08, Math.sin(a) * R * 1.08); } c.lineWidth = 0.6 * f; c.stroke();
+  }
   c.beginPath(); c.arc(0, 0, R * 0.78, 0, Math.PI * 2); c.fillStyle = halo; c.fill(); c.lineWidth = 0.8 * f; c.strokeStyle = ink; c.stroke();
   for (let k = 7; k >= 0; k--) {
     const a = k * Math.PI / 4 - Math.PI / 2, long = k % 2 === 0, r1 = long ? R : R * 0.58, w = R * (long ? 0.17 : 0.13);
@@ -2132,6 +2145,36 @@ function drawScale(c, sb, ink, halo) {
   c.textAlign = 'center'; c.fillText(`${lg} leagues`, X + len, Y - 5 * u);
   c.font = `${9.5 * u}px ${F_MONO}`; c.textBaseline = 'top'; c.fillText(sb.km, X + len, Y + 4 * u);
   c.restore();
+}
+// The saved sheet's border: the map's edge, then a band of bars, dark and light by turns, five to each square of the grid
+// (whose lines cross the map where they always have), then an outer line.
+function drawGraduated(c, X0, Y0, MW, MH, s, u, ink, paper) {
+  const b = 6 * u, sx = (GRID_X[1] - GRID_X[0]) / 5, sy = (GRID_Y[0] - GRID_Y[1]) / 5;
+  c.save();
+  c.fillStyle = paper; c.fillRect(X0 - b, Y0 - b, MW + 2 * b, b); c.fillRect(X0 - b, Y0 + MH, MW + 2 * b, b); c.fillRect(X0 - b, Y0, b, MH); c.fillRect(X0 + MW, Y0, b, MH);
+  c.fillStyle = ink;
+  const bars = (start, step, len, put) => { let k = Math.floor(-start / step); for (let a = start + k * step; a < len; a += step, k++) if (k % 2 === 0) { const a0 = Math.max(0, a), a1 = Math.min(len, a + step); if (a1 > a0) put(a0, a1 - a0); } };
+  bars(GRID_X[0] * s, sx * s, MW, (a, w) => { c.fillRect(X0 + a, Y0 - b, w, b / 2); c.fillRect(X0 + a, Y0 + MH + b / 2, w, b / 2); });
+  bars(GRID_Y[GRID_Y.length - 1] * s, sy * s, MH, (a, w) => { c.fillRect(X0 - b, Y0 + a, b / 2, w); c.fillRect(X0 + MW + b / 2, Y0 + a, b / 2, w); });
+  // The other half of the band, the other way round, so the bars read as a chequer.
+  c.globalAlpha = 0.55;
+  bars(GRID_X[0] * s - sx * s, sx * s, MW, (a, w) => { c.fillRect(X0 + a, Y0 - b / 2, w, b / 2); c.fillRect(X0 + a, Y0 + MH, w, b / 2); });
+  bars(GRID_Y[GRID_Y.length - 1] * s - sy * s, sy * s, MH, (a, w) => { c.fillRect(X0 - b / 2, Y0 + a, b / 2, w); c.fillRect(X0 + MW, Y0 + a, b / 2, w); });
+  c.globalAlpha = 1;
+  c.strokeStyle = ink; c.lineWidth = 1.2 * u; c.strokeRect(X0, Y0, MW, MH);
+  c.lineWidth = 0.6 * u; c.strokeRect(X0 - b / 2, Y0 - b / 2, MW + b, MH + b);
+  c.lineWidth = 1.2 * u; c.strokeRect(X0 - b, Y0 - b, MW + 2 * b, MH + 2 * b);
+  c.restore();
+}
+// A tile of faint paper grain for the saved Atlas sheet: specks a few per cent darker than the paper, multiplied over it.
+let grainTile = null;
+function paperGrain() {
+  if (grainTile) return grainTile;
+  const n = 160, cv = document.createElement('canvas'); cv.width = cv.height = n;
+  const g = cv.getContext('2d'), img = g.createImageData(n, n), rng = mulberry32(911);
+  for (let i = 0; i < n * n; i++) { const v = 255 - Math.floor(rng() * rng() * 16); img.data[i * 4] = v; img.data[i * 4 + 1] = v - 1; img.data[i * 4 + 2] = v - 3; img.data[i * 4 + 3] = 255; }
+  g.putImageData(img, 0, 0);
+  return grainTile = cv;
 }
 // The saved image's title and key: the world's name in a panel in the top-left corner, in the map's display lettering,
 // and in the bottom-right corner a key to what is on this map: each kind of place it has, each kind of landmark, and a

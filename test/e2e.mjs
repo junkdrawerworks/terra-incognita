@@ -2227,6 +2227,35 @@ await oldCtx.close();
   await lap.sc.close();
 }
 
+// The saved sheet's finishing touches: a graduated border of dark and light bars in place of the plain double frame,
+// a bigger compass rose in the Atlas look, and a paper grain on the Atlas sheet faint enough to leave its colours as
+// they were. (No degree numbers on the bars: the map carries no latitudes.)
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => window.terra.newWorld(20417, 'continent'));
+  const look = (o) => pg.evaluate(async (o) => {
+    const url = window.terra.mapImage(4, true, o), f = window.terra.furniture('image');
+    const img = new Image(); await new Promise((d) => { img.onload = d; img.src = url; });
+    const cv = document.createElement('canvas'); cv.width = img.width; cv.height = img.height; const g = cv.getContext('2d'); g.drawImage(img, 0, 0);
+    // Along the band just outside the map's top edge: how often it turns from dark to light.
+    const row = g.getImageData(40, 30 - 9, img.width - 80, 1).data; let turns = 0, dark = null;
+    for (let i = 0; i < row.length; i += 4) { const d = row[i] + row[i + 1] + row[i + 2] < 300; if (dark !== null && d !== dark) turns++; dark = d; }
+    // A patch of open sea in the middle of the top: its mean brightness and how much it varies pixel to pixel.
+    const sea = g.getImageData(700, 80, 60, 40).data; let sum = 0, sq = 0, n = 0, step = 0;
+    for (let i = 0; i < sea.length; i += 4) { const v = (sea[i] + sea[i + 1] + sea[i + 2]) / 3; sum += v; n++; if (i >= 4) step += Math.abs(v - (sea[i - 4] + sea[i - 3] + sea[i - 2]) / 3); }
+    return { turns, compass: f.compass, mean: sum / n, rough: step / n };
+  }, o);
+  const tSheet = await look({ title: true }), tPlain = await look({});
+  await pg.evaluate(() => window.terra.setStyle('atlas'));
+  const aSheet = await look({ title: true }), aPlain = await look({});
+  ok(tSheet.turns >= 60 && aSheet.turns >= 60 && tPlain.turns <= 2, `the saved sheet has a graduated border, in both looks (${tSheet.turns} and ${aSheet.turns} turns from dark to light along its top; ${tPlain.turns} on the plain picture)`);
+  ok(aSheet.compass === tSheet.compass * 1.5 && tSheet.compass === tPlain.compass, `the Atlas sheet's compass rose is half as big again (${aSheet.compass * 2} px across, against ${tSheet.compass * 2})`);
+  ok(aSheet.rough > aPlain.rough + 0.5 && Math.abs(aSheet.mean - aPlain.mean) / aPlain.mean < 0.03 && Math.abs(tSheet.rough - tPlain.rough) < 0.2, `the Atlas sheet has a faint paper grain (pixel to pixel ${aPlain.rough.toFixed(1)} to ${aSheet.rough.toFixed(1)}, brightness ${aPlain.mean.toFixed(0)} to ${aSheet.mean.toFixed(0)}); Terrain has none`);
+  await c.close();
+}
+
 // A place name's spot is worked out from its width in the map's own lettering: the page draws the map before its fonts
 // arrive, and widths measured then, in the fallback font, were kept, so names were placed for words of another size.
 {
@@ -3816,7 +3845,8 @@ await oldCtx.close();
   const atlasPng = await readFile(await atlasDl.path());
   const corner = await pg.evaluate((b64) => new Promise((done) => { const img = new Image(); img.onload = () => { const cv = document.createElement('canvas'); cv.width = img.width; cv.height = img.height; const g = cv.getContext('2d'); g.drawImage(img, 0, 0); done([...g.getImageData(4, 4, 1, 1).data.slice(0, 3)]); }; img.src = 'data:image/png;base64,' + b64; }), atlasPng.toString('base64'));
   await pg.click('#styleTerrain');
-  ok(atlasShare > terrainShare + 0.3 && atlasPng.readUInt32BE(16) === 1980 && JSON.stringify(corner) === JSON.stringify([0xE9, 0xDF, 0xC6]),
+  // (Parchment with its faint grain: within a few steps of #E9DFC6.)
+  ok(atlasShare > terrainShare + 0.3 && atlasPng.readUInt32BE(16) === 1980 && [0xE9, 0xDF, 0xC6].every((v, i) => Math.abs(corner[i] - v) <= 8),
     `Atlas draws the map in pale inks (${Math.round(atlasShare * 100)}% of the frame pale, against ${Math.round(terrainShare * 100)}% in Terrain), and its Save map image on parchment (margin rgb ${corner.join(', ')})`);
   // A world file keeps the look it was saved in, and opens in it on another device, where the other look was chosen.
   // The autosave doesn't keep one, so there your own choice stays. (The file from an earlier build has none, and opens

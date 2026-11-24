@@ -72,11 +72,13 @@ function makeNoise(seed) {
 function fbm(nz, x, y, oct) { let a = 1, f = 1, s = 0, norm = 0; for (let o = 0; o < oct; o++) { s += a * nz(x * f, y * f); norm += a; a *= 0.5; f *= 2.03; } return s / norm; }
 
 // ------------------------------------------------------------------ world vocab
+// How far a spot (0 to 1 across and down the map) is from the middle of each of the twin lands, in the lands' own sizes.
+const twinReach = (x, y) => [Math.hypot((x - 0.28) / 0.24, (y - 0.42) / 0.36), Math.hypot((x - 0.73) / 0.23, (y - 0.58) / 0.36)];
 const SHAPES = {
   blank: { label: 'Blank ocean', blank: true, freq: 1.6, warp: 0, amp: 0, ridge: 0, land: 0, mask: () => 0 },
   continent: { label: 'Continent', freq: 2.1, warp: 0.5, amp: 0.8, ridge: 0.5, land: 0.40, mask: (x, y) => { const dx = (x - 0.5) / 0.52, dy = (y - 0.5) / 0.5; return 0.5 - Math.sqrt(dx * dx + dy * dy); } },
   archipelago: { label: 'Archipelago', freq: 3.4, warp: 0.45, amp: 1.0, ridge: 0.35, land: 0.27, mask: (x, y) => { const dx = (x - 0.5) / 0.6, dy = (y - 0.5) / 0.55; return 0.15 - Math.sqrt(dx * dx + dy * dy) * 0.35; } },
-  twin: { label: 'Twin lands', freq: 2.3, warp: 0.5, amp: 0.8, ridge: 0.5, land: 0.38, mask: (x, y) => { const a = Math.hypot((x - 0.28) / 0.24, (y - 0.42) / 0.36), b = Math.hypot((x - 0.73) / 0.23, (y - 0.58) / 0.36); return 0.5 - Math.min(a, b) * 0.9; } },
+  twin: { label: 'Twin lands', freq: 2.3, warp: 0.5, amp: 0.8, ridge: 0.5, land: 0.38, strait: true, mask: (x, y) => { const [a, b] = twinReach(x, y); return 0.5 - Math.min(a, b) * 0.9; } },
   inland: { label: 'Inland sea', freq: 2.3, warp: 0.5, amp: 0.75, ridge: 0.45, land: 0.5, mask: (x, y) => { const d = Math.hypot((x - 0.5) / 0.5, (y - 0.5) / 0.5); return 0.45 - Math.abs(d - 0.62) * 1.9; } },
 };
 
@@ -242,8 +244,21 @@ function generateTerrain(seed, shape) {
     const val = v[i];
     h[i] = val < q ? 0.5 * Math.pow((val - mn) / (q - mn), 0.7) * 0.998 : 0.5 + 0.5 * Math.pow((val - q) / (mx - q), 1.35);
   }
+  if (cfg.strait) cutStrait(h, seed);
   rainShadow(h, m);
   return { h, m };
+}
+// Twin lands are two lands: a strait about 50 km wide runs along the line where they would meet, wandering a little,
+// and the land eases down to it over the next 40 km, so the two never join across a land bridge.
+function cutStrait(h, seed) {
+  const nz = makeNoise(seed + 4241), seam = (x, y) => { const [a, b] = twinReach(x / W, y / H); return a - b; };
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x; if (h[i] < 0.5) continue;
+    const g = Math.hypot(seam(x + 1, y) - seam(x - 1, y), seam(x, y + 1) - seam(x, y - 1)) / 2;
+    const off = Math.abs(seam(x, y) / g + fbm(nz, x / H * 3, y / H * 3, 3) * 8); // cells from the strait's middle
+    if (off < 2.4) h[i] = 0.497 - 0.002 * (2.4 - off);
+    else if (off < 6.4) h[i] = 0.5 + (h[i] - 0.5) * (off - 2.4) / 4;
+  }
 }
 // A generated world's rain comes in on a west wind. Crossing the sea the air takes up water; over land it gives a
 // little up as it goes, and much more where the ground rises under it, so slopes facing west are wet and the land

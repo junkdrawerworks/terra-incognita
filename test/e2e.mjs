@@ -974,6 +974,32 @@ ok(covered.length === 0, 'sea names stay clear of the scale bar' + (covered.leng
   await c.close();
 }
 
+// Twin lands are two lands, with a strait between them: in 15939 and 8020 they joined across a land bridge, though the
+// title names two lands. Land touching only at a corner counts as apart, as water touching at a corner counts as one.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const out = [];
+  for (const seed of [15939, 8020, 20417, 857490]) {
+    out.push([seed, ...await pg.evaluate((seed) => {
+      window.terra.newWorld(seed, 'twin');
+      const W = 480, H = 300, land = [], seen = new Int8Array(W * H), sizes = [];
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) land.push(window.terra.cell(x + 0.5, y + 0.5).h >= 0);
+      for (let s = 0; s < W * H; s++) {
+        if (!land[s] || seen[s]) continue;
+        const q = [s]; seen[s] = 1; let n = 0;
+        while (q.length) { const i = q.pop(); n++; const x = i % W, y = (i / W) | 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy, j = ny * W + nx; if (nx >= 0 && ny >= 0 && nx < W && ny < H && land[j] && !seen[j]) { seen[j] = 1; q.push(j); } } }
+        sizes.push(n);
+      }
+      const all = sizes.reduce((a, b) => a + b, 0); sizes.sort((a, b) => b - a);
+      return [Math.round(sizes[0] / all * 100), Math.round(sizes[1] / all * 100)];
+    }, seed)]);
+  }
+  ok(out.every(([, a, b]) => a < 70 && b >= 30), `Twin lands come out as two lands with a strait between them (the two largest hold ${out.map(([s, a, b]) => `${a}% and ${b}% in ${s}`).join(', ')})`);
+  await c.close();
+}
+
 // The map prints no latitudes or longitudes, on the map, on a place's page or under the pointer: the climate runs from
 // ice sheet to jungle over 3,000 km, and the numbers put a frozen north at 55°N, where Denmark is.
 {
@@ -1266,7 +1292,7 @@ await oldCtx.close();
     [20417, 'continent', '8b20efbd125e', '5a1b133e1280', 'e4f78b0c12b5'],
     [96298, 'continent', '736cd99437ab', '0b2596e96d31', '3c50d99221c1'],
     [950281, 'inland', '7ff144f0176e', '1afc775afd2b', '4007ff4a1d91'],
-    [857490, 'twin', '548a8b21cd78', '2731c0e3d4f3', '95b2e535c260'],
+    [857490, 'twin', '6c377492048c', 'e7bb04ba7404', 'd4dad22e8455'],
     [645278, 'inland', '358737c747f0', '049431645c33', 'bf8eae96f053'],
   ]) {
     const f = await pg.evaluate(([seed, shape]) => { window.terra.newWorld(seed, shape); return window.terra.fingerprint(); }, [seed, shape]);

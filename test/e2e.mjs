@@ -2041,6 +2041,63 @@ await oldCtx.close();
   await c.close();
 }
 
+// Place names find a clear spot: right of the symbol, or left, above, below or at a corner, clear of other names, other
+// symbols and the map's edge, capitals first. Every name went to the right with no check, so on a phone 'Bogol' was cut
+// at the edge, 'Lonlie' and 'Mea' read 'LoMea', and on the saved image 'Sion' printed into a capital's star. A town's,
+// village's or landmark's name with no clear spot is left off until you zoom in; a capital's, and the selected place's,
+// always shows.
+{
+  const clash = (spots) => {
+    const hit = (a, b) => a[0] < b[2] - 0.5 && a[2] > b[0] + 0.5 && a[1] < b[3] - 0.5 && a[3] > b[1] + 0.5, out = [];
+    const { names, marks } = spots;
+    for (let i = 0; i < names.length; i++) for (let j = 0; j < i; j++) if (hit(names[i].box, names[j].box)) out.push(`${names[i].name}/${names[j].name}`);
+    for (const n of names) if (n.kind !== 'capital' && n.kind !== 'city') for (const m of marks) if (m.id !== n.id && hit(n.box, m.box)) out.push(`${n.name}/symbol`);
+    return out;
+  };
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => document.fonts.ready);
+  await pg.evaluate(() => window.terra.newWorld(20417, 'continent'));
+  const caps = (await pg.evaluate(() => window.terra.places())).filter((p) => p.kind === 'capital');
+  const looks = [];
+  for (let k = 0; k <= 6; k++) {
+    if (k) await pg.click('#zIn');
+    await pg.waitForTimeout(80);
+    const spots = await pg.evaluate(() => window.terra.nameSpots()), map = await pg.evaluate(() => { const a = window.terra.toScreen(0, 0), b = window.terra.toScreen(480, 300); return [Math.max(a.x, 0), Math.max(a.y, 0), Math.min(b.x, document.getElementById('map').clientWidth), Math.min(b.y, document.getElementById('map').clientHeight)]; });
+    const off = spots.names.filter((n) => n.kind !== 'capital' && n.kind !== 'city' && (n.box[0] < map[0] || n.box[1] < map[1] || n.box[2] > map[2] || n.box[3] > map[3])).map((n) => n.name);
+    looks.push({ k, clash: clash(spots), off, dropped: spots.marks.filter((m) => m.kind === 'village' && m.box[0] > map[0] && m.box[2] < map[2] && m.box[1] > map[1] && m.box[3] < map[3] && !spots.names.some((n) => n.id === m.id)).map((m) => m.id), sides: new Set(spots.names.map((n) => n.side)).size });
+  }
+  ok(looks.every((l) => !l.clash.length && !l.off.length), `on a phone, from the whole map to six steps in, no place name prints over another name or another place's symbol, or runs off the map (${looks.map((l) => [...l.clash, ...l.off].join(', ') || 'clear').join('; ')})`);
+  // A village left off three steps in has its name again closer in, centred on it.
+  const left = looks[3].dropped, back = [];
+  for (const id of left) {
+    const v = (await pg.evaluate(() => window.terra.places())).find((p) => p.id === id);
+    await pg.evaluate(([x, y]) => window.terra.centerOn(x, y), [v.x, v.y]);
+    for (let k = 0; k < 4; k++) await pg.click('#zIn');
+    await pg.waitForTimeout(80);
+    if ((await pg.evaluate(() => window.terra.nameSpots().names.map((n) => n.id))).includes(id)) back.push(v.name);
+  }
+  ok(looks.some((l) => l.sides > 1) && left.length && back.length === left.length, `names step aside where the right is taken, and the ${left.length} village names left off three steps in come back closer in (${back.join(', ')})`);
+  await pg.click('#zFit');
+  await pg.waitForTimeout(80);
+  const fitNames = await pg.evaluate(() => window.terra.nameSpots().names.map((n) => n.id));
+  ok(caps.every((p) => fitNames.includes(p.id)), `every capital's name shows on the phone's whole map (${caps.length})`);
+  const village = (await pg.evaluate(() => window.terra.places())).find((p) => p.kind === 'village' && !fitNames.includes(p.id));
+  await pg.evaluate((id) => window.terra.select({ type: 'place', id }), village.id);
+  await pg.waitForTimeout(80);
+  ok((await pg.evaluate(() => window.terra.nameSpots().names.map((n) => n.id))).includes(village.id), `a village whose name is left off shows it once selected (${village.name})`);
+  await pg.evaluate(() => window.terra.select(null));
+  // The saved image, both looks: every capital, city and town named, and nothing printed over anything.
+  for (const st of ['terrain', 'atlas']) {
+    await pg.evaluate((st) => { window.terra.setStyle(st); window.terra.mapImage(4, true); }, st);
+    const spots = await pg.evaluate(() => window.terra.nameSpots('image'));
+    const named = new Set(spots.names.map((n) => n.id)), big = (await pg.evaluate(() => window.terra.places())).filter((p) => p.kind === 'capital' || p.kind === 'city');
+    ok(!clash(spots).length && big.every((p) => named.has(p.id)), `on the saved map image (${st}) every capital and city is named, ${spots.names.length} names in all, and none prints over another or a symbol (${clash(spots).join(', ') || 'clear'})`);
+  }
+  await c.close();
+}
+
 // The Atlas on a phone's whole map draws a share of its trees, so they don't run into a solid mat (they were 1.9 px
 // apart and 3 px across); a laptop's whole map and a closer look draw them all.
 {

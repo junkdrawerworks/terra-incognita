@@ -1743,9 +1743,10 @@ function drawMap(c, k, vw, vh, v, opt) {
   c.save(); c.beginPath(); c.rect(X0, Y0, MW, MH); c.clip();
   if (atlas) drawGlyphs(c, v, vw, vh);
   if (L.realms) drawRealmNames(c, v, atlas);
-  if (L.rivers && L.labels && zr >= 0.95) {
+  const riverSize = L.rivers && L.labels && zr >= 0.95 ? 11 * clamp(Math.pow(zr, 0.3), 1, 1.5) * small : 0;
+  if (riverSize) {
     for (const r of D.riverLabels) {
-      const fs = 11 * clamp(Math.pow(zr, 0.3), 1, 1.5) * small;
+      const fs = riverSize;
       c.save(); c.translate(ox + r.x * s, oy + r.y * s); c.rotate(r.ang);
       c.font = `italic ${fs}px ${F_DISPLAY}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.letterSpacing = `${(fs * 0.12).toFixed(1)}px`;
       haloText(c, r.name, 0, 0, atlas ? '#3f6570' : '#1e5877', HALO, 3);
@@ -1754,7 +1755,10 @@ function drawMap(c, k, vw, vh, v, opt) {
     c.letterSpacing = '0px';
   }
   if (L.labels) drawUserLabels(c, v, atlas, HALO, opt);
-  drawPlaces(c, v, vw, vh, atlas, INK, HALO, opt, small);
+  const CX = Math.min(vw - 46, X0 + MW - 40), CY = Math.max(46, Y0 + 42), CR = 21;
+  const avoid = [[sb.X - 6, sb.top, sb.right, sb.bottom], [CX - CR, CY - CR - 15, CX + CR, CY + CR]];
+  if (!opt.export && v.zoomBox) avoid.push(v.zoomBox);
+  drawPlaces(c, v, vw, vh, atlas, INK, HALO, { ...opt, riverSize, avoid }, small);
   if (!opt.export && ui.tool === 'erase') drawSources(c, v);
   if (!opt.export) drawSelection(c, v, atlas);
   if (!opt.export && sketchDraft) drawSketch(c, v);
@@ -1768,7 +1772,7 @@ function drawMap(c, k, vw, vh, v, opt) {
 
   if (!opt.export) drawCursor(c, v);
   if (!opt.export && mapKeys && document.activeElement === canvas) drawMiddle(c, vw, vh);
-  drawCompass(c, Math.min(vw - 46, X0 + MW - 40), Math.max(46, Y0 + 42), 21, INK, HALO);
+  drawCompass(c, CX, CY, CR, INK, HALO);
   drawScale(c, sb, INK, HALO);
 }
 // On a small map, trees, reeds and dunes would sit closer than they are wide and run into a solid mat (on a phone's
@@ -1848,13 +1852,73 @@ function drawUserLabels(c, v, atlas) {
   c.letterSpacing = '0px';
 }
 const P_ORDER = { landmark: 0, village: 1, town: 2, city: 3, capital: 4 };
-// The selected place's name as drawPlaces last drew it, so drawSelection can draw it again over its ring.
+// Text widths by font, spacing and text, since names are measured on every frame to place them.
+const textWidths = new Map();
+function textW(c, text) {
+  const k = c.font + '|' + c.letterSpacing + '|' + text; let w = textWidths.get(k);
+  if (w === undefined) { if (textWidths.size > 5000) textWidths.clear(); w = c.measureText(text).width; textWidths.set(k, w); }
+  return w;
+}
+// Boxes a place's name keeps clear of, as { x, y, hw, hh, a }: a centre, half its width and height, and how far it is
+// turned (radians). overlap gives how much of a name's box [left, top, right, bottom] one covers, 0 when they miss.
+const keepClear = (l, t, r, b, a = 0) => ({ x: (l + r) / 2, y: (t + b) / 2, hw: (r - l) / 2, hh: (b - t) / 2, a });
+function overlap(bx, o) {
+  const cx = (bx[0] + bx[2]) / 2, cy = (bx[1] + bx[3]) / 2, hw = (bx[2] - bx[0]) / 2, hh = (bx[3] - bx[1]) / 2;
+  if (o.a) {
+    // A turned box: the two are apart if a gap shows along either box's sides (the separating axis test).
+    const ca = Math.cos(o.a), sa = Math.sin(o.a), dx = o.x - cx, dy = o.y - cy;
+    const ex = Math.abs(ca) * o.hw + Math.abs(sa) * o.hh, ey = Math.abs(sa) * o.hw + Math.abs(ca) * o.hh;
+    if (Math.abs(dx) >= hw + ex || Math.abs(dy) >= hh + ey) return 0;
+    if (Math.abs(dx * ca + dy * sa) >= o.hw + Math.abs(ca) * hw + Math.abs(sa) * hh) return 0;
+    if (Math.abs(-dx * sa + dy * ca) >= o.hh + Math.abs(sa) * hw + Math.abs(ca) * hh) return 0;
+    return (Math.min(cx + hw, o.x + ex) - Math.max(cx - hw, o.x - ex)) * (Math.min(cy + hh, o.y + ey) - Math.max(cy - hh, o.y - ey));
+  }
+  const w = Math.min(cx + hw, o.x + o.hw) - Math.max(cx - hw, o.x - o.hw), h = Math.min(cy + hh, o.y + o.hh) - Math.max(cy - hh, o.y - o.hh);
+  return w > 0 && h > 0 ? w * h : 0;
+}
+// What the place names keep clear of: the realms' names (both lines), the map's labels and the river names, as drawn.
+// Zoomed in four times past the whole map, where the realms' names have faded to a shadow, names may cross them.
+function nameObstacles(c, v, atlas, opt) {
+  const s = v.s, L = ui.layers, out = [];
+  if (L.realms && s / v.s0 < 4) for (const r of D.realms) {
+    const sz = realmNameSize(r, s); if (sz < 8) continue;
+    const X = v.ox + r.lx * s, Y = v.oy + r.ly * s, ts = Math.max(10, sz * 0.42);
+    c.font = `italic ${ts}px ${F_DISPLAY}`; c.letterSpacing = '1px'; const tw = textW(c, `The ${r.title} of`);
+    c.font = `${sz}px ${F_SC}`; c.letterSpacing = `${(sz * 0.26).toFixed(1)}px`; const nw = textW(c, r.name);
+    out.push(keepClear(X - tw / 2, Y - sz * 0.78 - ts * 0.55, X + tw / 2, Y - sz * 0.78 + ts * 0.55), keepClear(X - nw / 2, Y - sz * 0.55, X + nw / 2, Y + sz * 0.5));
+  }
+  if (L.labels) for (const l of world.labels) {
+    const fs = labelSize(l, v); if (fs < 6) continue;
+    const st = labelStyle(l, atlas); c.font = `${st.font} ${fs}px ${st.face}`; c.letterSpacing = `${(fs * st.sp).toFixed(1)}px`;
+    const w = textW(c, l.text), X = v.ox + l.x * s, Y = v.oy + l.y * s;
+    out.push(keepClear(X - w / 2, Y - fs * 0.55, X + w / 2, Y + fs * 0.55, (l.angle || 0) * Math.PI / 180));
+  }
+  if (L.rivers && L.labels && opt.riverSize) for (const r of D.riverLabels) {
+    const fs = opt.riverSize; c.font = `italic ${fs}px ${F_DISPLAY}`; c.letterSpacing = `${(fs * 0.12).toFixed(1)}px`;
+    const w = textW(c, r.name), X = v.ox + r.x * s, Y = v.oy + r.y * s;
+    out.push(keepClear(X - w / 2, Y - fs * 0.5, X + w / 2, Y + fs * 0.5, r.ang));
+  }
+  c.letterSpacing = '0px';
+  return out;
+}
+// The selected place's name as drawPlaces last drew it, so drawSelection can draw it again over its ring; and every
+// name it placed, on the screen and on the last saved image, for terra.names.
 let selName = null;
+const placedNames = { screen: [], image: [], screenMarks: [], imageMarks: [] };
+// Each place's symbol, then its name. Names are given their spots before any is drawn, in order of rank (capitals
+// first, then the selected place, then cities, towns, landmarks and villages, the more people first): to the right
+// of the symbol, or else to the left, above, below or at a corner, wherever the name is clear of the names and symbols
+// already there, the realms' names, the map's labels and river names, the compass and scale bar (opt.avoid) and the
+// map's edge. A town's, village's or landmark's name with no clear spot is left off until the map is zoomed in far
+// enough to give it one, and so is a city's that would print over another name; a capital's, and the selected
+// place's, always shows, in the spot where it covers least.
 function drawPlaces(c, v, vw, vh, atlas, INK, HALO, opt, small = 1) {
   const s = v.s, zr = s / v.s0, sc = clamp(Math.pow(zr, 0.22), 1, 1.35) * small;
   selName = null;
+  const selId = ui.selected && ui.selected.type === 'place' ? ui.selected.id : null;
   const list = world.places.slice().sort((a, b) => P_ORDER[a.kind] - P_ORDER[b.kind]);
   const iconHalo = atlas ? '#f1e7cb' : '#ffffff';
+  const marks = [];
   for (const p of list) {
     const X = v.ox + p.x * s, Y = v.oy + p.y * s;
     if (X < -60 || Y < -30 || X > vw + 200 || Y > vh + 30) continue;
@@ -1878,17 +1942,61 @@ function drawPlaces(c, v, vw, vh, atlas, INK, HALO, opt, small = 1) {
       else { c.lineWidth = 1.7; c.strokeStyle = INK; c.stroke(lm.p); }
       c.restore(); rr = 6 * sc;
     }
-    if (!ui.layers.names) continue;
-    const show = opt.allNames || p.kind === 'capital' || p.kind === 'city' || (p.kind === 'town' && zr >= 1.2) || (p.kind === 'village' && zr >= 1.9) || (p.kind === 'landmark' && zr >= 1.5) || (ui.selected && ui.selected.id === p.id);
-    if (!show) continue;
-    const base = { capital: 15, city: 13.5, town: 12.5, village: 11.5, landmark: 11.5 }[p.kind] * sc;
-    c.font = p.kind === 'capital' ? `${base}px ${F_SC}` : (p.kind === 'village' || p.kind === 'landmark') ? `italic ${base}px ${F_DISPLAY}` : `${base}px ${F_DISPLAY}`;
-    c.letterSpacing = p.kind === 'capital' ? '0.6px' : '0px';
-    c.textAlign = 'left'; c.textBaseline = 'middle';
-    haloText(c, p.name, X + rr + 4, Y + 0.5, INK, HALO, 3.2);
-    if (ui.selected && ui.selected.type === 'place' && ui.selected.id === p.id) selName = { text: p.name, x: X + rr + 4, y: Y + 0.5, font: c.font, ls: c.letterSpacing, INK, HALO };
+    marks.push({ p, X, Y, rr });
   }
-  c.letterSpacing = '0px';
+  const placed = [];
+  if (ui.layers.names) {
+    const clear = nameObstacles(c, v, atlas, opt).concat((opt.avoid || []).map(b => keepClear(...b)));
+    for (const m of marks) clear.push(keepClear(m.X - m.rr - 1, m.Y - m.rr - 1, m.X + m.rr + 1, m.Y + m.rr + 1));
+    const rank = m => m.p.kind === 'capital' ? 6 : m.p.id === selId ? 5 : P_ORDER[m.p.kind];
+    const order = marks.filter(({ p }) => opt.allNames || p.kind === 'capital' || p.kind === 'city' || (p.kind === 'town' && zr >= 1.2) || (p.kind === 'village' && zr >= 1.9) || (p.kind === 'landmark' && zr >= 1.5) || p.id === selId)
+      .sort((a, b) => rank(b) - rank(a) || (b.p.pop || 0) - (a.p.pop || 0));
+    // The map's edge, or the screen's where the map runs past it.
+    const ex0 = Math.max(v.ox, 0) + 2, ey0 = Math.max(v.oy, 0) + 2, ex1 = Math.min(v.ox + W * s, vw) - 2, ey1 = Math.min(v.oy + H * s, vh) - 2;
+    for (const m of order) {
+      const { p, X, Y, rr } = m;
+      const base = { capital: 15, city: 13.5, town: 12.5, village: 11.5, landmark: 11.5 }[p.kind] * sc;
+      const font = p.kind === 'capital' ? `${base}px ${F_SC}` : (p.kind === 'village' || p.kind === 'landmark') ? `italic ${base}px ${F_DISPLAY}` : `${base}px ${F_DISPLAY}`;
+      const ls = p.kind === 'capital' ? '0.6px' : '0px';
+      c.font = font; c.letterSpacing = ls;
+      const w = textW(c, p.name), hh = base * 0.5 + 1.5, gap = rr + 4;
+      const spots = [
+        { side: 'right', x: X + gap, y: Y + 0.5, align: 'left', box: [X + gap - 1.5, Y - hh, X + gap + w + 1.5, Y + hh] },
+        { side: 'left', x: X - gap, y: Y + 0.5, align: 'right', box: [X - gap - w - 1.5, Y - hh, X - gap + 1.5, Y + hh] },
+        { side: 'above', x: X, y: Y - rr - 1 - hh, align: 'center', box: [X - w / 2 - 1.5, Y - rr - 1 - 2 * hh, X + w / 2 + 1.5, Y - rr - 1] },
+        { side: 'below', x: X, y: Y + rr + 2 + hh, align: 'center', box: [X - w / 2 - 1.5, Y + rr + 2, X + w / 2 + 1.5, Y + rr + 2 + 2 * hh] },
+      ];
+      // Then the corners: above or below, starting beside the symbol.
+      const d = rr * 0.7 + 2;
+      for (const [side, dx, dy] of [['above right', 1, -1], ['below right', 1, 1], ['above left', -1, -1], ['below left', -1, 1]]) {
+        const y = Y + dy * (d + hh), x0 = dx > 0 ? X + d : X - d - w;
+        spots.push({ side, x: dx > 0 ? X + d : X - d, y, align: dx > 0 ? 'left' : 'right', box: [x0 - 1.5, y - hh, x0 + w + 1.5, y + hh] });
+      }
+      // A spot's cost: how much it covers, where covering another place's name counts a thousand times over.
+      let best = null, bestCost = Infinity;
+      for (const sp of spots) {
+        const b = sp.box, out = Math.max(0, ex0 - b[0]) + Math.max(0, b[2] - ex1) + Math.max(0, ey0 - b[1]) + Math.max(0, b[3] - ey1);
+        let cost = out * (b[3] - b[1]) * 4;
+        for (const o of clear) { if (o.own === p.id) continue; cost += overlap(b, o) * (o.own !== undefined ? 1000 : 1); if (cost >= bestCost) break; }
+        if (cost < bestCost) { bestCost = cost; best = sp; }
+        if (cost === 0) break;
+      }
+      const must = p.kind === 'capital' || p.id === selId;
+      if (!must && bestCost > 0 && (p.kind !== 'city' || bestCost >= 1000)) continue;
+      clear.push(Object.assign(keepClear(...best.box), { own: p.id }));
+      placed.push({ p, font, ls, ...best });
+    }
+    // Drawn lowest rank first, so where a name had to cover another, the higher-ranking one is on top.
+    for (let k = placed.length - 1; k >= 0; k--) {
+      const n = placed[k];
+      c.font = n.font; c.letterSpacing = n.ls; c.textAlign = n.align; c.textBaseline = 'middle';
+      haloText(c, n.p.name, n.x, n.y, INK, HALO, 3.2);
+      if (n.p.id === selId) selName = { text: n.p.name, x: n.x, y: n.y, align: n.align, font: n.font, ls: n.ls, INK, HALO };
+    }
+  }
+  placedNames[opt.export ? 'image' : 'screen'] = placed.map(n => ({ id: n.p.id, name: n.p.name, kind: n.p.kind, side: n.side, box: n.box.slice() }));
+  placedNames[opt.export ? 'imageMarks' : 'screenMarks'] = marks.map(m => ({ id: m.p.id, kind: m.p.kind, box: [m.X - m.rr, m.Y - m.rr, m.X + m.rr, m.Y + m.rr] }));
+  c.letterSpacing = '0px'; c.textAlign = 'left';
 }
 function findSel(sel) {
   if (!sel) return null;
@@ -1928,9 +2036,9 @@ function drawSelection(c, v, atlas) {
     // letters rather than through them. Only there: the rest of the name keeps its place under the symbols beside it.
     const n = selName;
     if (n) {
-      c.save(); c.beginPath(); c.rect(X, Y - 20, 16, 40); c.clip();
-      c.font = n.font; c.letterSpacing = n.ls; c.textAlign = 'left'; c.textBaseline = 'middle'; haloText(c, n.text, n.x, n.y, n.INK, n.HALO, 3.2);
-      c.restore(); c.letterSpacing = '0px';
+      c.save(); c.beginPath(); c.rect(X - 16, Y - 16, 32, 32); c.clip();
+      c.font = n.font; c.letterSpacing = n.ls; c.textAlign = n.align; c.textBaseline = 'middle'; haloText(c, n.text, n.x, n.y, n.INK, n.HALO, 3.2);
+      c.restore(); c.letterSpacing = '0px'; c.textAlign = 'left';
     }
   } else if (sel.type === 'label') {
     const fs = labelSize(o, v), st = labelStyle(o, atlas);
@@ -2034,6 +2142,8 @@ function resize() {
   const first = !view.cw, wasFit = Math.abs(view.s - view.s0) < 1e-6;
   const cx = view.cw ? (view.cw / 2 - view.ox) / view.s : W / 2, cy = view.ch ? (view.ch / 2 - view.oy) / view.s : H / 2;
   view.cw = cw; view.ch = ch; view.dpr = Math.min(2, window.devicePixelRatio || 1);
+  // The zoom buttons sit over the map's bottom-right corner, so place names keep out from under them.
+  const z = $('.zoom').getBoundingClientRect(); view.zoomBox = z.width ? [z.left - r.left - 3, z.top - r.top - 3, z.right - r.left + 3, z.bottom - r.top + 3] : null;
   canvas.width = Math.round(cw * view.dpr); canvas.height = Math.round(ch * view.dpr);
   if (first || wasFit) fitView(); else { computeS0(); view.ox = cw / 2 - cx * view.s; view.oy = ch / 2 - cy * view.s; clampView(); }
   draw();
@@ -3918,6 +4028,9 @@ window.terra = {
   // The brush's ring as last drawn, in CSS pixels on the map, or null when none shows.
   ring: () => ringShown && { ...ringShown },
   mapImage: (S = 2, allNames = true) => renderMapImage(S, allNames).toDataURL('image/png'),
+  // The place names the map last drew (where 'screen') or the last map image drew ('image'): each name, its place's id
+  // and kind, which side of its symbol it went and its box [left, top, right, bottom] in pixels; and each symbol's box.
+  nameSpots: (where = 'screen') => ({ names: placedNames[where].map(n => ({ ...n, box: n.box.slice() })), marks: placedNames[where + 'Marks'].map(m => ({ ...m, box: m.box.slice() })) }),
   // What lies at a map cell: its height against sea level (below zero in the sea), whether it holds a lake or a river,
   // its rain (m, 0 to 1, and rain, in mm a year), its kind of land, its height in metres (a lake's surface on a lake) and
   // its mean temperature.

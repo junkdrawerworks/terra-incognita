@@ -156,14 +156,14 @@ let world = null;
 const ui = {
   tool: 'select', brush: { size: 10, strength: 5 }, settleKind: 'town', landmarkKind: 'ruin', labelKind: 'region', labelText: '',
   sketch: { mode: 'land', rough: 5, height: 'medium', width: 9, valley: 4 },
-  style: 'terrain', layers: { realms: true, rivers: true, labels: true, names: true, grid: true }, selected: null, tab: 'inspect',
+  style: 'terrain', layers: { realms: true, rivers: true, roads: true, labels: true, names: true, grid: true }, selected: null, tab: 'inspect',
 };
 const D = {
   biome: new Uint8Array(N), temp: new Float32Array(N), tN: new Float32Array(N),
   filled: new Float32Array(N), down: new Int32Array(N), acc: new Float32Array(N), area: new Float32Array(N), order: new Int32Array(N), lake: new Uint8Array(N), lakeF: new Float32Array(N),
   vis: new Uint8Array(N), isR: new Uint8Array(N), hasUp: new Uint8Array(N), mouth: new Int32Array(N), body: new Int32Array(N),
-  owner: new Int16Array(N), cost: new Float64Array(N), reach: new Float64Array(N), ind: new Float32Array(N), tmp: new Float32Array(N), cross: new Float32Array(N), dist: new Int16Array(N), q: new Int32Array(N),
-  realms: [], borders: [], coast: new Path2D(), lakeShores: [], riverEnds: [], contours: null, riverPaths: [], riverLabels: [], riverMouths: [], glyphs: [], riverNames: new Map(),
+  owner: new Int16Array(N), cost: new Float64Array(N), reach: new Float64Array(N), ind: new Float32Array(N), tmp: new Float32Array(N), cross: new Float32Array(N), rcost: new Float64Array(N), rfrom: new Int32Array(N), dist: new Int16Array(N), q: new Int32Array(N),
+  realms: [], borders: [], roads: [], roadPath: new Path2D(), coast: new Path2D(), lakeShores: [], riverEnds: [], contours: null, riverPaths: [], riverLabels: [], riverMouths: [], glyphs: [], riverNames: new Map(),
 };
 const view = { s: 1, s0: 1, ox: 0, oy: 0, cw: 0, ch: 0, dpr: 1 };
 
@@ -699,6 +699,85 @@ function buildBorders() {
   const keep = (mx, my) => h[cellAt(mx, my)] >= sea;
   D.borders = D.realms.map(r => { for (let i = 0; i < N; i++) ind[i] = own[i] === r.idx ? 1 : 0; blur(ind); blur(ind); return chainPath(ind, 0.5, keep); });
 }
+// ------------------------------------------------------------------ roads
+// What a step onto a cell costs a road: dearer up high and on steep ground, less beside a river (along its valley) and
+// a little more to cross one; deserts, ice and marsh are hard going, and sea and lakes can't be crossed at all.
+function roadStep(c, n) {
+  const h = world.h, sea = world.sea;
+  if (h[n] < sea || D.lake[n]) return Infinity;
+  const b = D.biome[n], up = (h[n] - sea) / (1 - sea);
+  let st = 1 + 7 * up + 60 * Math.abs(h[n] - h[c]);
+  if (b === B.DESERT || b === B.ICE || b === B.SNOW || b === B.MARSH) st += 1.5;
+  if (D.isR[n]) st += 2.5;
+  else { const x = n % W, y = (n / W) | 0; for (let k = 0; k < 4; k++) { const nx = x + NBX[k], ny = y + NBY[k]; if (nx >= 0 && ny >= 0 && nx < W && ny < H && D.isR[ny * W + nx]) { st *= 0.6; break; } } }
+  return st;
+}
+// The roads: from each capital along the easiest ground to every settlement of its realm, and to the capitals of the
+// realms beside it. Each is a list of cells from its far end to the capital it starts at. They follow the places and the
+// land, so they are worked out again whenever the realms are, and never saved.
+function buildRoads() {
+  const rcost = D.rcost, from = D.rfrom, nb = D.realms.length ? realmNeighbours() : [], roads = [];
+  for (const r of D.realms) {
+    const src = cellAt(r.place.x, r.place.y);
+    const targets = new Map();
+    for (const p of world.places) { if (p.kind === 'landmark' || p === r.place) continue; const i = cellAt(p.x, p.y); if (p.kind !== 'capital' ? D.owner[i] === r.idx : nb[r.idx].includes(D.realms.findIndex(q => q.place === p)) && D.realms.findIndex(q => q.place === p) > r.idx) targets.set(p, i); }
+    if (!targets.size) continue;
+    rcost.fill(Infinity); from.fill(-1); heap.clear(); rcost[src] = 0; heap.push(0, src);
+    let left = new Set(targets.values());
+    while (heap.n && left.size) {
+      const c = heap.pop(); if (heap.lastKey > rcost[c]) continue;
+      left.delete(c);
+      const cx = c % W, cy = (c / W) | 0;
+      for (let k = 0; k < 8; k++) {
+        const nx = cx + NBX[k], ny = cy + NBY[k]; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const n = ny * W + nx, st = roadStep(c, n); if (st === Infinity) continue;
+        const nc = rcost[c] + st * NBD[k];
+        if (nc < rcost[n]) { rcost[n] = nc; from[n] = c; heap.push(nc, n); }
+      }
+    }
+    for (const [p, i] of targets) {
+      if (rcost[i] === Infinity || i === src) continue;
+      const cells = []; for (let c = i, g = 0; c >= 0 && g < N; c = from[c], g++) cells.push(c);
+      roads.push({ from: p, to: r.place, cells });
+    }
+  }
+  D.roads = roads;
+  // Drawn as one set of lines: each stretch of road once, joined into runs between the places where roads meet or end.
+  const adj = new Map(), link = (a, b) => { if (!adj.has(a)) adj.set(a, new Set()); adj.get(a).add(b); };
+  for (const rd of roads) for (let k = 0; k + 1 < rd.cells.length; k++) { link(rd.cells[k], rd.cells[k + 1]); link(rd.cells[k + 1], rd.cells[k]); }
+  const path = new Path2D(), done = new Set(), key = (a, b) => a < b ? a * N + b : b * N + a;
+  const run = (a, b) => {
+    const pts = [cxOf(a), cyOf(a)]; let prev = a, cur = b; done.add(key(a, b));
+    for (;;) {
+      pts.push(cxOf(cur), cyOf(cur));
+      const nx = adj.get(cur); if (nx.size !== 2) break;
+      const next = [...nx].find(q => q !== prev); if (done.has(key(cur, next))) break;
+      done.add(key(cur, next)); prev = cur; cur = next;
+    }
+    smoothLine(path, pts);
+  };
+  for (const [a, nx] of adj) if (nx.size !== 2) for (const b of nx) if (!done.has(key(a, b))) run(a, b);
+  for (const [a, nx] of adj) for (const b of nx) if (!done.has(key(a, b))) run(a, b);
+  D.roadPath = path;
+}
+// The road a place is on, for its page. A capital: how many of its realm's settlements its roads reach, and which
+// capitals beside it. Anywhere else: a road between two places that passes it (one between two capitals first, or else
+// the longest), or its own road to its capital and how long that is. Null for a place no road reaches.
+function roadBy(p) {
+  if (p.kind === 'capital') {
+    const towns = D.roads.filter(rd => rd.to === p && rd.from.kind !== 'capital').length;
+    const caps = D.roads.filter(rd => rd.from.kind === 'capital' && (rd.to === p || rd.from === p)).map(rd => rd.to === p ? rd.from : rd.to);
+    return towns || caps.length ? { towns, caps } : null;
+  }
+  const i = cellAt(p.x, p.y), x = i % W, y = (i / W) | 0;
+  const near = rd => rd.cells.some(c => Math.abs(c % W - x) <= 1 && Math.abs(((c / W) | 0) - y) <= 1);
+  const by = D.roads.filter(rd => rd.from !== p && rd.to !== p && near(rd));
+  const pass = by.find(rd => rd.from.kind === 'capital') || by.sort((a, b) => b.cells.length - a.cells.length)[0];
+  if (pass) return { from: pass.from, to: pass.to };
+  const own = D.roads.find(rd => rd.from === p);
+  return own ? { to: own.to, km: roadLength(own.cells) * KM } : null;
+}
+const roadLength = cells => { let d = 0; for (let k = 1; k < cells.length; k++) d += Math.hypot(cells[k] % W - cells[k - 1] % W, ((cells[k] / W) | 0) - ((cells[k - 1] / W) | 0)); return d; };
 function renderTint() {
   const d = L_TINT.img.data; d.fill(0);
   const cols = D.realms.map(r => hexRgb(r.color));
@@ -747,7 +826,7 @@ function renderBase(x0 = 0, y0 = 0, x1 = W - 1, y1 = H - 1) {
 }
 
 function recomputeTerrain() { snapToSave(world.h); snapToSave(world.m); hydrology(); computeClimate(); buildRivers(); buildCoast(); buildBodies(); buildContours(); buildGlyphs(); renderBase(); }
-function recomputePolitics() { territories(); buildBorders(); renderTint(); }
+function recomputePolitics() { territories(); buildBorders(); buildRoads(); renderTint(); }
 function recomputeAll() { recomputeTerrain(); recomputePolitics(); requestDraw(); refreshPanels(); }
 
 // ------------------------------------------------------------------ places
@@ -1620,6 +1699,13 @@ function drawMap(c, k, vw, vh, v, opt) {
     for (let b = 0; b < 8; b++) { c.lineWidth = Math.max(0.9 / s, 0.22 + b * 0.15); c.stroke(D.riverPaths[b]); }
   }
   c.lineWidth = (atlas ? 1.3 : 0.9) / s; c.strokeStyle = atlas ? 'rgba(70,52,30,0.85)' : 'rgba(16,38,52,0.55)'; c.stroke(D.coast);
+  // Roads: a fine dashed line, a little bolder close in.
+  if (L.roads && D.roads.length) {
+    const lw = Math.min(1.8, 1.05 * Math.sqrt(zr)) / s;
+    c.lineWidth = lw * 2.4; c.strokeStyle = atlas ? 'rgba(250,240,214,0.55)' : 'rgba(246,236,214,0.42)'; c.stroke(D.roadPath);
+    c.setLineDash([3.2 / s, 2.2 / s]); c.lineWidth = lw; c.strokeStyle = atlas ? 'rgba(128,52,22,0.95)' : 'rgba(110,40,16,0.95)'; c.stroke(D.roadPath);
+    c.setLineDash([]);
+  }
   if (L.realms) {
     for (const r of D.realms) {
       const p = D.borders[r.idx]; if (!p) continue;
@@ -2949,6 +3035,12 @@ function factsHTML(f, p) {
   // The realm's name goes to its capital's page, where it is renamed and recoloured; on the capital itself it is text.
   const rname = f.realm && `<span data-realm="${f.realm.place.id}">${esc(f.realm.display)}</span>`;
   rows.push([f.water || f.lake ? 'Waters of' : 'Realm', f.realm ? `<span class="swatch" style="background:${f.realm.color}"></span> ${p === f.realm.place ? rname : `<button class="link" data-goto="${f.realm.place.id}">${rname}</button>`}` : (f.water || f.lake ? 'No realm' : 'Unclaimed')]);
+  // The road it is on, by the places at its ends.
+  const rd = p && roadBy(p), goto = q => `${placeIn(q) !== q.name ? 'the ' : ''}<button class="link" data-goto="${q.id}">${esc(q.name.replace(/^The /, ''))}</button>`;
+  const andList = a => a.length === 1 ? a[0] : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
+  if (rd && rd.from) rows.push(['Road', `On the road from ${goto(rd.from)} to ${goto(rd.to)}`]);
+  else if (rd && rd.to) { const n = Math.max(1, Math.round(rd.km / LEAGUE)); rows.push(['Road', `On the road to ${goto(rd.to)}, ${n} league${n === 1 ? '' : 's'} (${fmtInt(roundSig(rd.km, 2))} km)`]); }
+  else if (rd) rows.push(['Roads', (rd.towns ? `To its ${rd.towns} settlement${rd.towns === 1 ? '' : 's'}` : 'To') + (rd.caps.length ? `${rd.towns ? ' and to ' : ' '}${andList(rd.caps.map(goto))}` : '')]);
   if (p && p.pop) rows.push(['Population', `<span class="mono">~${fmtInt(p.pop)}</span>`]);
   // In leagues, as the scale bar has it, with km beside them, as the rest of the page measures.
   if (f.near) rows.push(['Nearest', `${f.near.leagues} league${f.near.leagues === 1 ? '' : 's'} (${fmtInt(f.near.km)} km) ${f.near.dir} of ${placeIn(f.near.p) !== f.near.p.name ? 'the ' : ''}<button class="link" data-goto="${f.near.p.id}">${esc(f.near.p.name.replace(/^The /, ''))}</button>`]);
@@ -3030,6 +3122,9 @@ function buildPrompt(p) {
   if (f.coastal) L.push(`It sits on the coast of ${f.sea || 'the sea'}.`);
   if (f.lakeside) L.push(`It sits on the shore of ${f.lakeName || 'a lake'}.`);
   if (f.river) L.push(`It sits on ${f.river.on}, which ${riverWay(f.riverAt).replace('. It drains', ', and drains')}`);
+  const rd = roadBy(p);
+  if (rd && rd.from) L.push(`It stands on the road from ${rd.from.name} to ${rd.to.name}.`);
+  else if (rd && rd.to) L.push(`A road runs from it to ${rd.to.name}, ${leagues(rd.km / KM)} away.`);
   if (f.goods.length) L.push(`Local goods: ${f.goods.join(', ')}.`);
   if (c.nearby.length) { L.push('Nearby:'); for (const n of c.nearby) L.push(`- ${n.q.name} (${kindLabel(n.q).toLowerCase()}), ${leagues(n.d)} ${compass(n.q.x - p.x, n.q.y - p.y)}`); }
   if (D.realms.length) L.push(`Realms of this world: ${D.realms.map(r => r.display).join('; ')}.`);
@@ -3434,7 +3529,7 @@ function syncWorldTab() {
   // Blank ocean isn't in the Shape list (Start from blank ocean is beside it): on one, the list keeps the shape it had.
   $('#wSeed').value = world.seed; if (!SHAPES[world.shape].blank) $('#wShape').value = world.shape; $('#wSea').value = world.sea;
   $('#wSeaOut').textContent = `${Math.round(landShare() * 100)}% of the map is land`;
-  for (const k of ['realms', 'rivers', 'labels', 'names', 'grid']) $('#ly' + k[0].toUpperCase() + k.slice(1)).checked = ui.layers[k];
+  for (const k of ['realms', 'rivers', 'roads', 'labels', 'names', 'grid']) $('#ly' + k[0].toUpperCase() + k.slice(1)).checked = ui.layers[k];
   $('#styleTerrain').setAttribute('aria-pressed', String(ui.style === 'terrain')); $('#styleAtlas').setAttribute('aria-pressed', String(ui.style === 'atlas'));
   renderWorlds(); syncFileNote();
 }
@@ -3536,7 +3631,7 @@ function bindWorldTab() {
     const count = (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`;
     toast(`Cleared ${[np && count(np, 'place'), nl && count(nl, 'label')].filter(Boolean).join(' and ')}${noted ? `, and the notes on ${noted === np ? (np === 1 ? 'it' : 'all of them') : `${noted} of them`}` : ''}.`, { label: 'Undo', fn: undo }, noted ? 10000 : 0);
   };
-  for (const k of ['realms', 'rivers', 'labels', 'names', 'grid']) $('#ly' + k[0].toUpperCase() + k.slice(1)).onchange = e => { ui.layers[k] = e.target.checked; requestDraw(); savePrefs(); };
+  for (const k of ['realms', 'rivers', 'roads', 'labels', 'names', 'grid']) $('#ly' + k[0].toUpperCase() + k.slice(1)).onchange = e => { ui.layers[k] = e.target.checked; requestDraw(); savePrefs(); };
   $('#wSaveFile').onclick = saveWorldFile;
   $('#wSavePng').onclick = savePng;
   // Exactly the text that was kept, which may not open here at all; storage is left as it is.
@@ -3838,8 +3933,8 @@ window.terra = {
     }
     t.owners = (hs >>> 0).toString(16); return t;
   },
-  // Each realm: its name, the name of its colour, and the realms whose land meets its own, by their place in this list.
-  realms: () => { const nb = realmNeighbours(); return D.realms.map((r, k) => ({ name: r.name, color: REALM_COLOR_NAMES[REALM_COLORS.indexOf(r.color)], neighbours: nb[k] })); },
+  // Each realm: its name, its capital (by id), the name of its colour, and the realms whose land meets its own, by their place in this list.
+  realms: () => { const nb = realmNeighbours(); return D.realms.map((r, k) => ({ name: r.name, capital: r.place.id, color: REALM_COLOR_NAMES[REALM_COLORS.indexOf(r.color)], neighbours: nb[k] })); },
   // The water at a spot: a stretch of sea (its size in cells, and whether it reaches the map's edge), a lake (its size),
   // or null on dry land.
   water: (x, y) => {
@@ -3849,6 +3944,9 @@ window.terra = {
     for (let j = 0; j < N; j++) if (D.body[j] === b) { cells++; const jx = j % W, jy = (j / W) | 0; if (!jx || !jy || jx === W - 1 || jy === H - 1) open = true; }
     return { lake: false, cells, open };
   },
+  // The roads: the place each starts at and the capital it runs to, by id, and the cells it runs through, [x, y] in
+  // map cells, from its start.
+  roads: () => D.roads.map(rd => ({ from: rd.from.id, to: rd.to.id, cells: rd.cells.map(c => [c % W, (c / W) | 0]) })),
   // The open world as a world file has it.
   worldText: () => serialize(new Date().toISOString(), true),
   riverNear: (x, y, r = 1.5) => {

@@ -1510,6 +1510,63 @@ await oldCtx.close();
   await c.close();
 }
 
+// Roads: each capital's road runs to every settlement of its realm and to the capitals of the realms beside it, over dry
+// land, along easy ground (lower than the straight line between its ends, and beside rivers more than the land is);
+// a Roads layer turns them off; and a town's page says which road it is on.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const missing = [], wet = [], tally = { roadUp: 0, lineUp: 0, roadRiver: 0, roadCells: 0, landRiver: 0, land: 0, links: 0 };
+  for (const [seed, shape] of [[20417, 'continent'], [11, 'continent'], [222, 'continent'], [15939, 'twin']]) {
+    await pg.evaluate(([seed, shape]) => window.terra.newWorld(seed, shape), [seed, shape]);
+    const q = await pg.evaluate(() => {
+      const t = window.terra, places = t.places(), roads = t.roads(), realms = t.realms(), out = { missing: [], wet: [], roadUp: 0, lineUp: 0, roadRiver: 0, roadCells: 0, landRiver: 0, land: 0, links: 0 };
+      // Which stretch of dry land each cell is on (a road can't cross sea or lakes), so places on different islands are
+      // let off.
+      const land = new Int32Array(480 * 300).fill(-1); let nl = 0;
+      for (let s0 = 0; s0 < 480 * 300; s0++) {
+        if (land[s0] >= 0) continue; const c0 = t.cell(s0 % 480 + 0.5, Math.floor(s0 / 480) + 0.5); if (c0.h < 0 || c0.lake) continue;
+        const st = [s0]; land[s0] = nl;
+        while (st.length) { const c = st.pop(), x = c % 480, y = Math.floor(c / 480); for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const nx = x + dx, ny = y + dy, n = ny * 480 + nx; if (nx < 0 || ny < 0 || nx >= 480 || ny >= 300 || land[n] >= 0) continue; const cl = t.cell(nx + 0.5, ny + 0.5); if (cl.h < 0 || cl.lake) continue; land[n] = nl; st.push(n); } }
+        nl++;
+      }
+      const byId = new Map(places.map((p) => [p.id, p])), on = (id) => { const p = byId.get(id); return land[Math.floor(p.y) * 480 + Math.floor(p.x)]; };
+      const has = (a, b) => roads.some((rd) => (rd.from === a && rd.to === b) || (rd.from === b && rd.to === a)) || on(a) !== on(b);
+      for (const p of places) if (p.kind !== 'capital' && p.kind !== 'landmark' && p.capital && !has(p.id, p.capital)) out.missing.push(`${p.name} has no road to its capital`);
+      const named = (id) => byId.get(id).name;
+      realms.forEach((rm, k) => rm.neighbours.forEach((j) => { if (j < k) return; out.links++; if (!has(rm.capital, realms[j].capital)) out.missing.push(`no road from ${named(rm.capital)} to ${named(realms[j].capital)}`); }));
+      const near = (x, y) => t.riverNear(x + 0.5, y + 0.5, 1.5);
+      for (const rd of roads) {
+        for (const [x, y] of rd.cells) { const cl = t.cell(x + 0.5, y + 0.5); if (cl.h < 0 || cl.lake) out.wet.push(`${x},${y}`); out.roadUp += cl.elev; out.roadCells++; if (near(x, y)) out.roadRiver++; }
+        const [x0, y0] = rd.cells[0], [x1, y1] = rd.cells.at(-1), n = rd.cells.length;
+        for (let k = 0; k < n; k++) out.lineUp += Math.max(0, t.cell(x0 + (x1 - x0) * k / n + 0.5, y0 + (y1 - y0) * k / n + 0.5).elev);
+      }
+      for (let y = 0; y < 300; y += 3) for (let x = 0; x < 480; x += 3) { const cl = t.cell(x + 0.5, y + 0.5); if (cl.h < 0 || cl.lake) continue; out.land++; if (near(x, y)) out.landRiver++; }
+      return out;
+    });
+    missing.push(...q.missing.map((m) => `${seed}: ${m}`)); wet.push(...q.wet.slice(0, 3).map((m) => `${seed}: ${m}`));
+    for (const k of Object.keys(tally)) tally[k] += q[k];
+  }
+  ok(missing.length === 0 && wet.length === 0 && tally.roadCells > 1000, `every settlement in a realm has a road to its capital, and every capital one to each neighbour's, over dry land (${tally.roadCells} cells of road)` + (missing.length || wet.length ? ': ' + missing.concat(wet).slice(0, 8).join('; ') : ''));
+  ok(tally.roadUp < tally.lineUp * 0.85 && tally.roadRiver / tally.roadCells > tally.landRiver / tally.land, `roads keep to lower ground than the straight line (on average ${Math.round(tally.roadUp / tally.roadCells)} m up against ${Math.round(tally.lineUp / tally.roadCells)} m) and to rivers more than the land does (${Math.round(tally.roadRiver / tally.roadCells * 100)}% of road beside a river, ${Math.round(tally.landRiver / tally.land * 100)}% of land)`);
+  // The Roads layer.
+  await pg.evaluate(() => window.terra.newWorld(20417, 'continent'));
+  const withRoads = await pg.evaluate(() => window.terra.mapImage(1, false));
+  await pg.click('#tab-world'); await pg.uncheck('#lyRoads');
+  const without = await pg.evaluate(() => window.terra.mapImage(1, false));
+  await pg.check('#lyRoads');
+  ok(withRoads !== without && withRoads === await pg.evaluate(() => window.terra.mapImage(1, false)), 'the Roads layer turns the roads off and on');
+  // A town's page: the road it is on, with links to the places at its ends; a capital's, where its roads go.
+  const ps = await pg.evaluate(() => window.terra.places());
+  const page = (p) => pg.evaluate((id) => { window.terra.select({ type: 'place', id }); const dt = [...document.querySelectorAll('#pane-inspect .facts dt')].find((d) => /^Roads?$/.test(d.textContent)); return dt ? [dt.textContent, dt.nextElementSibling.textContent, [...dt.nextElementSibling.querySelectorAll('button[data-goto]')].length] : null; }, p.id);
+  const town = ps.find((p) => p.kind === 'town' && p.capital), cap = ps.find((p) => p.kind === 'capital');
+  const [tRow, cRow] = [await page(town), await page(cap)];
+  ok(tRow && tRow[0] === 'Road' && /^On the road (from .+ to .+|to .+, \d+ leagues? \([\d,]+ km\))$/.test(tRow[1]) && tRow[2] >= 1 && cRow && cRow[0] === 'Roads' && /^To its \d+ settlements?( and to .+)?$/.test(cRow[1]),
+    `a town's page says the road it is on, and a capital's where its roads go ("${tRow && tRow[1]}", "${cRow && cRow[1]}")`);
+  await c.close();
+}
+
 // No two realms share a name. A realm's name was drawn without looking at the others, so now and then two came out
 // the same (two Oaklands among 30 realms). Here two towns of one tongue are made capitals with the same roll of the
 // dice, which drew the same name for both.

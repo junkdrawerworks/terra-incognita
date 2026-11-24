@@ -37,9 +37,12 @@ and sea stop them. Every town has a page for its story.
   towns push the border out. A big river is hard to cross, so where two realms meet near one the border follows it.
   A generated world has two to six realms, as many as its land holds, give or take one. Each realm has its own
   tongue, so towns founded inside it sound like they belong there.
+- **Roads.** Each capital's roads run to every settlement of its realm and to the capitals beside it, along the
+  easiest ground: beside rivers where they can, round mountains where they can't, never over water. They follow the
+  towns, so a town you found or move gets its road, and the Roads layer in the World tab turns them off.
 - **Places.** Tap any town or patch of ground to see its elevation, climate, nearest neighbour and local
-  goods, with distances in leagues of 4.8 km, and its river: which way it flows, how far on it reaches the sea and how
-  much land it drains. Keep notes for your lore, or roll a rumor built from the map around it. From the keyboard, Tab
+  goods, with distances in leagues of 4.8 km, its river: which way it flows, how far on it reaches the sea and how
+  much land it drains, and the road it is on. Keep notes for your lore, or roll a rumor built from the map around it. From the keyboard, Tab
   to the map, pan it with the arrow keys and press Enter to read the spot in the middle. The Codex lists every place
   and every sea, region and range named on the map, and finds words in your notes.
 - **Keyboard.** Every tool has a letter (V, P, R…), [ and ] size the brush, F shows the whole map, and Ctrl S saves

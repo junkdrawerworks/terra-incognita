@@ -723,6 +723,17 @@ ok(otherBox && cameBack[0] === rolledRumor && !cameBack[1], 'an unkept rumor wai
     && back.pop === town.pop && back.kind === 'town',
     `a town's population can be typed in (~${rolled[0]} to ${typed[0]}), a change of kind and the world file keep it, an empty box puts it back, its realm counts it (${realmWas} to ${realmNow}), and Undo ("${popStep}") takes it back`);
 }
+// A name typed letter by letter is one step, named for the place as it was called before.
+{
+  const town = (await desk.evaluate(() => window.terra.places())).find((p) => p.kind === 'town');
+  await desk.evaluate((id) => window.terra.select({ type: 'place', id }), town.id);
+  const n = (await desk.evaluate(() => window.terra.state())).undo;
+  await desk.click('#pName'); await desk.keyboard.press('End'); await desk.keyboard.type('ford');
+  const said = await desk.getAttribute('#btnUndo', 'aria-label'), steps = (await desk.evaluate(() => window.terra.state())).undo - n;
+  await desk.click('#btnUndo');
+  ok(said === `Undo: Rename ${town.name}` && steps === 1 && (await desk.evaluate((id) => window.terra.places().find((p) => p.id === id).name, town.id)) === town.name,
+    `a rename typed letter by letter is one step, named for the old name ("${said}", ${steps} step)`);
+}
 // Measure from here, on a place's page: the next click on the map, on another place, measures the straight line to it
 // in leagues and km and how many days that is on foot (8 leagues a day), or says it crosses the sea. Nothing is saved,
 // the page stays open, and the next click on the map takes the line away.

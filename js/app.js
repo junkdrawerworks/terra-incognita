@@ -3775,11 +3775,13 @@ function bindPlace(p) {
     else if (step.name !== what && !step.name.startsWith('Changes to ')) nameStep(`Changes to ${step.was}`);
     if (!step.was) step.was = p.name;
   };
+  // The place's name as the step began, so a rename typed letter by letter stays 'Rename Ninten' throughout.
+  const was = () => step && undoStack[undoStack.length - 1] === step ? step.was : p.name;
   const nm = $('#pName');
   const removeLink = $('#pDelete');
   // The heading and the Remove link say the name as it is typed.
   const named = () => { removeLink.textContent = `Remove ${p.name}`; $('#pTitle').textContent = p.name; };
-  nm.addEventListener('input', () => { once(`Rename ${p.name}`); p.name = nm.value; named(); requestDraw(); markDirty(); });
+  nm.addEventListener('input', () => { once(`Rename ${was()}`); p.name = nm.value; named(); requestDraw(); markDirty(); });
   nm.addEventListener('change', () => { if (!p.name.trim()) { p.name = 'Nameless'; nm.value = p.name; named(); } refreshCodex(); requestDraw(); });
   $('#pReroll').onclick = () => { pushUndo({ meta: true }, `Rename ${p.name}`); p.name = freshName(() => p.kind === 'landmark' ? landmarkName(p.sub, p.tongue, Math.random) : makeName(p.tongue, Math.random)); nm.value = p.name; named(); requestDraw(); refreshCodex(); markDirty(); };
   $('#pKind').onchange = e => { changeKind(p, e.target.value); refocus('#pKind'); };
@@ -3788,7 +3790,7 @@ function bindPlace(p) {
   if (pop) {
     pop.addEventListener('input', () => {
       const n = typedPop(pop.value); if (n === null || n === p.pop) return;
-      once(`Population of ${p.name}`); p.pop = p.ownPop = n; realmPops(); touched(); markDirty(); showRealmPop();
+      once(`Population of ${was()}`); p.pop = p.ownPop = n; realmPops(); touched(); markDirty(); showRealmPop();
     });
     // A box left empty, or with no number in it, goes back to what it held when it was entered, rather than the
     // last number on the way to emptying it.
@@ -3798,7 +3800,7 @@ function bindPlace(p) {
       pop.value = fmtInt(p.pop); $('#pPopAbout').hidden = !!p.ownPop; refreshCodex();
     });
   }
-  $('#pLore').addEventListener('input', e => { once(`Notes on ${p.name}`); p.lore = e.target.value; touched(); markDirty(); });
+  $('#pLore').addEventListener('input', e => { once(`Notes on ${was()}`); p.lore = e.target.value; touched(); markDirty(); });
   $('#pDelete').onclick = () => removeSel({ type: 'place', id: p.id });
   $('#pMeasure').onclick = () => { if (measure && measure.from === p.id && !measure.to) endMeasure(); else startMeasure(p); };
   renderMeasure();

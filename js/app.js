@@ -1163,7 +1163,7 @@ function worldTitle(shape, rng, tg) {
   }
 }
 function newWorld(seed, shape, opts = {}) {
-  if (world && !opts.noUndo) pushUndo({ h: true, m: true, meta: true, world: true });
+  if (world && !opts.noUndo) pushUndo({ h: true, m: true, meta: true, world: true }, shape === 'blank' ? 'Start from blank ocean' : `Generate world ${seed}`);
   const t = generateTerrain(seed, shape);
   if (!world) world = { h: t.h, m: t.m }; else { world.h.set(t.h); world.m.set(t.m); }
   Object.assign(world, { seed, shape, name: '', sea: 0.5, places: [], labels: [], springs: [], rivers: [], roads: [], nextId: 1, editedAt: null, filedAt: null });
@@ -1193,9 +1193,13 @@ function takeSnap(parts) {
 let renaming = false;
 // When the world last had work done on it, for Keep your world's reminder to save a file (see syncFileNote).
 const touched = () => { world.editedAt = new Date().toISOString(); };
-function pushUndo(parts) { if (!parts.world) touched(); renaming = false; dropActionToast(); undoStack.push(takeSnap(parts)); if (undoStack.length > 30) undoStack.shift(); redoStack.length = 0; updateUndoButtons(); }
+// Each step has a short name for what it does ('Raise land', 'Found Ninten'), which the Undo and Redo buttons give when
+// hovered or long-pressed, and to a screen reader, so the step is known before it is taken back.
+function pushUndo(parts, name) { if (!parts.world) touched(); renaming = false; dropActionToast(); const s = takeSnap(parts); s.name = name; undoStack.push(s); if (undoStack.length > 30) undoStack.shift(); redoStack.length = 0; updateUndoButtons(); }
+// Names the step just pushed, for one whose name is only known after it (a place founded gets its name then).
+function nameStep(name) { const s = undoStack[undoStack.length - 1]; if (s) s.name = name; updateUndoButtons(); }
 function applySnap(s) {
-  const inv = takeSnap({ h: !!s.h, m: !!s.m, meta: !!s.meta, world: !!s.world });
+  const inv = takeSnap({ h: !!s.h, m: !!s.m, meta: !!s.meta, world: !!s.world }); inv.name = s.name;
   if (s.h) world.h.set(s.h);
   if (s.m) world.m.set(s.m);
   if (s.meta) {
@@ -1207,8 +1211,8 @@ function applySnap(s) {
   return inv;
 }
 // A whole world brought back (from New world, Generate or Open) is named, as it was when it came.
-function undo() { if (settleGesture()) return; dropActionToast(); const s = undoStack.pop(); if (!s) return; if (s.switchFrom) { leaveFor(s.switchFrom, true); return; } const was = world.places; redoStack.push(applySnap(s)); if (!s.world) touched(); afterRestore(s.world); if (s.world) toast(`Back to ${world.name}.`, { label: 'Redo', fn: redo }, 6000); else tellPlaces(was, true); }
-function redo() { if (settleGesture()) return; dropActionToast(); const s = redoStack.pop(); if (!s) return; if (s.switchTo) { leaveFor(s.switchTo, false); return; } const was = world.places; undoStack.push(applySnap(s)); if (!s.world) touched(); afterRestore(s.world); if (s.world) toast(`${world.name} again.`, { label: 'Undo', fn: undo }, 6000); else tellPlaces(was, false); }
+function undo() { if (settleGesture()) return; dropActionToast(); const s = undoStack.pop(); if (!s) return; if (s.switchFrom) { leaveFor(s.switchFrom, true, s.name); return; } const was = world.places; redoStack.push(applySnap(s)); if (!s.world) touched(); afterRestore(s.world); if (s.world) toast(`Back to ${world.name}.`, { label: 'Redo', fn: redo }, 6000); else tellPlaces(was, true); }
+function redo() { if (settleGesture()) return; dropActionToast(); const s = redoStack.pop(); if (!s) return; if (s.switchTo) { leaveFor(s.switchTo, false, s.name); return; } const was = world.places; undoStack.push(applySnap(s)); if (!s.world) touched(); afterRestore(s.world); if (s.world) toast(`${world.name} again.`, { label: 'Undo', fn: undo }, 6000); else tellPlaces(was, false); }
 // Undo and Redo say so when places go or come back, and when notes go with them (a place founded with notes in it,
 // by another tab or a file, has no step of its own for them).
 function tellPlaces(was, undid) {
@@ -1249,7 +1253,22 @@ function afterRestore(otherWorld) {
   riversFromTable = true; // the rivers' names come back as they were, by where their mouths are
   recomputeAll(); updateUndoButtons(); markDirty(); syncWorldTab();
 }
-function updateUndoButtons() { $('#btnUndo').disabled = !undoStack.length; $('#btnRedo').disabled = !redoStack.length; }
+// A touch screen has no hover to show a button's title, so holding Undo or Redo for half a second says what it would do
+// instead, and letting go doesn't do it.
+function holdToSay(b, st) {
+  let timer = 0, held = false;
+  b.addEventListener('pointerdown', e => { held = false; clearTimeout(timer); if (e.pointerType === 'touch' && !b.disabled && st.length) timer = setTimeout(() => { held = true; toast(b.getAttribute('aria-label')); }, 500); });
+  for (const t of ['pointerup', 'pointercancel']) b.addEventListener(t, () => clearTimeout(timer));
+  b.addEventListener('click', e => { if (held) { held = false; e.stopImmediatePropagation(); } }, true);
+  b.addEventListener('contextmenu', e => e.preventDefault());
+}
+const UNDO_KEY = MAC ? '⌘Z' : 'Ctrl+Z', REDO_KEY = MAC ? '⇧⌘Z' : 'Ctrl+Shift+Z';
+function updateUndoButtons() {
+  for (const [b, st, verb, key] of [[$('#btnUndo'), undoStack, 'Undo', UNDO_KEY], [$('#btnRedo'), redoStack, 'Redo', REDO_KEY]]) {
+    const s = st[st.length - 1], said = s && s.name ? `${verb}: ${s.name}` : verb;
+    b.disabled = !s; b.title = `${said} (${key})`; b.setAttribute('aria-label', said);
+  }
+}
 
 // ------------------------------------------------------------------ persistence
 function b64(u8) { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); }
@@ -1377,7 +1396,7 @@ window.addEventListener('storage', e => {
 function bringIn(text) {
   let parsed; try { parsed = checkWorld(JSON.parse(text)); } catch (e) { return false; }
   const sel = ui.selected;
-  pushUndo({ h: true, m: true, meta: true, world: true }); applyWorld(parsed); lastSavedAt = stampOf(text); lastText = text; savedNote();
+  pushUndo({ h: true, m: true, meta: true, world: true }, 'Changes from another tab'); applyWorld(parsed); lastSavedAt = stampOf(text); lastText = text; savedNote();
   if (sel && sel.type !== 'loc' && !findSel(sel)) { ui.selected = null; dropDraft(); }
   recomputeAll(); syncWorldTab(); updateStatus();
   toast('Brought in the changes from another tab.', { label: 'Undo', fn: undo });
@@ -1484,22 +1503,22 @@ function currentText() { saveBeforeLeaving(); return !otherClash && lastText ? l
 function keepSteps(st, depth = 0) {
   if (depth > 10) return [];
   const sub = o => ({ ...o, undo: keepSteps(o.undo, depth + 1), redo: keepSteps(o.redo, depth + 1) });
-  return (depth ? st.filter(x => x.switchFrom || x.switchTo) : st).slice(-10).map(x => x.switchFrom ? { switchFrom: sub(x.switchFrom) } : x.switchTo ? { switchTo: sub(x.switchTo) } : x);
+  return (depth ? st.filter(x => x.switchFrom || x.switchTo) : st).slice(-10).map(x => x.switchFrom ? { switchFrom: sub(x.switchFrom), name: x.name } : x.switchTo ? { switchTo: sub(x.switchTo), name: x.name } : x);
 }
 // New world, Generate, Random seed, Start from blank ocean and Open world file add a world to Your worlds (make puts it
 // on screen), and the one that was open stays there. Undo goes back to that one, with its own Undo steps, and takes
 // the new world out of the list again; Redo puts it back. Where the larger store doesn't work, the new world takes the
 // open one's place, as it did before Your worlds, and Undo brings that back. Returns the name of the world that was
 // open, or null when nothing could change: while another tab's question about this world waits for an answer.
-function addWorld(make, id = newWorldId()) {
+function addWorld(make, name, id = newWorldId()) {
   if (otherClash) return null;
   const fromName = world.name;
-  if (storeOK === false) { saveBeforeLeaving(); pushUndo({ h: true, m: true, meta: true, world: true }); make(); return fromName; }
+  if (storeOK === false) { saveBeforeLeaving(); pushUndo({ h: true, m: true, meta: true, world: true }, name); make(); return fromName; }
   const from = { id: worldId, text: currentText(), undo: keepSteps(undoStack), redo: keepSteps(redoStack) };
   syncStore().then(ok => { if (!ok) toast(`This browser would not keep ${fromName} in Your worlds. Undo brings it back until you leave the page; Save world file keeps a copy.`, null, 12000); });
   undoStack.length = redoStack.length = 0; renaming = false; dropActionToast();
   make(); worldId = id; lastText = null; lastSavedAt = null; ui.selected = null; dropDraft();
-  undoStack.push({ switchFrom: from }); updateUndoButtons();
+  undoStack.push({ switchFrom: from, name }); updateUndoButtons();
   saveLocal(); renderWorlds();
   return fromName;
 }
@@ -1515,14 +1534,14 @@ function enterWorld(id, parsed, text) {
 }
 // Undo of a new world (undid) goes back to the world that was open before it, and takes the new one out of Your worlds;
 // Redo puts it back. Each comes back with the Undo steps it had.
-function leaveFor(to, undid) {
+function leaveFor(to, undid, name) {
   const text = freshest(to.id, to.text);
   let parsed; try { parsed = checkWorld(JSON.parse(text)); } catch (e) { toast('That world could not be read.'); return; }
   const back = { id: worldId, text: currentText(), undo: keepSteps(undoStack), redo: keepSteps(redoStack), thumb: thumbnail() };
   enterWorld(to.id, parsed, text); if (to.thumb) indexWorld(to.id, { thumb: to.thumb });
   undoStack.length = redoStack.length = 0; undoStack.push(...to.undo); redoStack.push(...to.redo);
-  if (undid) { redoStack.push({ switchTo: back }); unindexWorld(back.id); storeDel(back.id).catch(() => { }); }
-  else undoStack.push({ switchFrom: back });
+  if (undid) { redoStack.push({ switchTo: back, name }); unindexWorld(back.id); storeDel(back.id).catch(() => { }); }
+  else undoStack.push({ switchFrom: back, name });
   updateUndoButtons(); renderWorlds();
   if (undid) toast(`Back to ${world.name}.`, { label: 'Redo', fn: redo }, 6000); else toast(`${world.name} again.`, { label: 'Undo', fn: undo }, 6000);
 }
@@ -1609,7 +1628,7 @@ function linkedSeed() {
 }
 // A link opened here adds its world to Your worlds, with an Undo; the world that was open stays in the list.
 function growLinked(l) {
-  const from = addWorld(() => newWorld(l.seed, l.shape, { noUndo: true })); if (from === null) return;
+  const from = addWorld(() => newWorld(l.seed, l.shape, { noUndo: true }), `Grow world ${l.seed} from a link`); if (from === null) return;
   fitView(); syncWorldTab(); markDirty();
   toast(`Grew world ${l.seed} from a seed link: the land as generated, without the sender's edits or notes.${keptIn(from)}`, { label: 'Undo', fn: undo }, 10000);
 }
@@ -2045,7 +2064,7 @@ function sourceAt(sx, sy) {
 // A drawn river taken away: its source goes, and its valley stays, so rain that gathers there finds its own way.
 function removeSource(sp) {
   const was = drawnRiver(cellAt(sp.x, sp.y));
-  pushUndo({ meta: true });
+  pushUndo({ meta: true }, `Erase ${was}`);
   world.springs = world.springs.filter(q => q !== sp);
   recomputeAll(); markDirty();
   toast(`Took away the source of ${was}. Its valley stays, and rain finds its own way down it.`, { label: 'Undo', fn: undo });
@@ -2389,7 +2408,7 @@ function takeBackStep(kept, redo = true) {
 }
 function startStroke(sx, sy) {
   const kept = stepRoom();
-  pushUndo(ui.tool === 'rain' || ui.tool === 'drought' ? { m: true } : { h: true, meta: true });
+  pushUndo(ui.tool === 'rain' || ui.tool === 'drought' ? { m: true } : { h: true, meta: true }, TOOLS.find(t => t && t.id === ui.tool).label);
   stroke = { tool: ui.tool, x: sx, y: sy, lx: sx, ly: sy, sx, sy, far: 0, t0: performance.now(), kept, dry: dryPlaces(), box: [W, H, -1, -1] };
   requestAnimationFrame(strokeFrame);
 }
@@ -2570,7 +2589,7 @@ function sketchLoop(pts, mode) {
   let landBefore = 0; for (let i = 0; i < N; i++) if (h[i] >= sea) landBefore++;
   const realmsBefore = D.realms.length, riversBefore = riverCount();
   const kept = stepRoom();
-  pushUndo({ h: true, meta: true });
+  pushUndo({ h: true, meta: true }, mode === 'sea' ? 'Sketch sea' : 'Sketch land');
   const dry = dryPlaces();
   let rose = 0;
   // The ground crosses sea level at the drawn line itself, so the coast is as smooth as the line.
@@ -2634,7 +2653,7 @@ function sketchRange(raw) {
   // A ridge drawn mostly over open water comes up as a chain of islands, and the toast says so.
   let wetRidge = 0; for (let k = 0; k < n; k++) if (h[cellAt(pts[2 * k], pts[2 * k + 1])] < sea) wetRidge++;
   const kept = stepRoom();
-  pushUndo({ h: true, meta: true });
+  pushUndo({ h: true, meta: true }, 'Sketch a mountain range');
   let rose = 0;
   // Nothing past 1.8 times the widest the range wobbles to (noise stays within 1) is touched.
   const reach = Wd * 1.35 * 1.8, near = segmentGrid(pts, 0, n - 1, bx0, by0, bx1 + 1, by1 + 1, reach), all = Array.from({ length: n - 1 }, (_, k) => k);
@@ -2767,7 +2786,7 @@ function sketchRiver(raw) {
     else for (let q = 0; q < 8; q++) { const nx = gx + NBX[q], ny = gy + NBY[q]; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; const j = ny * W + nx; if (basin(j) && !cut.has(spill(j))) kv = Math.max(kv, spill(j)); }
     keep[(gy - by0) * bw + gx - bx0] = kv;
   }
-  pushUndo({ h: true, meta: true });
+  pushUndo({ h: true, meta: true }, 'Sketch a river');
   const near = segmentGrid(pts, first, last, bx0, by0, bx1 + 1, by1 + 1, Wv);
   for (let gy = by0; gy <= by1; gy++) for (let gx = bx0; gx <= bx1; gx++) {
     const gi = gy * W + gx, kv = keep[(gy - by0) * bw + gx - bx0]; if (h[gi] < sea || kv < 0) continue;
@@ -2914,7 +2933,7 @@ function sketchRoad(raw) {
   const pts = resample(raw, 1.5).map(v => Math.round(v * 10) / 10);
   let len = 0; for (let k = 2; k < pts.length; k += 2) len += Math.hypot(pts[k] - pts[k - 2], pts[k + 1] - pts[k - 1]);
   if (len < 4) { toast('Draw a longer road, from one place to another.'); return; }
-  pushUndo({ meta: true });
+  pushUndo({ meta: true }, 'Draw a road');
   world.roads.push({ pts }); buildRoadPath(); markDirty();
   const a = roadEnd(pts[0], pts[1]), b = roadEnd(pts[pts.length - 2], pts[pts.length - 1]);
   toast(a && b && a !== b ? `Drew a road from ${placeIn(a)} to ${placeIn(b)}.` : a || b ? `Drew a road from ${placeIn(a || b)}.` : 'Drew a road.', { label: 'Undo', fn: undo });
@@ -2935,7 +2954,7 @@ function townRoadAt(sx, sy) {
   return D.roads.some(rd => rd.cells.some(c => Math.hypot(c % W + 0.5 - w.x, ((c / W) | 0) + 0.5 - w.y) < r));
 }
 function removeRoad(r) {
-  pushUndo({ meta: true });
+  pushUndo({ meta: true }, 'Erase a road');
   world.roads = world.roads.filter(q => q !== r); buildRoadPath(); requestDraw(); markDirty();
   toast('Took away the road.', { label: 'Undo', fn: undo });
 }
@@ -3057,7 +3076,7 @@ canvas.addEventListener('pointermove', e => {
     }
     else if (g.type === 'drag') {
       g.far = Math.max(g.far, Math.hypot(pt.x - g.sx, pt.y - g.sy));
-      if (!g.moved && Math.hypot(pt.x - g.sx, pt.y - g.sy) > 3) { g.moved = true; g.kept = stepRoom(); pushUndo({ meta: true }); }
+      if (!g.moved && Math.hypot(pt.x - g.sx, pt.y - g.sy) > 3) { g.moved = true; g.kept = stepRoom(); const o = findSel(g.hit); pushUndo({ meta: true }, `Move ${g.hit.type === 'place' ? o.name : o.text.trim() || 'a label'}`); }
       if (g.moved) { const o = findSel(g.hit); if (o) { const w = toWorld(pt.x, pt.y); o.x = clamp(w.x - g.gx, 0.5, W - 0.5); o.y = clamp(w.y - g.gy, 0.5, H - 0.5); if (g.hit.type === 'label') keepLabelIn(o); requestDraw(); } }
     }
   } else if (ui.tool === 'select' && e.pointerType !== 'touch') {
@@ -3131,7 +3150,7 @@ function handleClick(sx, sy) {
     if (!isLand(i) || D.lake[i]) { toast(t === 'settle' ? 'Settlements need dry land. Try the shore.' : 'Landmarks need dry land.'); return; }
     pushUndo({ meta: true });
     const p = t === 'settle' ? makePlace(ui.settleKind, w.x, w.y, Math.random) : makePlace('landmark', w.x, w.y, Math.random, { sub: ui.landmarkKind });
-    world.places.push(p);
+    world.places.push(p); nameStep(`${p.kind === 'landmark' ? 'Mark' : 'Found'} ${p.name}`);
     if (p.kind !== 'landmark') recomputePolitics();
     select({ type: 'place', id: p.id });
     toast(p.kind === 'capital' ? `Founded ${p.name}, capital of ${realmMid(p.realm)}.` : p.kind === 'landmark' ? `Marked ${p.name}.` : `Founded ${p.name}.`);
@@ -3166,12 +3185,13 @@ function addLabel(x, y, kind, text, bay = false) {
     const has = D.lake[i] ? lakesNear(i, 0, x, y).label : D.body[i] >= 0 ? nearestSeaLabel(x, y, new Set([D.body[i]]), true) : null;
     if (has) { select({ type: 'label', id: has.id }); toast(`${has.text.replace(/^the /, 'The ')} is already named here. Name a bay instead?`, { label: 'Name a bay', fn: () => addLabel(x, y, kind, '', true) }, 8000); return; }
   }
-  pushUndo({ meta: true });
   const tg = D.owner[i] >= 0 ? D.realms[D.owner[i]].tongue : pick(Math.random, TONGUE_IDS);
   const core = makeName(tg, Math.random, { bare: true });
   const onLake = kind === 'sea' && !!D.lake[i];
   const auto = bay ? 'Bay of %' : onLake ? pick(Math.random, ['Lake %', 'Lake %', '% Mere', '% Water']) : kind === 'sea' ? pick(Math.random, ['The % Sea', 'Bay of %', 'Gulf of %', 'The % Sound']) : kind === 'range' ? pick(Math.random, ['The % Mountains', 'The % Hills', 'The % Range']) : pick(Math.random, ['The % Downs', 'The % Wold', 'The % Reach', '%', 'The % Wastes', 'The % Weald']);
-  const l = { id: world.nextId++, kind, text: text || auto.replace('%', core), x, y, size: onLake ? 4.6 : kind === 'sea' ? 6 : kind === 'range' ? 4.6 : 5, angle: 0 };
+  const said = text || auto.replace('%', core);
+  pushUndo({ meta: true }, `Label ${said}`);
+  const l = { id: world.nextId++, kind, text: said, x, y, size: onLake ? 4.6 : kind === 'sea' ? 6 : kind === 'range' ? 4.6 : 5, angle: 0 };
   keepLabelIn(l); world.labels.push(l); select({ type: 'label', id: l.id }); markDirty();
 }
 // A label is centred where it's put, so one put near the map's edge would run off it: its centre is kept far enough in
@@ -3194,7 +3214,7 @@ function removeSel(sel) {
   const ended = sel.type === 'place' && o.kind === 'capital' && o.realm ? D.realms.find(r => r.place === o) : null;
   const held = ended ? world.places.filter(q => q !== o && q.kind !== 'landmark' && D.owner[cellAt(q.x, q.y)] === ended.idx) : [];
   const display = ended && ended.display, plural = ended && realmPlural(ended);
-  pushUndo({ meta: true });
+  pushUndo({ meta: true }, `Remove ${sel.type === 'place' ? o.name : o.text.trim() || 'a label'}`);
   if (sel.type === 'place') { world.places = world.places.filter(p => p.id !== o.id); if (o.kind !== 'landmark') recomputePolitics(); }
   else world.labels = world.labels.filter(l => l.id !== o.id);
   if (ui.selected && ui.selected.type === sel.type && ui.selected.id === sel.id) ui.selected = null;
@@ -3278,7 +3298,7 @@ function renameRiver(m, text) {
   if (!name || !mine || name === mine.name) return;
   const other = world.rivers.find(r => r !== mine && riverKey(r.name) === riverKey(name));
   if (other && other.own) { toast(`Another river is already called ${other.name}.`); return; }
-  pushUndo({ meta: true });
+  pushUndo({ meta: true }, `Rename ${mine.name}`);
   mine.name = name; mine.own = true;
   if (other) world.rivers = world.rivers.filter(r => r !== other);
   riversFromTable = true; nameRivers(); labelRivers(); requestDraw(); markDirty();
@@ -3645,31 +3665,36 @@ function bindPlace(p) {
   // it opened (the notes too) before it takes away anything older, such as the founding of the place. Typing is not
   // undone letter by letter. A step from anything else in between (a brush, say) starts a new one, so an Undo of that
   // can't take back what was typed after it.
-  let step = null; const once = () => { if (!step || undoStack[undoStack.length - 1] !== step) { pushUndo({ meta: true }); step = undoStack[undoStack.length - 1]; } };
+  // The step is named by the first edit in it ('Rename Ninten'), or as changes to the place once it holds more than one.
+  let step = null; const once = what => {
+    if (!step || undoStack[undoStack.length - 1] !== step) { pushUndo({ meta: true }, what); step = undoStack[undoStack.length - 1]; }
+    else if (step.name !== what && !step.name.startsWith('Changes to ')) nameStep(`Changes to ${step.was}`);
+    if (!step.was) step.was = p.name;
+  };
   const nm = $('#pName');
   const removeLink = $('#pDelete');
   // The heading and the Remove link say the name as it is typed.
   const named = () => { removeLink.textContent = `Remove ${p.name}`; $('#pTitle').textContent = p.name; };
-  nm.addEventListener('input', () => { once(); p.name = nm.value; named(); requestDraw(); markDirty(); });
+  nm.addEventListener('input', () => { once(`Rename ${p.name}`); p.name = nm.value; named(); requestDraw(); markDirty(); });
   nm.addEventListener('change', () => { if (!p.name.trim()) { p.name = 'Nameless'; nm.value = p.name; named(); } refreshCodex(); requestDraw(); });
-  $('#pReroll').onclick = () => { pushUndo({ meta: true }); p.name = freshName(() => p.kind === 'landmark' ? landmarkName(p.sub, p.tongue, Math.random) : makeName(p.tongue, Math.random)); nm.value = p.name; named(); requestDraw(); refreshCodex(); markDirty(); };
+  $('#pReroll').onclick = () => { pushUndo({ meta: true }, `Rename ${p.name}`); p.name = freshName(() => p.kind === 'landmark' ? landmarkName(p.sub, p.tongue, Math.random) : makeName(p.tongue, Math.random)); nm.value = p.name; named(); requestDraw(); refreshCodex(); markDirty(); };
   $('#pKind').onchange = e => { changeKind(p, e.target.value); refocus('#pKind'); };
-  $('#pLore').addEventListener('input', e => { once(); p.lore = e.target.value; touched(); markDirty(); });
+  $('#pLore').addEventListener('input', e => { once(`Notes on ${p.name}`); p.lore = e.target.value; touched(); markDirty(); });
   $('#pDelete').onclick = () => removeSel({ type: 'place', id: p.id });
   $('#pRumor').onclick = () => { if (draftFor(p.id).busy) return; setDraft(p.id, { text: rumor(p), busy: false, kind: 'rumor', note: '', ctl: null }); renderDraft(); };
   const wb = $('#pWrite'); if (wb) wb.onclick = () => writeHistory(p);
   // Keeping a rumor or history is a step of its own, so Undo takes back just what was added.
-  $('#dKeep').onclick = () => { pushUndo({ meta: true }); const ta = $('#pLore'); p.lore = (p.lore.trim() ? p.lore.trimEnd() + '\n\n' : '') + draftFor(p.id).text.trim(); ta.value = p.lore; dropDraft(p.id); renderDraft(); markDirty(); toast('Added to the notes.'); };
+  $('#dKeep').onclick = () => { pushUndo({ meta: true }, `Notes on ${p.name}`); const ta = $('#pLore'); p.lore = (p.lore.trim() ? p.lore.trimEnd() + '\n\n' : '') + draftFor(p.id).text.trim(); ta.value = p.lore; dropDraft(p.id); renderDraft(); markDirty(); toast('Added to the notes.'); };
   $('#dDiscard').onclick = () => { dropDraft(p.id); renderDraft(); };
   if (p.kind === 'capital' && p.realm) {
     // The realm's name and title change where the page shows them, without building the page again, which took away
     // the field being left (or the control clicked next) along with its focus.
-    const rn = $('#rName'), shown = () => document.querySelectorAll(`#pane-inspect [data-realm="${p.id}"]`).forEach(e => { e.textContent = realmDisplay(p.realm); });
-    rn.addEventListener('input', () => { once(); p.realm.name = rn.value; shown(); requestDraw(); markDirty(); });
+    const realmStep = `Change ${realmDisplay(p.realm)}`, rn = $('#rName'), shown = () => document.querySelectorAll(`#pane-inspect [data-realm="${p.id}"]`).forEach(e => { e.textContent = realmDisplay(p.realm); });
+    rn.addEventListener('input', () => { once(realmStep); p.realm.name = rn.value; shown(); requestDraw(); markDirty(); });
     rn.addEventListener('change', () => { if (!p.realm.name.trim()) { p.realm.name = 'Nameless'; rn.value = 'Nameless'; shown(); requestDraw(); } refreshCodex(); });
-    $('#rTitle').onchange = e => { once(); p.realm.title = e.target.value; shown(); requestDraw(); markDirty(); refreshCodex(); };
-    $('#rTongue').onchange = e => { once(); p.tongue = e.target.value; markDirty(); };
-    document.querySelectorAll('[data-color]').forEach(b => b.onclick = () => { once(); p.realm.color = b.dataset.color; renderTint(); requestDraw(); markDirty(); renderInspector(); refreshCodex(); refocus(`[data-color="${p.realm.color}"]`); });
+    $('#rTitle').onchange = e => { once(realmStep); p.realm.title = e.target.value; shown(); requestDraw(); markDirty(); refreshCodex(); };
+    $('#rTongue').onchange = e => { once(realmStep); p.tongue = e.target.value; markDirty(); };
+    document.querySelectorAll('[data-color]').forEach(b => b.onclick = () => { once(realmStep); p.realm.color = b.dataset.color; renderTint(); requestDraw(); markDirty(); renderInspector(); refreshCodex(); refocus(`[data-color="${p.realm.color}"]`); });
   }
   renderDraft();
 }
@@ -3678,7 +3703,7 @@ function bindPlace(p) {
 // title and colour, so making it a capital again brings the same realm back. The population is rolled again only
 // when it doesn't fit the new kind, from numbers of the place's own, so switching back and forth comes back to it.
 function changeKind(p, val) {
-  pushUndo({ meta: true });
+  pushUndo({ meta: true }, `Change what ${p.name} is`);
   const [kind, sub] = val.split(':'), i = cellAt(p.x, p.y);
   const ended = p.kind === 'capital' && kind !== 'capital' && p.realm ? D.realms.find(r => r.place === p) : null;
   const held = ended ? world.places.filter(q => (q === p ? kind : q.kind) !== 'landmark' && D.owner[cellAt(q.x, q.y)] === ended.idx) : [], display = ended && ended.display, plural = ended && realmPlural(ended);
@@ -3715,7 +3740,7 @@ function labelHTML(l) {
     <button class="link danger" id="lDelete">Remove this label</button>`;
 }
 function bindLabel(l) {
-  let pushed = false, kept = null, step = null; const once = () => { if (!pushed) { kept = stepRoom(); pushUndo({ meta: true }); step = undoStack[undoStack.length - 1]; pushed = true; } };
+  let pushed = false, kept = null, step = null; const once = () => { if (!pushed) { kept = stepRoom(); pushUndo({ meta: true }, `Change ${l.text.trim() || 'a label'}`); step = undoStack[undoStack.length - 1]; pushed = true; } };
   const was = { text: l.text, kind: l.kind, size: l.size, angle: l.angle };
   $('#lText').addEventListener('input', e => { once(); l.text = e.target.value; requestDraw(); markDirty(); });
   // Text cleared away gets the text back, as a place's name cleared away becomes Nameless: a label with no text can't
@@ -3744,7 +3769,7 @@ function locHTML(o) {
 }
 function bindLoc(o) {
   const w = $('#locWater'); if (w) w.onclick = () => { if (w.dataset.label) select({ type: 'label', id: +w.dataset.label }); else addLabel(o.x, o.y, 'sea', ''); refocus('#lText'); };
-  const t = $('#locTown'); if (t) t.onclick = () => { pushUndo({ meta: true }); const p = makePlace('town', o.x, o.y, Math.random); world.places.push(p); recomputePolitics(); select({ type: 'place', id: p.id }); refocus('#pTitle'); refreshCodex(); markDirty(); toast(`Founded ${p.name}.`); };
+  const t = $('#locTown'); if (t) t.onclick = () => { pushUndo({ meta: true }); const p = makePlace('town', o.x, o.y, Math.random); world.places.push(p); nameStep(`Found ${p.name}`); recomputePolitics(); select({ type: 'place', id: p.id }); refocus('#pTitle'); refreshCodex(); markDirty(); toast(`Founded ${p.name}.`); };
   const l = $('#locLabel'); if (l) l.onclick = () => addLabel(o.x, o.y, 'region', '');
 }
 
@@ -3922,7 +3947,7 @@ window.addEventListener('afterprint', () => { const cv = $('#printMap'); cv.widt
 function populateRealms() {
   if (!landShare()) { toast('New realms need dry land. Sketch some first.'); return; }
   const kept = world.places.filter(p => p.lore.trim()), names = kept.map(p => p.name);
-  pushUndo({ meta: true }); populate(1 + Math.floor(Math.random() * 999998), kept); ui.selected = null; recomputePolitics(); refreshPanels(); requestDraw(); markDirty();
+  pushUndo({ meta: true }, 'Found new realms'); populate(1 + Math.floor(Math.random() * 999998), kept); ui.selected = null; recomputePolitics(); refreshPanels(); requestDraw(); markDirty();
   const stay = names.length === 1 ? ` ${names[0]} and its notes stay.` : names.length === 2 ? ` ${names[0]} and ${names[1]} and their notes stay.` : names.length ? ` ${names.length} places with notes stay, ${names[0]} and ${names[1]} among them.` : '';
   toast(foundedSay(new Set(kept.map(p => p.id))) + stay, { label: 'Undo', fn: undo });
 }
@@ -3938,7 +3963,7 @@ function foundedSay(kept = new Set()) {
 }
 function bindWorldTab() {
   $('#wShape').innerHTML = Object.entries(SHAPES).filter(([, v]) => !v.blank).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
-  const generate = s => { const from = addWorld(() => newWorld(s, $('#wShape').value, { noUndo: true })); if (from === null) return; syncWorldTab(); markDirty(); toast(`Generated world ${s}.${keptIn(from)}`, { label: 'Undo', fn: undo }); };
+  const generate = s => { const from = addWorld(() => newWorld(s, $('#wShape').value, { noUndo: true }), `Generate world ${s}`); if (from === null) return; syncWorldTab(); markDirty(); toast(`Generated world ${s}.${keptIn(from)}`, { label: 'Undo', fn: undo }); };
   $('#wGen').onclick = () => generate(clamp(parseInt($('#wSeed').value, 10) || 1, 1, 999999));
   // Enter in Seed generates it, as the button does; on a touch screen the keyboard goes, so the map and Undo show.
   $('#wSeed').addEventListener('keydown', e => { if (e.key !== 'Enter' || e.isComposing) return; e.preventDefault(); $('#wGen').click(); if (TOUCH) e.target.blur(); });
@@ -3949,7 +3974,7 @@ function bindWorldTab() {
   $('#wDice').onclick = () => generate(1 + Math.floor(Math.random() * 999998));
   let seaEditing = false, seaDry = null;
   $('#wSea').addEventListener('input', e => {
-    if (!seaEditing) { pushUndo({ meta: true }); seaEditing = true; seaDry = dryPlaces(); }
+    if (!seaEditing) { pushUndo({ meta: true }, 'Move the sea level'); seaEditing = true; seaDry = dryPlaces(); }
     world.sea = +e.target.value; computeClimate(); renderBase(); buildCoast(); buildContours(); buildGlyphs(); requestDraw();
     $('#wSeaOut').textContent = `${Math.round(landShare() * 100)}% of the map is land`;
   });
@@ -3965,7 +3990,7 @@ function bindWorldTab() {
     const np = world.places.length, nl = world.labels.length, noted = world.places.filter(p => p.lore.trim()).length;
     if (!np && !nl) { toast('There are no places or labels to clear.'); return; }
     if (noted) keepAside(currentText(), { id: worldId, name: world.name, why: 'clear', at: new Date().toISOString() });
-    pushUndo({ meta: true }); world.places = []; world.labels = []; ui.selected = null; recomputePolitics(); refreshPanels(); requestDraw(); markDirty();
+    pushUndo({ meta: true }, 'Clear places and labels'); world.places = []; world.labels = []; ui.selected = null; recomputePolitics(); refreshPanels(); requestDraw(); markDirty();
     const count = (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`;
     toast(`Cleared ${[np && count(np, 'place'), nl && count(nl, 'label')].filter(Boolean).join(' and ')}${noted ? `, and the notes on ${noted === np ? (np === 1 ? 'it' : 'all of them') : `${noted} of them`}` : ''}.`, { label: 'Undo', fn: undo }, noted ? 10000 : 0);
   };
@@ -3990,7 +4015,7 @@ function bindWorldTab() {
           : 'That file is not a Terra Incognita world.');
         return;
       }
-      const from = addWorld(() => { applyWorld(parsed); world.filedAt = typeof parsed.o.savedAt === 'string' && !isNaN(Date.parse(parsed.o.savedAt)) ? parsed.o.savedAt : new Date().toISOString(); }); if (from === null) return;
+      const from = addWorld(() => { applyWorld(parsed); world.filedAt = typeof parsed.o.savedAt === 'string' && !isNaN(Date.parse(parsed.o.savedAt)) ? parsed.o.savedAt : new Date().toISOString(); }, `Open ${String(parsed.o.name || 'Untitled world')}`); if (from === null) return;
       // In the look it was saved in; a file from before files kept one opens in the look on screen.
       const look = STYLES.includes(parsed.o.style) && parsed.o.style !== ui.style ? parsed.o.style : null;
       if (look) { ui.style = look; savePrefs(); }
@@ -4008,7 +4033,7 @@ function openNewMenu() {
 }
 function closeNewMenu() { $('#newMenu').hidden = true; $('#btnNew').setAttribute('aria-expanded', 'false'); }
 function startBlank() {
-  if (addWorld(() => newWorld(1 + Math.floor(Math.random() * 999998), 'blank', { noUndo: true })) === null) return;
+  if (addWorld(() => newWorld(1 + Math.floor(Math.random() * 999998), 'blank', { noUndo: true }), 'Start from blank ocean') === null) return;
   ui.sketch.mode = 'land'; setTool('sketch'); fitView(); syncWorldTab(); markDirty();
   toast('Blank ocean ready. Draw a loop to raise your first coast.', { label: 'Undo', fn: undo });
 }
@@ -4106,19 +4131,20 @@ function init() {
   if (!loadLocal()) { firstRun = true; firstHint = unreadable === null && !linked; newWorld(linked ? linked.seed : DEFAULT_SEED, linked ? linked.shape : 'continent', { noUndo: true }); worldId = newWorldId(); }
   else recomputeAll();
   buildToolbar(); renderToolOpts(); bindWorldTab(); syncWorldTab(); updateUndoButtons(); updateCursor();
-  if (MAC) { $('#btnUndo').title = 'Undo (⌘Z)'; $('#btnRedo').title = 'Redo (⇧⌘Z)'; $('#keyUndo').textContent = '⌘ Z'; $('#keySave').textContent = '⌘ S'; $('#keyOpen').textContent = '⌘ O'; }
+  if (MAC) { $('#keyUndo').textContent = '⌘ Z'; $('#keySave').textContent = '⌘ S'; $('#keyOpen').textContent = '⌘ O'; }
   $('#worldName').addEventListener('focus', () => { renaming = false; });
-  $('#worldName').addEventListener('input', e => { if (!renaming) { pushUndo({ meta: true }); renaming = true; } world.name = e.target.value; touched(); markDirty(); if (!ui.selected) renderInspector(); });
+  $('#worldName').addEventListener('input', e => { if (!renaming) { pushUndo({ meta: true }, 'Rename the world'); renaming = true; } world.name = e.target.value; touched(); markDirty(); if (!ui.selected) renderInspector(); });
   // Left empty, the name is Untitled world, as a reload would make it, in the same Undo step; spaces round it go.
   $('#worldName').addEventListener('change', e => {
     const name = e.target.value.trim() || 'Untitled world'; e.target.value = name;
     if (name !== world.name) { world.name = name; markDirty(); if (!ui.selected) renderInspector(); }
   });
   $('#btnUndo').onclick = undo; $('#btnRedo').onclick = redo;
+  holdToSay($('#btnUndo'), undoStack); holdToSay($('#btnRedo'), redoStack);
   $('#btnNew').onclick = () => $('#newMenu').hidden ? openNewMenu() : closeNewMenu();
   $('#mnRandom').onclick = () => {
     closeNewMenu(); const s = 1 + Math.floor(Math.random() * 999998), shape = world.shape && world.shape !== 'blank' ? world.shape : 'continent';
-    const from = addWorld(() => newWorld(s, shape, { noUndo: true })); if (from === null) return;
+    const from = addWorld(() => newWorld(s, shape, { noUndo: true }), `Generate world ${s}`); if (from === null) return;
     syncWorldTab(); markDirty(); toast(`Generated world ${s}.${keptIn(from)}`, { label: 'Undo', fn: undo });
   };
   $('#mnBlank').onclick = () => { closeNewMenu(); startBlank(); };

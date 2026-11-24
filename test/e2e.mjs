@@ -250,6 +250,23 @@ await page.click('.chip[data-v="sea"]');
 await drag([[335, 115], [372, 115], [372, 148], [335, 148], [335, 115]], 5);
 const bitten = await state();
 ok(bitten.land < st.land, `a sea loop across the coast floods land (${st.land - bitten.land} cells)`);
+// Undo and Redo say which step they would take back or bring back, when hovered and to a screen reader.
+const undoSays = () => S(() => ['btnUndo', 'btnRedo'].map((id) => [document.getElementById(id).title, document.getElementById(id).getAttribute('aria-label')].join(' / ')));
+const saysSea = await undoSays();
+await page.click('#btnUndo');
+const saysUndone = await undoSays();
+await page.click('#btnRedo');
+ok(saysSea.join(' | ') === 'Undo: Sketch sea (Ctrl+Z) / Undo: Sketch sea | Redo (Ctrl+Shift+Z) / Redo' && saysUndone.join(' | ') === 'Undo: Sketch land (Ctrl+Z) / Undo: Sketch land | Redo: Sketch sea (Ctrl+Shift+Z) / Redo: Sketch sea'
+  && (await state()).land === bitten.land, `Undo and Redo name their steps (${saysSea.join(' | ')}; after an Undo, ${saysUndone.join(' | ')})`);
+// A phone has no hover: holding Undo says what it would take back, and letting go doesn't take it.
+const heldUndo = await S(async () => {
+  const b = document.getElementById('btnUndo'), n = window.terra.state().undo;
+  b.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true, isPrimary: true }));
+  await new Promise((r) => setTimeout(r, 700));
+  b.dispatchEvent(new PointerEvent('pointerup', { pointerType: 'touch', bubbles: true, isPrimary: true })); b.click();
+  return [document.querySelector('#toast span').textContent, window.terra.state().undo === n];
+});
+ok(heldUndo[0] === 'Undo: Sketch sea' && heldUndo[1], `holding Undo on a phone says what it would undo, and doesn't undo it ("${heldUndo[0]}", kept ${heldUndo[1]})`);
 
 // A mountain range, without a lake in the valleys it blocks.
 await page.click('.chip[data-v="range"]');
@@ -747,9 +764,13 @@ await desk.click('#tab-world');
 const seedWas = (await desk.evaluate(() => window.terra.state())).seed;
 await desk.fill('#wSeed', '4242'); await desk.press('#wSeed', 'Enter');
 const seedSaid = await desk.textContent('#toast span');
+const genUndo = await desk.getAttribute('#btnUndo', 'aria-label');
 ok((await desk.evaluate(() => window.terra.state())).seed === 4242 && seedSaid.startsWith('Generated world 4242.') && await desk.locator('#toast button', { hasText: 'Undo' }).isVisible() && await desk.getAttribute('#wSeed', 'enterkeyhint') === 'go', `Enter in Seed generates world 4242, with Undo ("${seedSaid}")`);
 await desk.click('#toast button:has-text("Undo")');
 ok((await desk.evaluate(() => window.terra.state())).seed === seedWas, 'and Undo brings back the world before');
+// Going back and forth between worlds, the buttons name the step too.
+const genRedo = await desk.getAttribute('#btnRedo', 'aria-label');
+ok(genUndo === 'Undo: Generate world 4242' && genRedo === 'Redo: Generate world 4242', `Undo and Redo name a world generated ("${genUndo}", "${genRedo}")`);
 // Shortcuts still work straight after using a slider: Ctrl+Z takes back the sea level it set.
 const landBefore = (await desk.evaluate(() => window.terra.state())).land;
 const seaBox = await desk.locator('#wSea').boundingBox();
@@ -1164,6 +1185,9 @@ await map.context().close();
 
 // The README counts the kinds of land the map can show.
 const readme = await readFile(join(root, 'README.md'), 'utf8'), appSrc = await readFile(join(root, 'js/app.js'), 'utf8');
+// Every Undo step has a name for the buttons to give: one passed in, or one set straight after (a place founded).
+const srcLines = appSrc.split('\n'), unnamedSteps = srcLines.flatMap((l, k) => /pushUndo\((?!parts)/.test(l) && !/pushUndo\([^;]*\}, [^)]/.test(l) && !srcLines.slice(k, k + 3).join('\n').includes('nameStep(') ? [k + 1] : []);
+ok(!unnamedSteps.length, 'every Undo step is named' + (unnamedSteps.length ? ': not on lines ' + unnamedSteps.join(', ') + ' of js/app.js' : ''));
 const landKinds = JSON.parse(appSrc.match(/const BIOME_NAME = (\[[^\]]*\])/)[1].replace(/'/g, '"')).filter((b) => b !== 'Open sea' && b !== 'Lake');
 const counted = readme.match(/(\w+) kinds of land/)[1].toLowerCase();
 const NUMBER = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];

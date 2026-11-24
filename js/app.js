@@ -7,10 +7,14 @@ import { guardEdges } from './edge-guard.js';
 const W = 480, H = 300, N = W * H;
 const KM = 10;                 // km per cell
 const LEAGUE = 4.8;            // km per league
-// The grid's lines, in map cells: they cross the map as they always have, but carry no latitude or longitude, since the
-// climate runs from ice sheet in the north to jungle in the south over a map 3,000 km tall, as no real map's would.
-const GRID_Y = [35, 40, 45, 50, 55].map(v => (58 - v) / 27 * H), GRID_X = [];
-for (let v = -10; v <= 45; v += 5) GRID_X.push((v + 12) / 61 * W);
+// The grid's lines, in map cells: a line every 600 km, so the map is 8 squares across and 5 down, lettered like an
+// atlas's index, A to H along the top and 1 to 5 down the side. They carry no latitude or longitude, since the climate
+// runs from ice sheet in the north to jungle in the south over a map 3,000 km tall, as no real map's would.
+const GRID = 60, GRID_COLS = 'ABCDEFGH', GRID_X = [], GRID_Y = [];
+for (let x = GRID; x < W; x += GRID) GRID_X.push(x);
+for (let y = GRID; y < H; y += GRID) GRID_Y.push(y);
+// The grid square a spot on the map lies in: 'C3'.
+const squareAt = (x, y) => GRID_COLS[clamp(Math.floor(x / GRID), 0, W / GRID - 1)] + (clamp(Math.floor(y / GRID), 0, H / GRID - 1) + 1);
 const MAX_ELEV = 5200, MAX_DEPTH = 5400;
 const RIVER_T = 70, LAKE_MIN = 0.003, RIVER_MAX = 60; // RIVER_MAX: the longest name a river keeps
 const DEFAULT_SEED = 20417;
@@ -1818,6 +1822,14 @@ function drawMap(c, k, vw, vh, v, opt) {
   const avoid = [[sb.X - 6 * u, sb.top, sb.right, sb.bottom], [cp.X - cp.R, cp.Y - cp.R * 1.7, cp.X + cp.R, cp.Y + cp.R]];
   if (panels) avoid.push(panels.title.box, panels.key.box);
   if (!opt.export && v.zoomBox) avoid.push(v.zoomBox);
+  if (L.grid && !opt.title && zr > 0.7) {
+    const marks = gridMarks(c, v, vw, vh, avoid);
+    gridShown[opt.export ? 'image' : 'screen'] = marks.map(m => ({ text: m.text, box: m.box }));
+    c.font = `10px ${F_MONO}`; c.fillStyle = atlas ? 'rgba(70,52,30,0.75)' : 'rgba(255,255,255,0.8)';
+    for (const m of marks) { c.textAlign = m.align; c.textBaseline = 'middle'; c.fillText(m.text, m.x, m.y); }
+    c.textAlign = 'left';
+    for (const m of marks) avoid.push(m.box);
+  } else gridShown[opt.export ? 'image' : 'screen'] = [];
   drawPlaces(c, v, vw, vh, atlas, INK, HALO, { ...opt, riverSize, avoid }, small);
   if (!opt.export && ui.tool === 'erase') drawSources(c, v);
   if (!opt.export) drawSelection(c, v, atlas);
@@ -1827,7 +1839,18 @@ function drawMap(c, k, vw, vh, v, opt) {
   c.restore();
 
   // neatline: on the saved sheet a graduated border of dark and light bars, five to each square of the grid.
-  if (opt.title) drawGraduated(c, X0, Y0, MW, MH, s, u, INK, atlas ? '#f1e7cb' : '#fafbfb');
+  if (opt.title) {
+    drawGraduated(c, X0, Y0, MW, MH, s, u, INK, atlas ? '#f1e7cb' : '#fafbfb');
+    // The squares' letters and numbers in the margin outside the border, in the middle of each column and row.
+    gridShown.image = [];
+    if (L.grid) {
+      const fs = 7 * u, my = (Y0 - 6 * u) / 2, mx = (X0 - 6 * u) / 2;
+      c.font = `${fs}px ${F_MONO}`; c.fillStyle = INK; c.textAlign = 'center'; c.textBaseline = 'middle';
+      for (let i = 0; i < W / GRID; i++) { const x = X0 + (i + 0.5) * GRID * s; c.fillText(GRID_COLS[i], x, my); gridShown.image.push({ text: GRID_COLS[i], box: [x - fs * 0.3, my - fs / 2, x + fs * 0.3, my + fs / 2] }); }
+      for (let j = 0; j < H / GRID; j++) { const y = Y0 + (j + 0.5) * GRID * s; c.fillText(String(j + 1), mx, y); gridShown.image.push({ text: String(j + 1), box: [mx - fs * 0.3, y - fs / 2, mx + fs * 0.3, y + fs / 2] }); }
+      c.textAlign = 'left';
+    }
+  }
   else {
     c.strokeStyle = opt.frame || INK; c.lineWidth = 1.4 * u; c.strokeRect(X0 - 0.5 * u, Y0 - 0.5 * u, MW + u, MH + u);
     c.lineWidth = 0.7 * u; c.strokeStyle = opt.frame || (atlas ? 'rgba(70,52,30,.7)' : (opt.export ? 'rgba(20,34,43,.6)' : 'rgba(20,34,43,.45)'));
@@ -2295,20 +2318,51 @@ function drawScale(c, sb, ink, halo) {
   c.font = `${9.5 * u}px ${F_MONO}`; c.textBaseline = 'top'; c.fillText(sb.km, X + len, Y + 4 * u);
   c.restore();
 }
-// The saved sheet's border: the map's edge, then a band of bars, dark and light by turns, five to each square of the grid
-// (whose lines cross the map where they always have), then an outer line.
+// The grid squares' letters along the top of the map in view, and their numbers down its left side, as
+// [{ text, x, y, align, box }]: each in the middle of its column or row, or where the compass, the scale bar or the zoom
+// buttons (the boxes in avoid) would cover it there, as near the middle as it is clear of them. One with no clear spot
+// in the part of its column or row on screen is left out.
+const gridShown = { screen: [], image: [] }; // the letters and numbers as last drawn, on the screen and the saved image
+function gridMarks(c, v, vw, vh, avoid) {
+  const s = v.s, left = Math.max(v.ox, 0), top = Math.max(v.oy, 0), right = Math.min(v.ox + W * s, vw), bottom = Math.min(v.oy + H * s, vh), out = [];
+  c.font = `10px ${F_MONO}`; c.letterSpacing = '0px';
+  const clear = b => !avoid.some(a => b[0] < a[2] && b[2] > a[0] && b[1] < a[3] && b[3] > a[1]);
+  // The spot nearest mid along a stretch from lo to hi (in steps of 4 px) where at(spot) gives a clear box.
+  const near = (mid, lo, hi, at) => {
+    for (let d = 0, far = Math.max(mid - lo, hi - mid); d <= far; d += 4) for (const p of d ? [mid - d, mid + d] : [mid]) { if (p < lo || p > hi) continue; const m = at(p); if (clear(m.box)) return m; }
+    return null;
+  };
+  // Where the compass covers the whole top of a column (on a phone it covers the H), its letter goes under the
+  // compass, and where the scale bar covers the whole side of a row (the 5), its number goes beside the scale bar.
+  const along = (from, to, at) => { for (let p = from; p <= to; p += 4) { const m = at(p); if (clear(m.box)) return m; } return null; };
+  for (let i = 0; i < W / GRID; i++) {
+    const t = GRID_COLS[i], w = textW(c, t), a = v.ox + i * GRID * s, b = a + GRID * s, lo = Math.max(a, left + 4) + w, hi = Math.min(b, right - 4) - w, mid = clamp((a + b) / 2, lo, hi);
+    const at = (x, y) => ({ text: t, x, y, align: 'center', box: [x - w / 2 - 2, y - 7, x + w / 2 + 2, y + 7] });
+    const m = lo <= hi && (near((a + b) / 2, lo, hi, x => at(x, top + 10)) || along(top + 10, bottom - 30, y => at(mid, y)));
+    if (m) out.push(m);
+  }
+  for (let j = 0; j < H / GRID; j++) {
+    const t = String(j + 1), w = textW(c, t), a = v.oy + j * GRID * s, b = a + GRID * s, lo = Math.max(a, top + 20) + 7, hi = Math.min(b, bottom) - 9, mid = clamp((a + b) / 2, lo, hi);
+    const at = (x, y) => ({ text: t, x, y, align: 'left', box: [x - 2, y - 7, x + w + 2, y + 7] });
+    const m = lo <= hi && (near((a + b) / 2, lo, hi, y => at(left + 6, y)) || along(left + 6, right - 30, x => at(x, mid)));
+    if (m) out.push(m);
+  }
+  return out;
+}
+// The saved sheet's border: the map's edge, then a band of bars, dark and light by turns, five to each 600 km square of
+// the grid, then an outer line.
 function drawGraduated(c, X0, Y0, MW, MH, s, u, ink, paper) {
-  const b = 6 * u, sx = (GRID_X[1] - GRID_X[0]) / 5, sy = (GRID_Y[0] - GRID_Y[1]) / 5;
+  const b = 6 * u, sx = GRID / 5, sy = GRID / 5;
   c.save();
   c.fillStyle = paper; c.fillRect(X0 - b, Y0 - b, MW + 2 * b, b); c.fillRect(X0 - b, Y0 + MH, MW + 2 * b, b); c.fillRect(X0 - b, Y0, b, MH); c.fillRect(X0 + MW, Y0, b, MH);
   c.fillStyle = ink;
   const bars = (start, step, len, put) => { let k = Math.floor(-start / step); for (let a = start + k * step; a < len; a += step, k++) if (k % 2 === 0) { const a0 = Math.max(0, a), a1 = Math.min(len, a + step); if (a1 > a0) put(a0, a1 - a0); } };
-  bars(GRID_X[0] * s, sx * s, MW, (a, w) => { c.fillRect(X0 + a, Y0 - b, w, b / 2); c.fillRect(X0 + a, Y0 + MH + b / 2, w, b / 2); });
-  bars(GRID_Y[GRID_Y.length - 1] * s, sy * s, MH, (a, w) => { c.fillRect(X0 - b, Y0 + a, b / 2, w); c.fillRect(X0 + MW + b / 2, Y0 + a, b / 2, w); });
+  bars(0, sx * s, MW, (a, w) => { c.fillRect(X0 + a, Y0 - b, w, b / 2); c.fillRect(X0 + a, Y0 + MH + b / 2, w, b / 2); });
+  bars(0, sy * s, MH, (a, w) => { c.fillRect(X0 - b, Y0 + a, b / 2, w); c.fillRect(X0 + MW + b / 2, Y0 + a, b / 2, w); });
   // The other half of the band, the other way round, so the bars read as a chequer.
   c.globalAlpha = 0.55;
-  bars(GRID_X[0] * s - sx * s, sx * s, MW, (a, w) => { c.fillRect(X0 + a, Y0 - b / 2, w, b / 2); c.fillRect(X0 + a, Y0 + MH, w, b / 2); });
-  bars(GRID_Y[GRID_Y.length - 1] * s - sy * s, sy * s, MH, (a, w) => { c.fillRect(X0 - b / 2, Y0 + a, b / 2, w); c.fillRect(X0 + MW, Y0 + a, b / 2, w); });
+  bars(-sx * s, sx * s, MW, (a, w) => { c.fillRect(X0 + a, Y0 - b / 2, w, b / 2); c.fillRect(X0 + a, Y0 + MH, w, b / 2); });
+  bars(-sy * s, sy * s, MH, (a, w) => { c.fillRect(X0 - b / 2, Y0 + a, b / 2, w); c.fillRect(X0 + MW, Y0 + a, b / 2, w); });
   c.globalAlpha = 1;
   c.strokeStyle = ink; c.lineWidth = 1.2 * u; c.strokeRect(X0, Y0, MW, MH);
   c.lineWidth = 0.6 * u; c.strokeRect(X0 - b / 2, Y0 - b / 2, MW + b, MH + b);
@@ -3524,7 +3578,7 @@ function riverWay(c) {
   return `${flows}${lake >= 0 ? `through ${lakeName} and ` : flows ? 'and ' : ''}${ends}. It drains ${fmtInt(roundSig(D.area[cur] * KM * KM, 2))} km².`;
 }
 function factsHTML(f, p) {
-  const rows = [];
+  const rows = [['Square', `<span class="mono">${squareAt(f.x, f.y)}</span>`]];
   if (f.water && !f.lake) rows.push(['Depth', `<span class="mono">${fmtInt(-f.E)} m</span>`]);
   // A few metres above the sea reads as a missing figure when it rounds to '0 m'. On a lake it is the water's surface.
   else rows.push([f.lake ? 'Surface' : 'Elevation', f.E < 5 ? 'At sea level' : `<span class="mono">${fmtInt(f.E)} m</span>`]);
@@ -4522,6 +4576,10 @@ window.terra = {
   // The compass and scale bar as last drawn on screen ('screen') or on the last map image ('image'): the picture's size
   // in CSS pixels, the compass's radius, the scale bar's box, the size of its lettering, and the length it marks.
   furniture: (where = 'screen') => furniture[where] && JSON.parse(JSON.stringify(furniture[where])),
+  // The grid squares' letters and numbers as last drawn on the screen or the saved image, each with its box, and the
+  // square a spot on the map lies in.
+  gridMarks: (where = 'screen') => gridShown[where].map(m => ({ text: m.text, box: m.box.slice() })),
+  square: (x, y) => squareAt(x, y),
   nameSpots: (where = 'screen') => ({ names: placedNames[where].map(n => ({ ...n, box: n.box.slice() })), marks: placedNames[where + 'Marks'].map(m => ({ ...m, box: m.box.slice() })) }),
   // What lies at a map cell: its height against sea level (below zero in the sea), whether it holds a lake or a river,
   // its rain (m, 0 to 1, and rain, in mm a year), its kind of land, its height in metres (a lake's surface on a lake) and

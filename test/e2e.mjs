@@ -1308,6 +1308,41 @@ ok(covered.length === 0, 'sea names stay clear of the scale bar' + (covered.leng
   await c.close();
 }
 
+// The grid is lettered like an atlas's index instead: a line every 600 km, 8 squares across (A to H) and 5 down (1 to
+// 5), the letters along the top of the map and the numbers down its side, all thirteen on the whole map, on a phone
+// and a laptop, clear of the compass, the scale bar, the zoom buttons and the place names; and a place's page says
+// which square it is in. On the saved sheet they sit in the margin outside its border.
+for (const [w, h, phone] of [[390, 844, true], [1280, 800, false]]) {
+  const c = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: phone ? 2 : 1, isMobile: phone, hasTouch: phone });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => document.fonts.ready);
+  const r = await pg.evaluate(async () => {
+    window.terra.fitView(); await new Promise((d) => requestAnimationFrame(() => requestAnimationFrame(d)));
+    const marks = window.terra.gridMarks(), b = window.terra.boxes(), names = window.terra.nameSpots().names.map((n) => n.box);
+    const a = window.terra.toScreen(0, 0), z = window.terra.toScreen(480, 300), hit = (p, q) => p[0] < q[2] && p[2] > q[0] && p[1] < q[3] && p[3] > q[1];
+    const sq = (z.x - a.x) / 8, cols = marks.filter((m) => /[A-H]/.test(m.text)), rows = marks.filter((m) => /\d/.test(m.text));
+    // Each letter within its column, each number within its row.
+    const placed = cols.every((m) => { const x = (m.box[0] + m.box[2]) / 2, i = 'ABCDEFGH'.indexOf(m.text); return x > a.x + i * sq && x < a.x + (i + 1) * sq; })
+      && rows.every((m) => { const y = (m.box[1] + m.box[3]) / 2, j = +m.text - 1; return y > a.y + j * sq && y < a.y + (j + 1) * sq; });
+    const inside = marks.every((m) => m.box[0] >= a.x && m.box[2] <= z.x && m.box[1] >= a.y && m.box[3] <= z.y);
+    const clear = marks.filter((m) => hit(m.box, b.scale) || hit(m.box, b.compass) || names.some((n) => hit(m.box, n))).map((m) => m.text);
+    return { texts: marks.map((m) => m.text).join(''), placed, inside, clear };
+  });
+  ok(r.texts === 'ABCDEFGH12345' && r.placed && r.inside && r.clear.length === 0, `the grid's squares are lettered A to H along the top and 1 to 5 down the side at ${w} px, each in its own column or row and clear of the compass, scale bar and place names (${r.texts}${r.clear.length ? '; covered: ' + r.clear.join('') : ''})`);
+  if (!phone) {
+    const cap = (await pg.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
+    await pg.evaluate((id) => window.terra.select({ type: 'place', id }), cap.id);
+    const row = await pg.evaluate(() => [...document.querySelectorAll('#pane-inspect .facts dt')].map((e) => [e.textContent, e.nextElementSibling && e.nextElementSibling.textContent]));
+    const want = 'ABCDEFGH'[Math.floor(cap.x / 60)] + (Math.floor(cap.y / 60) + 1), sq = row.find((x) => x[0] === 'Square');
+    const sheet = await pg.evaluate(() => { window.terra.mapImage(4, true, { title: true }); return window.terra.gridMarks('image'); });
+    const outside = sheet.every((m) => m.box[2] < 30 - 12 || m.box[3] < 30 - 12);
+    ok(sq && sq[1] === want && row[0][0] === 'Square', `a place's page starts with the grid square it is in (${cap.name}: "${sq && sq[1]}", at ${cap.x.toFixed(0)}, ${cap.y.toFixed(0)} cells)`);
+    ok(sheet.map((m) => m.text).join('') === 'ABCDEFGH12345' && outside, `the saved sheet letters its squares in the margin outside its border (${sheet.map((m) => m.text).join('')})`);
+  }
+  await c.close();
+}
+
 // Generated places stand at least 3 m above the sea, so the first steps up of the sea slider drown none of them: the
 // first step drowned 11 of the starting world's 54 places, which stood on ground a metre or less above the sea.
 await M(() => window.terra.newWorld(20417, 'continent'));
@@ -2495,7 +2530,8 @@ await oldCtx.close();
 
 // The saved sheet's finishing touches: a graduated border of dark and light bars in place of the plain double frame,
 // a bigger compass rose in the Atlas look, and a paper grain on the Atlas sheet faint enough to leave its colours as
-// they were. (No degree numbers on the bars: the map carries no latitudes.)
+// they were. (No degree numbers on the bars: the map carries no latitudes. Five bars to each 600 km square of the grid,
+// so 40 along the top.)
 {
   const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const pg = watch(await c.newPage());
@@ -2516,7 +2552,7 @@ await oldCtx.close();
   const tSheet = await look({ title: true }), tPlain = await look({});
   await pg.evaluate(() => window.terra.setStyle('atlas'));
   const aSheet = await look({ title: true }), aPlain = await look({});
-  ok(tSheet.turns >= 60 && aSheet.turns >= 60 && tPlain.turns <= 2, `the saved sheet has a graduated border, in both looks (${tSheet.turns} and ${aSheet.turns} turns from dark to light along its top; ${tPlain.turns} on the plain picture)`);
+  ok(tSheet.turns >= 36 && aSheet.turns >= 36 && tPlain.turns <= 2, `the saved sheet has a graduated border, in both looks (${tSheet.turns} and ${aSheet.turns} turns from dark to light along its top; ${tPlain.turns} on the plain picture)`);
   ok(aSheet.compass === tSheet.compass * 1.5 && tSheet.compass === tPlain.compass, `the Atlas sheet's compass rose is half as big again (${aSheet.compass * 2} px across, against ${tSheet.compass * 2})`);
   ok(aSheet.rough > aPlain.rough + 0.5 && Math.abs(aSheet.mean - aPlain.mean) / aPlain.mean < 0.03 && Math.abs(tSheet.rough - tPlain.rough) < 0.2, `the Atlas sheet has a faint paper grain (pixel to pixel ${aPlain.rough.toFixed(1)} to ${aSheet.rough.toFixed(1)}, brightness ${aPlain.mean.toFixed(0)} to ${aSheet.mean.toFixed(0)}); Terrain has none`);
   await c.close();

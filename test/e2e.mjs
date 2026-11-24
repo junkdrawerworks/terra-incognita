@@ -3024,6 +3024,30 @@ await oldCtx.close();
   const t2 = await pg.evaluate(() => window.terra.coastTraces());
   const held = t1[1] - t0[1], traced = t1[0] - t0[0];
   ok(traced <= held / 120 + 2 && t2 > t1[0], `a brush stroke of ${Math.round(held)} ms traced the coast ${traced} times while it moved, and again when it let go`);
+  // Raise on the sea floor beside a coast that doesn't break the surface ends without an Undo step, but the coast, which
+  // runs between the land and the sea floor beside it, is still traced from where the brush left it.
+  const off = await pg.evaluate(() => {
+    for (let y = 20; y < 280; y++) for (let x = 20; x < 460; x++) {
+      let near = false, clear = true;
+      for (let dy = -9; dy <= 9 && clear; dy++) for (let dx = -9; dx <= 9; dx++) {
+        const d = Math.hypot(dx, dy), c = window.terra.cell(x + dx + 0.5, y + dy + 0.5);
+        if (d <= 5 && (c.h > -0.12 || c.lake)) { clear = false; break; } if (d > 7 && c.h >= 0) near = true;
+      }
+      if (clear && near) return window.terra.toScreen(x + 0.5, y + 0.5);
+    }
+    return null;
+  });
+  await pg.evaluate(() => { const s = document.getElementById('optSize'); s.value = '2'; s.dispatchEvent(new Event('input')); });
+  const land0 = await pg.evaluate(() => window.terra.state().land);
+  await pg.mouse.move(b.x + off.x, b.y + off.y); await pg.mouse.down(); await pg.mouse.move(b.x + off.x + 1, b.y + off.y);
+  // Traced on its first frame; then the clock is held still, so it isn't traced again while the brush moves.
+  const c0 = await pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => {
+    const t = performance.now(); window.__realNow = performance.now; performance.now = () => t; r(window.terra.coastTraces());
+  }))));
+  await pg.mouse.move(b.x + off.x + 3, b.y + off.y); await pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  await pg.mouse.up(); await pg.waitForTimeout(300);
+  const c1 = await pg.evaluate(() => { performance.now = window.__realNow; return [window.terra.coastTraces(), window.terra.state().land, document.querySelector('#toast span').textContent]; });
+  ok(off && c1[1] === land0 && c1[2].startsWith('The sea floor rose') && c1[0] > c0, `Raise on the sea floor beside a coast traces the coast as it ends ("${c1[2].split('.')[0]}.")`);
   await c.close();
 }
 

@@ -2362,7 +2362,8 @@ function centerOn(x, y) {
   view.ox = view.cw / 2 - x * view.s; view.oy = view.ch / 2 - y * view.s; clampView(); requestDraw();
 }
 function resize() {
-  const r = $('#mapwrap').getBoundingClientRect(); const cw = Math.max(1, r.width), ch = Math.max(1, r.height);
+  // The canvas fills the frame inside its edge (where the map is pinned on a phone, the frame has an edge of its own).
+  const r = canvas.getBoundingClientRect(); const cw = Math.max(1, r.width), ch = Math.max(1, r.height);
   const first = !view.cw, wasFit = Math.abs(view.s - view.s0) < 1e-6;
   const cx = view.cw ? (view.cw / 2 - view.ox) / view.s : W / 2, cy = view.ch ? (view.ch / 2 - view.oy) / view.s : H / 2;
   view.cw = cw; view.ch = ch; view.dpr = Math.min(2, window.devicePixelRatio || 1);

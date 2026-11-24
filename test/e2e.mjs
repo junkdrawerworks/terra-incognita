@@ -2124,6 +2124,45 @@ await oldCtx.close();
   await c.close();
 }
 
+// The compass, scale bar and frame grow with the saved image: they were sized for the screen, so on the 1,980 px image
+// the compass was 2% of its width and the scale's figures printed about 1.5 mm tall on A4. The scale bar gives km under
+// the leagues, and Large, for printing, saves the same image at twice the pixels. On a phone's whole map the compass is
+// smaller: at full size it and its N took a third of the map's height.
+{
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, acceptDownloads: true });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => document.fonts.ready);
+  await pg.evaluate(() => window.terra.newWorld(20417, 'continent'));
+  await pg.waitForTimeout(80);
+  const phone = await pg.evaluate(() => ({ f: window.terra.furniture(), mapH: window.terra.toScreen(0, 300).y - window.terra.toScreen(0, 0).y }));
+  ok((phone.f.compass * 2.7) / phone.mapH < 0.18, `on a phone's whole map the compass takes ${Math.round(phone.f.compass * 2.7 / phone.mapH * 100)}% of the map's height, with its N (it took a third)`);
+  ok(phone.f.km === `${Math.round(phone.f.leagues * 4.8).toLocaleString('en-US')} km`, `the scale bar gives the same length in km under the leagues (${phone.f.leagues} leagues, ${phone.f.km})`);
+  const desk = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const dp = watch(await desk.newPage());
+  await dp.goto(base);
+  await dp.evaluate(() => window.terra.newWorld(20417, 'continent'));
+  await dp.waitForTimeout(80);
+  const screen = await dp.evaluate(() => window.terra.furniture());
+  await dp.evaluate(() => window.terra.mapImage(4, true));
+  const image = await dp.evaluate(() => window.terra.furniture('image'));
+  await desk.close();
+  ok(screen.compass === 21 && image.compass === 42 && image.scaleText === 21 && (image.compass * 2) / image.size[0] > 0.04, `on the saved image the compass and the scale's lettering are twice their size on a laptop's screen (compass ${image.compass * 2} px across on ${image.size[0]}, ${Math.round(image.compass * 200 / image.size[0])}% of the width; lettering ${image.scaleText} px)`);
+  // Large, for printing: ticked, Save map image saves 3,960 by 2,520, and the box stays ticked after a reload.
+  await pg.click('#tab-world');
+  await pg.check('#wPngLarge');
+  const [big] = await Promise.all([pg.waitForEvent('download'), pg.click('#wSavePng')]);
+  const bigPng = await readFile(await big.path());
+  await pg.reload(); await pg.waitForFunction(() => window.terra && window.terra.state().places > 0);
+  await pg.click('#tab-world');
+  const kept = await pg.isChecked('#wPngLarge');
+  await pg.uncheck('#wPngLarge');
+  const [small] = await Promise.all([pg.waitForEvent('download'), pg.click('#wSavePng')]);
+  const smallPng = await readFile(await small.path());
+  ok(bigPng.readUInt32BE(16) === 3960 && bigPng.readUInt32BE(20) === 2520 && kept && smallPng.readUInt32BE(16) === 1980, `Large, for printing saves the map at ${bigPng.readUInt32BE(16)} x ${bigPng.readUInt32BE(20)} and stays chosen after a reload; unticked it saves ${smallPng.readUInt32BE(16)} x ${smallPng.readUInt32BE(20)}`);
+  await c.close();
+}
+
 // The Atlas on a phone's whole map draws a share of its trees, so they don't run into a solid mat (they were 1.9 px
 // apart and 3 px across); a laptop's whole map and a closer look draw them all.
 {
@@ -3607,12 +3646,12 @@ await oldCtx.close();
   await np.waitForFunction(() => window.terra && window.terra.state().places > 0);
   await np.waitForTimeout(300);
   const noSave = await np.evaluate(() => ({
-    hidden: ['wSaveFile', 'wSavePng', 'wOldSave', 'keySave'].filter((id) => document.getElementById(id).hidden),
+    hidden: ['wSaveFile', 'wSavePng', 'wPngSize', 'wOldSave', 'keySave'].filter((id) => document.getElementById(id).hidden),
     open: !document.getElementById('wOpenFile').hidden,
     note: document.getElementById('wKeepNote').textContent,
     tip: [...document.querySelectorAll('#pane-inspect .tips li')].pop().textContent,
   }));
-  ok(noSave.hidden.join() === 'wSaveFile,wSavePng,wOldSave,keySave' && noSave.open && noSave.note === "This view can't save files. Open terra-incognita.junkdrawer.works to keep a copy." && !noSave.tip.startsWith('The World tab keeps it') && nerrors.length === 0,
+  ok(noSave.hidden.join() === 'wSaveFile,wSavePng,wPngSize,wOldSave,keySave' && noSave.open && noSave.note === "This view can't save files. Open terra-incognita.junkdrawer.works to keep a copy." && !noSave.tip.startsWith('The World tab keeps it') && nerrors.length === 0,
     `in a view of Claude's that can't save files, the save buttons go and the World tab says so ("${noSave.note}")` + (nerrors.length ? ': ' + nerrors.join('; ') : ''));
   await n.close();
   const h = await browser.newContext({ viewport: { width: 1280, height: 800 } });

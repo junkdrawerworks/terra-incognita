@@ -157,6 +157,7 @@ const ui = {
   tool: 'select', brush: { size: 10, strength: 5 }, settleKind: 'town', landmarkKind: 'ruin', labelKind: 'region', labelText: '',
   sketch: { mode: 'land', rough: 5, height: 'medium', width: 9, valley: 4 },
   style: 'terrain', layers: { realms: true, rivers: true, roads: true, labels: true, names: true, grid: true }, selected: null, tab: 'inspect',
+  pngLarge: false, // Save map image at twice the size, for printing
 };
 const D = {
   biome: new Uint8Array(N), temp: new Float32Array(N), tN: new Float32Array(N),
@@ -1404,9 +1405,9 @@ function askAboutOtherTab() {
 // The save kept aside, as stored, or null when there isn't one. Download the old save shows only while there is.
 function keptAside() { try { return localStorage.getItem(UNREADABLE_KEY); } catch (e) { return null; } }
 function syncOldSave() { const none = keptAside() === null; $('#wOldSave').hidden = none || savingOff; if (none) $('#wOldSaveDrop').hidden = true; }
-function savePrefs() { try { localStorage.setItem(PREF_KEY, JSON.stringify({ style: ui.style, layers: ui.layers, brush: ui.brush, sketch: ui.sketch })); } catch (e) { } }
+function savePrefs() { try { localStorage.setItem(PREF_KEY, JSON.stringify({ style: ui.style, layers: ui.layers, brush: ui.brush, sketch: ui.sketch, pngLarge: ui.pngLarge })); } catch (e) { } }
 const STYLES = ['terrain', 'atlas'];
-function loadPrefs() { try { const p = JSON.parse(localStorage.getItem(PREF_KEY) || 'null'); if (p) { if (STYLES.includes(p.style)) ui.style = p.style; Object.assign(ui.layers, p.layers || {}); Object.assign(ui.brush, p.brush || {}); Object.assign(ui.sketch, p.sketch || {}); } } catch (e) { } }
+function loadPrefs() { try { const p = JSON.parse(localStorage.getItem(PREF_KEY) || 'null'); if (p) { if (STYLES.includes(p.style)) ui.style = p.style; Object.assign(ui.layers, p.layers || {}); Object.assign(ui.brush, p.brush || {}); Object.assign(ui.sketch, p.sketch || {}); ui.pngLarge = p.pngLarge === true; } } catch (e) { } }
 function setSaveNote(t, warn) { const el = $('#wSaveNote'); el.textContent = t; el.classList.toggle('warn', !!warn); }
 
 // ------------------------------------------------------------------ your worlds
@@ -1659,7 +1660,7 @@ const dlReady = CL ? CL.use('downloads').then(d => { downloadsNS = d; }).catch((
 let savingOff = false;
 dlReady.then(() => { if (CL && !downloadsNS) { savingOff = true; syncSaving(); } });
 function syncSaving() {
-  $('#wSaveFile').hidden = $('#wSavePng').hidden = savingOff;
+  $('#wSaveFile').hidden = $('#wSavePng').hidden = $('#wPngSize').hidden = savingOff;
   $('#keySave').hidden = $('#keySave').nextElementSibling.hidden = savingOff;
   if (savingOff) $('#wKeepNote').innerHTML = 'This view can\'t save files. Open <a href="https://terra-incognita.junkdrawer.works/" target="_blank" rel="noopener">terra-incognita.junkdrawer.works</a> to keep a copy.';
   syncOldSave(); syncFileNote(); if (!ui.selected) renderInspector();
@@ -1739,7 +1740,7 @@ function drawMap(c, k, vw, vh, v, opt) {
 
   // ---- screen space
   c.setTransform(k, 0, 0, k, 0, 0);
-  const X0 = ox, Y0 = oy, MW = W * s, MH = H * s, sb = scaleBar(X0, Y0, MH, MW, s, vh, vw);
+  const u = opt.unit || 1, X0 = ox, Y0 = oy, MW = W * s, MH = H * s, sb = scaleBar(X0, Y0, MH, MW, s, vh, vw, u), cp = compassAt(X0, Y0, MW, MH, vw, vh, u);
   c.save(); c.beginPath(); c.rect(X0, Y0, MW, MH); c.clip();
   if (atlas) drawGlyphs(c, v, vw, vh);
   if (L.realms) drawRealmNames(c, v, atlas);
@@ -1755,8 +1756,7 @@ function drawMap(c, k, vw, vh, v, opt) {
     c.letterSpacing = '0px';
   }
   if (L.labels) drawUserLabels(c, v, atlas, HALO, opt);
-  const CX = Math.min(vw - 46, X0 + MW - 40), CY = Math.max(46, Y0 + 42), CR = 21;
-  const avoid = [[sb.X - 6, sb.top, sb.right, sb.bottom], [CX - CR, CY - CR - 15, CX + CR, CY + CR]];
+  const avoid = [[sb.X - 6 * u, sb.top, sb.right, sb.bottom], [cp.X - cp.R, cp.Y - cp.R * 1.7, cp.X + cp.R, cp.Y + cp.R]];
   if (!opt.export && v.zoomBox) avoid.push(v.zoomBox);
   drawPlaces(c, v, vw, vh, atlas, INK, HALO, { ...opt, riverSize, avoid }, small);
   if (!opt.export && ui.tool === 'erase') drawSources(c, v);
@@ -1765,15 +1765,16 @@ function drawMap(c, k, vw, vh, v, opt) {
   c.restore();
 
   // neatline
-  c.strokeStyle = opt.frame || INK; c.lineWidth = 1.4; c.strokeRect(X0 - 0.5, Y0 - 0.5, MW + 1, MH + 1);
-  c.lineWidth = 0.7; c.strokeStyle = opt.frame || (atlas ? 'rgba(70,52,30,.7)' : (opt.export ? 'rgba(20,34,43,.6)' : 'rgba(20,34,43,.45)'));
+  c.strokeStyle = opt.frame || INK; c.lineWidth = 1.4 * u; c.strokeRect(X0 - 0.5 * u, Y0 - 0.5 * u, MW + u, MH + u);
+  c.lineWidth = 0.7 * u; c.strokeStyle = opt.frame || (atlas ? 'rgba(70,52,30,.7)' : (opt.export ? 'rgba(20,34,43,.6)' : 'rgba(20,34,43,.45)'));
   if (opt.frame) c.globalAlpha = 0.6;
-  c.strokeRect(X0 - 4.5, Y0 - 4.5, MW + 9, MH + 9); c.globalAlpha = 1;
+  c.strokeRect(X0 - 4.5 * u, Y0 - 4.5 * u, MW + 9 * u, MH + 9 * u); c.globalAlpha = 1;
 
   if (!opt.export) drawCursor(c, v);
   if (!opt.export && mapKeys && document.activeElement === canvas) drawMiddle(c, vw, vh);
-  drawCompass(c, CX, CY, CR, INK, HALO);
+  drawCompass(c, cp.X, cp.Y, cp.R, INK, HALO);
   drawScale(c, sb, INK, HALO);
+  furniture[opt.export ? 'image' : 'screen'] = { size: [vw, vh], compass: cp.R, scale: [sb.X - 6 * u, sb.top, sb.right, sb.bottom], scaleText: 10.5 * u, leagues: sb.lg, km: sb.km };
 }
 // On a small map, trees, reeds and dunes would sit closer than they are wide and run into a solid mat (on a phone's
 // whole map they were 1.9 px apart, 3 px across), so only a share of them is drawn, enough to keep them about 5 px
@@ -1905,6 +1906,8 @@ function nameObstacles(c, v, atlas, opt) {
 // name it placed, on the screen and on the last saved image, for terra.names.
 let selName = null;
 const placedNames = { screen: [], image: [], screenMarks: [], imageMarks: [] };
+// The compass and scale bar as drawMap last drew them on screen and on the saved image, for terra.furniture.
+const furniture = { screen: null, image: null };
 // Each place's symbol, then its name. Names are given their spots before any is drawn, in order of rank (capitals
 // first, then the selected place, then cities, towns, landmarks and villages, the more people first): to the right
 // of the symbol, or else to the left, above, below or at a corner, wherever the name is clear of the names and symbols
@@ -2077,40 +2080,51 @@ function drawMiddle(c, vw, vh) {
 }
 function drawCompass(c, X, Y, R, ink, halo) {
   c.save(); c.translate(X, Y);
-  c.beginPath(); c.arc(0, 0, R * 0.78, 0, Math.PI * 2); c.fillStyle = halo; c.fill(); c.lineWidth = 0.8; c.strokeStyle = ink; c.stroke();
+  const f = R / 21;
+  c.beginPath(); c.arc(0, 0, R * 0.78, 0, Math.PI * 2); c.fillStyle = halo; c.fill(); c.lineWidth = 0.8 * f; c.strokeStyle = ink; c.stroke();
   for (let k = 7; k >= 0; k--) {
     const a = k * Math.PI / 4 - Math.PI / 2, long = k % 2 === 0, r1 = long ? R : R * 0.58, w = R * (long ? 0.17 : 0.13);
     const tx = Math.cos(a) * r1, ty = Math.sin(a) * r1, lx = Math.cos(a - Math.PI / 2) * w, ly = Math.sin(a - Math.PI / 2) * w;
     c.beginPath(); c.moveTo(0, 0); c.lineTo(tx, ty); c.lineTo(lx, ly); c.closePath(); c.fillStyle = ink; c.fill();
-    c.beginPath(); c.moveTo(0, 0); c.lineTo(tx, ty); c.lineTo(-lx, -ly); c.closePath(); c.fillStyle = halo; c.fill(); c.lineWidth = 0.7; c.strokeStyle = ink; c.stroke();
+    c.beginPath(); c.moveTo(0, 0); c.lineTo(tx, ty); c.lineTo(-lx, -ly); c.closePath(); c.fillStyle = halo; c.fill(); c.lineWidth = 0.7 * f; c.strokeStyle = ink; c.stroke();
   }
-  c.font = `${13}px ${F_SC}`; c.textAlign = 'center'; c.textBaseline = 'bottom';
-  haloText(c, 'N', 0, -R - 1, ink, halo, 3);
+  c.font = `${Math.max(10, 13 * f)}px ${F_SC}`; c.textAlign = 'center'; c.textBaseline = 'bottom';
+  haloText(c, 'N', 0, -R - f, ink, halo, 3 * f);
   c.restore();
 }
-// Where the scale bar goes in the map's bottom-left corner, how long it is, and the box painted behind it. The box
-// takes about 30% of the map's width at most (of the screen's, vw, once zoomed in past it), showing the first step
-// when no step fits, though the bar is never so short that its length, written centred on its end, sticks out of the
-// box. The 0 at its start is left out when the length would run into it. 10.5px IBM Plex Mono is 6.3px a letter.
+// Where the scale bar goes in the map's bottom-left corner, how long it is, and the box painted behind it: leagues
+// above the bar, the same length in km below it. The box takes about 30% of the map's width at most (of the screen's,
+// vw, once zoomed in past it), showing the first step when no step fits, though the bar is never so short that its
+// length, written centred on its end, sticks out of the box. The 0 at its start is left out when the length would run
+// into it. 10.5px IBM Plex Mono is 6.3px a letter. u is the size of a pixel: 1 on screen, more on the saved image, so
+// the bar is as big a share of the picture whatever its size.
 const SCALE_STEPS = [5, 10, 20, 25, 50, 100, 150, 200, 250, 300, 500, 1000];
-function scaleBar(X0, Y0, MH, MW, s, vh, vw) {
-  const X = Math.max(16, X0 + 14), Y = Math.min(vh - 18, Y0 + MH - 16), ppl = s * LEAGUE / KM, maxLen = Math.min(150, Math.min(MW, vw) * 0.3 - 62);
-  const half = n => (String(n).length + 8) * 3.15; // half the width of "N leagues"
+function scaleBar(X0, Y0, MH, MW, s, vh, vw, u = 1) {
+  const X = Math.max(16 * u, X0 + 14 * u), Y = Math.min(vh - 26 * u, Y0 + MH - 24 * u), ppl = s * LEAGUE / KM, maxLen = Math.min(150 * u, Math.min(MW, vw) * 0.3 - 62 * u);
+  const half = n => (String(n).length + 8) * 3.15 * u; // half the width of "N leagues"
   let k = 0; while (k + 1 < SCALE_STEPS.length && SCALE_STEPS[k + 1] * ppl <= maxLen) k++;
-  while (k + 1 < SCALE_STEPS.length && SCALE_STEPS[k] * ppl < half(SCALE_STEPS[k]) - 4) k++;
+  while (k + 1 < SCALE_STEPS.length && SCALE_STEPS[k] * ppl < half(SCALE_STEPS[k]) - 4 * u) k++;
   const lg = SCALE_STEPS[k], len = lg * ppl;
-  return { X, Y, lg, len, zero: len - half(lg) >= 7.3, top: Y - 22, bottom: Y + 8, right: X - 6 + len + 62 };
+  return { X, Y, lg, len, u, km: `${fmtInt(lg * LEAGUE)} km`, zero: len - half(lg) >= 7.3 * u, top: Y - 19 * u, bottom: Y + 16 * u, right: X - 6 * u + len + 62 * u };
 }
 function drawScale(c, sb, ink, halo) {
-  const { X, Y, lg, len } = sb, seg = len / 4;
+  const { X, Y, lg, len, u } = sb, seg = len / 4;
   c.save();
-  c.fillStyle = halo; c.fillRect(X - 6, Y - 22, len + 62, 30);
-  for (let k = 0; k < 4; k++) { c.fillStyle = k % 2 ? halo : ink; c.fillRect(X + k * seg, Y - 3, seg, 5); }
-  c.lineWidth = 1; c.strokeStyle = ink; c.strokeRect(X + 0.5, Y - 2.5, len, 5);
-  c.font = `10.5px ${F_MONO}`; c.fillStyle = ink; c.textBaseline = 'bottom'; c.textAlign = 'left';
-  if (sb.zero) c.fillText('0', X - 2, Y - 6);
-  c.textAlign = 'center'; c.fillText(`${lg} leagues`, X + len, Y - 6);
+  c.fillStyle = halo; c.fillRect(X - 6 * u, sb.top, sb.right - X + 6 * u, sb.bottom - sb.top);
+  for (let k = 0; k < 4; k++) { c.fillStyle = k % 2 ? halo : ink; c.fillRect(X + k * seg, Y - 3 * u, seg, 5 * u); }
+  c.lineWidth = u; c.strokeStyle = ink; c.strokeRect(X + 0.5 * u, Y - 2.5 * u, len, 5 * u);
+  c.font = `${10.5 * u}px ${F_MONO}`; c.fillStyle = ink; c.textBaseline = 'bottom'; c.textAlign = 'left';
+  if (sb.zero) c.fillText('0', X - 2 * u, Y - 5 * u);
+  c.textAlign = 'center'; c.fillText(`${lg} leagues`, X + len, Y - 5 * u);
+  c.font = `${9.5 * u}px ${F_MONO}`; c.textBaseline = 'top'; c.fillText(sb.km, X + len, Y + 4 * u);
   c.restore();
+}
+// The compass in the map's top-right corner: its middle and its radius. On the saved image it grows with the picture;
+// on screen it shrinks with a short map, down to half (a phone's whole map is about 170 px tall, and at full size the
+// compass and its N took a third of it).
+function compassAt(X0, Y0, MW, MH, vw, vh, u = 1) {
+  const R = 21 * (u > 1 ? u : clamp(Math.min(MH, vh) / 400, 0.5, 1));
+  return { X: Math.min(vw - R * 2.2, X0 + MW - R * 1.9), Y: Math.max(R * 2.2, Y0 + R * 2), R };
 }
 
 // ------------------------------------------------------------------ view
@@ -3693,6 +3707,7 @@ function syncWorldTab() {
   $('#wSeed').value = world.seed; if (!SHAPES[world.shape].blank) $('#wShape').value = world.shape; $('#wSea').value = world.sea;
   $('#wSeaOut').textContent = `${Math.round(landShare() * 100)}% of the map is land`;
   for (const k of ['realms', 'rivers', 'roads', 'labels', 'names', 'grid']) $('#ly' + k[0].toUpperCase() + k.slice(1)).checked = ui.layers[k];
+  $('#wPngLarge').checked = ui.pngLarge;
   $('#styleTerrain').setAttribute('aria-pressed', String(ui.style === 'terrain')); $('#styleAtlas').setAttribute('aria-pressed', String(ui.style === 'atlas'));
   renderWorlds(); syncFileNote(); renderMapKey();
 }
@@ -3733,11 +3748,13 @@ async function saveFile(name, data, done) {
   try { await dl.save({ filename: name, data }); toast(done); return true; }
   catch (e) { const c = e && e.code; if (c === 'declined') return false; toast(c === 'rate_limited' ? 'A save is already waiting for your answer.' : 'The file could not be saved here.'); return false; }
 }
-// The whole map at S pixels per cell: what Save map image saves, with every name (or only capitals and cities).
-function renderMapImage(S = 4, allNames = true) {
-  const M = Math.round(S * 7.5), cw = W * S + M * 2, ch = H * S + M * 2;
-  const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
-  drawMap(cv.getContext('2d'), 1, cw, ch, { s: S, ox: M, oy: M, s0: allNames ? S / 2 : S }, { plate: ui.style === 'atlas' ? '#E9DFC6' : '#DCE3E5', export: true, allNames });
+// The whole map at S pixels per cell: what Save map image saves, with every name (or only capitals and cities). The
+// compass, scale bar and frame grow with S, at their screen size when S is 2. Large draws all of it at twice the
+// pixels (3,960 by 2,520 at S 4), for printing.
+function renderMapImage(S = 4, allNames = true, o = {}) {
+  const M = Math.round(S * 7.5), cw = W * S + M * 2, ch = H * S + M * 2, k = o.large ? 2 : 1;
+  const cv = document.createElement('canvas'); cv.width = cw * k; cv.height = ch * k;
+  drawMap(cv.getContext('2d'), k, cw, ch, { s: S, ox: M, oy: M, s0: allNames ? S / 2 : S }, { plate: ui.style === 'atlas' ? '#E9DFC6' : '#DCE3E5', export: true, allNames, unit: S / 2 });
   return cv;
 }
 async function saveWorldFile() {
@@ -3758,7 +3775,7 @@ function keepStorage() {
   if (installed && navigator.storage && navigator.storage.persist) navigator.storage.persisted().then(p => p || navigator.storage.persist()).catch(() => { });
 }
 function savePng() {
-  const cv = renderMapImage(4);
+  const cv = renderMapImage(4, true, { large: ui.pngLarge });
   cv.toBlob(blob => { if (blob) saveFile(slug() + '.png', blob, 'Map image saved.'); else toast('The image could not be made.'); }, 'image/png');
 }
 // Found new realms (the World tab's button, and the welcome's on land with no places yet): a fresh set of realms and
@@ -3817,6 +3834,7 @@ function bindWorldTab() {
   for (const k of ['realms', 'rivers', 'roads', 'labels', 'names', 'grid']) $('#ly' + k[0].toUpperCase() + k.slice(1)).onchange = e => { ui.layers[k] = e.target.checked; requestDraw(); savePrefs(); };
   $('#wSaveFile').onclick = saveWorldFile;
   $('#wSavePng').onclick = savePng;
+  $('#wPngLarge').onchange = e => { ui.pngLarge = e.target.checked; savePrefs(); };
   // Exactly the text that was kept, which may not open here at all; storage is left as it is.
   // Once it has been downloaded, it can go from this browser.
   $('#wOldSaveLink').onclick = async () => { const s = keptAside(); if (s === null) { syncOldSave(); return; } if (await saveFile('terra-incognita-old-save.json', s, 'Old save downloaded.')) $('#wOldSaveDrop').hidden = false; };
@@ -4047,18 +4065,21 @@ window.terra = {
   realmInks: () => ['terrain', 'atlas'].flatMap(st => REALM_COLORS.map(c => ({ style: st, color: c, ...realmInk(c, st === 'atlas') }))),
   // The brush's ring as last drawn, in CSS pixels on the map, or null when none shows.
   ring: () => ringShown && { ...ringShown },
-  mapImage: (S = 2, allNames = true) => renderMapImage(S, allNames).toDataURL('image/png'),
+  mapImage: (S = 2, allNames = true, o = {}) => renderMapImage(S, allNames, o).toDataURL('image/png'),
   // The place names the map last drew (where 'screen') or the last map image drew ('image'): each name, its place's id
   // and kind, which side of its symbol it went and its box [left, top, right, bottom] in pixels; and each symbol's box.
+  // The compass and scale bar as last drawn on screen ('screen') or on the last map image ('image'): the picture's size
+  // in CSS pixels, the compass's radius, the scale bar's box, the size of its lettering, and the length it marks.
+  furniture: (where = 'screen') => furniture[where] && JSON.parse(JSON.stringify(furniture[where])),
   nameSpots: (where = 'screen') => ({ names: placedNames[where].map(n => ({ ...n, box: n.box.slice() })), marks: placedNames[where + 'Marks'].map(m => ({ ...m, box: m.box.slice() })) }),
   // What lies at a map cell: its height against sea level (below zero in the sea), whether it holds a lake or a river,
   // its rain (m, 0 to 1, and rain, in mm a year), its kind of land, its height in metres (a lake's surface on a lake) and
   // its mean temperature.
   cell: (x, y) => { const i = cellAt(x, y); return { h: world.h[i] - world.sea, lake: !!D.lake[i], river: !!D.isR[i], m: world.m[i], rain: precip(i), kind: BIOME_NAME[D.biome[i]], elev: surfaceM(i), temp: D.temp[i] }; },
-  // Where the scale bar's box, the sea names, the realms' names and every label sit on the screen,
+  // Where the scale bar's box, the compass, the sea names, the realms' names and every label sit on the screen,
   // as drawn: [left, top, right, bottom] in CSS pixels.
   boxes: () => {
-    const s = view.s, sb = scaleBar(view.ox, view.oy, H * s, W * s, s, view.ch, view.cw), seas = [];
+    const s = view.s, sb = scaleBar(view.ox, view.oy, H * s, W * s, s, view.ch, view.cw), cp = compassAt(view.ox, view.oy, W * s, H * s, view.cw, view.ch), seas = [];
     for (const l of world.labels) {
       const fs = labelSize(l, view); if (l.kind !== 'sea' || fs < 6) continue;
       const st = labelStyle(l, ui.style === 'atlas'); ctx.save(); ctx.font = `${st.font} ${fs}px ${st.face}`; ctx.letterSpacing = `${(fs * st.sp).toFixed(1)}px`;
@@ -4080,7 +4101,7 @@ window.terra = {
       ctx.save(); ctx.font = `${sz}px ${F_SC}`; ctx.letterSpacing = `${(sz * 0.26).toFixed(1)}px`; const w = ctx.measureText(r.name).width; ctx.restore();
       const X = view.ox + r.lx * s, Y = view.oy + r.ly * s; realms.push([X - w / 2, Y - sz * 0.6, X + w / 2, Y + sz * 0.6]);
     }
-    return { scale: [sb.X - 6, sb.top, sb.right, sb.bottom], seas, realms, labels };
+    return { scale: [sb.X - 6, sb.top, sb.right, sb.bottom], compass: [cp.X - cp.R, cp.Y - cp.R * 1.7, cp.X + cp.R, cp.Y + cp.R], seas, realms, labels };
   },
   // What a seed and shape generated, to tell when that changes: the first 12 hex of the sha1 of the saved heights, of
   // the saved rainfall, and of the place names and label texts.

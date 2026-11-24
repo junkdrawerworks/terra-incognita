@@ -29,7 +29,9 @@ and sea stop them. Every town has a page for its story.
   and every river has a name of its own, which it keeps as you reshape the land (*Rename* on a place's River line gives
   it one of yours); where water can't get out it pools into a lake.
 - **Climate from where it lies and how high.** Cold in the north, warm in the south, 6.5 °C cooler for every kilometre up, and
-  rainfall in millimetres a year, less where the air is too cold to carry much. Fourteen kinds of land, from ice sheet to jungle.
+  rainfall in millimetres a year, less where the air is too cold to carry much. In a generated world the rain comes in
+  on a west wind, so a range is wet on its west side and leaves dry land behind it. Fourteen kinds of land, from ice
+  sheet to jungle.
 - **Realms.** A capital claims the land around it until hills, deserts and sea make going further too costly, and its
   towns push the border out. Each realm has its own tongue, so towns founded inside it sound like they belong there.
 - **Places.** Tap any town or patch of ground to see its elevation, climate, nearest neighbour and local

@@ -68,6 +68,23 @@ const page = watch(await ctx.newPage());
 const S = (fn, arg) => page.evaluate(fn, arg);
 const state = () => S(() => window.terra.state());
 const ok = (cond, msg) => { assert.ok(cond, msg); console.log('  ok  ' + msg); };
+// Run in the page: a spot on the open world's biggest river, 30 to 45 cells from its mouth as the crow flies (or as far
+// as it reaches), and the river's name; and from there, where a short river drawn 20 cells long would start on higher,
+// dry ground and run down into it.
+const bigRiverSpot = () => {
+  const r = window.terra.rivers()[0]; let best = null, bd = -Infinity;
+  for (let y = 0; y < 300; y++) for (let x = 0; x < 480; x++) {
+    if (!window.terra.cell(x + 0.5, y + 0.5).river || window.terra.riverAt(x + 0.5, y + 0.5) !== r.name) continue;
+    const d = Math.hypot(x - r.x, y - r.y), score = d <= 45 ? d : 90 - d;
+    if (score > bd) { bd = score; best = { x: x + 0.5, y: y + 0.5 }; }
+  }
+  const here = window.terra.cell(best.x, best.y);
+  for (let a = 0; a < 16; a++) {
+    const x = best.x + Math.cos(a / 8 * Math.PI + Math.PI / 4) * 20, y = best.y + Math.sin(a / 8 * Math.PI + Math.PI / 4) * 20, c = window.terra.cell(x, y);
+    if (c.h >= 0 && !c.lake && !window.terra.riverNear(x, y, 3) && c.elev > here.elev + 50) return { ...best, name: r.name, from: { x, y } };
+  }
+  return { ...best, name: r.name, from: null };
+};
 
 // Drags along a path given in map cells (the map is 480 x 300 cells).
 async function drag(points, steps = 6, pg = page) {
@@ -429,23 +446,28 @@ const eyebrowLine = await desk.evaluate(() => {
 });
 ok(Math.abs(eyebrowLine.swatch - eyebrowLine.name) <= 4 && eyebrowLine.showTop - eyebrowLine.eyebrowTop < 12, `a realm's colour stays beside its name on a capital's page (${JSON.stringify(eyebrowLine)})`);
 
-// The Codex finds the names on the map as well as places, and words in a place's notes: a sea ("Lainho", from the Sea
-// of Lainho), a range ("Pol Teeth") and a word typed in a note each turn up, the note with its words around the match
-// and a pen beside the place's name. A label found there opens its page.
+// The Codex finds the names on the map as well as places, and words in a place's notes: a sea (by the word that names
+// it: 'Lainho', from the Sea of Lainho), a range ('pol teeth', from the Pol Teeth) and a word typed in a note each turn
+// up, the note with its words around the match and a pen beside the place's name. A label found there opens its page.
 {
+  const named = await desk.evaluate(() => window.terra.labels());
+  const seaName = named.find((l) => l.kind === 'sea').text, rangeName = named.find((l) => l.kind === 'range').text;
+  const seaWord = seaName.split(' ').filter((w) => !/^(The|Sea|of|Ocean|Gulf|Sound|Bay)$/.test(w))[0];
+  const rangeWords = rangeName.replace(/^The /, '').toLowerCase();
+  const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const codexRows = (q) => desk.evaluate((q) => { const i = document.getElementById('codexQ'); i.value = q; i.dispatchEvent(new Event('input')); return [...document.querySelectorAll('#codexList .crow')].map((r) => r.textContent); }, q);
   const noted = (await desk.evaluate(() => window.terra.places())).find((p) => p.kind === 'village');
   await desk.evaluate((id) => window.terra.select({ type: 'place', id }), noted.id);
   await desk.fill('#pLore', 'Market on Thursdays. The dragon Vorthax sleeps beneath the hill, and the village keeps its secret.');
   await desk.click('#tab-codex');
-  const sea = await codexRows('Lainho'), range = await codexRows('pol teeth'), lore = await codexRows('vorthax'), nothing = await codexRows('zzqx');
+  const sea = await codexRows(seaWord), range = await codexRows(rangeWords), lore = await codexRows('vorthax'), nothing = await codexRows('zzqx');
   const pen = await desk.evaluate(() => { const i = document.getElementById('codexQ'); i.value = ''; i.dispatchEvent(new Event('input')); return [...document.querySelectorAll('#codexList .crow')].filter((r) => r.querySelector('.noted')).map((r) => r.querySelector('.nm').textContent); });
-  ok(sea.some((t) => /Sea of Lainho\s*Sea or water/.test(t)) && range.some((t) => /The Pol Teeth\s*Mountains/.test(t)) && lore.length === 1 && lore[0].includes(noted.name) && lore[0].includes('dragon Vorthax sleeps')
+  ok(sea.some((t) => new RegExp(`${esc(seaName)}\\s*Sea or water`).test(t)) && range.some((t) => new RegExp(`${esc(rangeName)}\\s*Mountains`).test(t)) && lore.length === 1 && lore[0].includes(noted.name) && lore[0].includes('dragon Vorthax sleeps')
     && nothing.length === 0 && await desk.textContent('#codexList') !== '' && pen.length === 1 && pen[0] === `${noted.name}, has notes` && await desk.getAttribute('#codexQ', 'placeholder') === 'Search places, waters and notes',
     `the Codex finds seas, ranges and notes (${JSON.stringify([sea[0], range[0], lore[0], pen[0]])})`);
-  await codexRows('Lainho');
+  await codexRows(seaWord);
   await desk.click('#codexList .crow[data-label]');
-  ok(await desk.inputValue('#lText') === 'Sea of Lainho', 'and a sea found there opens its label');
+  ok(await desk.inputValue('#lText') === seaName, `and a sea found there opens its label (${seaName})`);
   // Enter in the search opens the one entry found, and with more than one puts the keyboard away (it did nothing, and
   // a phone's keyboard stayed up over half the results).
   await desk.click('#tab-codex');
@@ -574,7 +596,7 @@ ok(rangeOk.envoys > 10 && rangeOk.tolls > 10 && !rangeOk.repeats && !rangeOk.bad
   const setting = (await facts()).Setting;
   ok(setting.startsWith(`On the shore of ${name.replace(/^The /, 'the ')}`) && titled[0] === name && titled[1] === 'Rename this water', `naming the lake from its page names ${shore.name}'s shore ("${setting}")`);
   await desk.click('#btnUndo');
-  // The ocean in the corner is the Sea of Lainho on seed 20417, so its page opens that label to rename it.
+  // The ocean in the corner has a name on seed 20417, so its page opens that label to rename it.
   const sea = await desk.evaluate(() => { window.terra.select({ type: 'loc', x: 2.5, y: 2.5 }); return [document.querySelector('#pane-inspect h2').textContent, document.getElementById('locWater').textContent]; });
   await desk.click('#locWater');
   const seaLabel = await desk.inputValue('#lText');
@@ -835,9 +857,9 @@ const goodsAt = async (list) => { const g = []; for (const [x, y] of list) { con
 const inlandGoods = await goodsAt(cold.inland), coastGoods = await goodsAt(cold.coast);
 ok(cold.inland.length >= 10 && inlandGoods.every(([s, g]) => (s.startsWith('Inland') || s.startsWith('On a lake shore')) && !/walrus|whale/.test(g)), `tundra and ice sheet inland list no walrus ivory or whale oil (${cold.inland.length} spots: ${[...new Set(inlandGoods.flatMap(([, g]) => g.split(', ')))].join(', ')})`);
 ok(coastGoods.some(([s, g]) => s.startsWith('On the coast') && /walrus|whale/.test(g)) && coastGoods.every(([, g]) => !/pearls/.test(g)), 'a cold coast can list them, and no pearls');
-const ninten = await M(() => window.terra.places().find((p) => p.name === 'Ninten').id);
-await M((id) => window.terra.select({ type: 'place', id }), ninten);
-ok(await row('Elevation') === 'At sea level', `a coastal capital a few metres up reads At sea level (Ninten: "${await row('Elevation')}")`);
+const lowSpot = await M(() => { for (let y = 10.5; y < 290; y++) for (let x = 10.5; x < 470; x++) { const c = window.terra.cell(x, y); if (c.h >= 0 && !c.lake && c.elev > 0.5 && c.elev < 4) return { x, y, elev: c.elev }; } return null; });
+await M((w) => window.terra.select({ type: 'loc', x: w.x, y: w.y }), lowSpot);
+ok(await row('Elevation') === 'At sea level', `a spot on the coast a few metres up reads At sea level (${lowSpot.elev.toFixed(1)} m: "${await row('Elevation')}")`);
 
 // An island with a sea inside it: a town on the inner sea is on the coast of that sea, not the ocean outside, even
 // when the ocean's name is the only one on the map.
@@ -919,6 +941,39 @@ ok(covered.length === 0, 'sea names stay clear of the scale bar' + (covered.leng
   await c.close();
 }
 
+// A generated world's rain comes in on a west wind, so a range has a wet side facing it and a dry side behind it: low
+// ground just east of high mountains gets less rain than low ground just west of them. It got more in two of these
+// (20417: 2,004 mm behind against 1,447 facing the wind). Every kind of land the README counts still turns up.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const out = [], kinds = new Set();
+  for (const [seed, shape] of [[20417, 'continent'], [222, 'continent'], [15939, 'twin'], [950281, 'inland']]) {
+    const r = await pg.evaluate(([seed, shape]) => {
+      window.terra.newWorld(seed, shape);
+      const W = 480, H = 300, g = [], kinds = new Set();
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) g.push(window.terra.cell(x + 0.5, y + 0.5));
+      const lee = [0, 0], wind = [0, 0];
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const c = g[y * W + x]; if (c.h < 0 || c.lake) continue;
+        kinds.add(c.kind); if (c.elev >= 600) continue;
+        let west = false, east = false;
+        for (let d = 2; d <= 12; d++) { if (x - d >= 0 && g[y * W + x - d].elev > 2000) west = true; if (x + d < W && g[y * W + x + d].elev > 2000) east = true; }
+        if (west && !east) { lee[0]++; lee[1] += c.rain; } else if (east && !west) { wind[0]++; wind[1] += c.rain; }
+      }
+      return { lee: lee[1] / lee[0], wind: wind[1] / wind[0], kinds: [...kinds] };
+    }, [seed, shape]);
+    r.kinds.forEach((k) => kinds.add(k));
+    out.push([seed, Math.round(r.lee), Math.round(r.wind)]);
+  }
+  const said = (await readFile(join(root, 'README.md'), 'utf8')).match(/(\w+) kinds of land/)[1];
+  const all = JSON.parse((await readFile(join(root, 'js/app.js'), 'utf8')).match(/const BIOME_NAME = (\[[^\]]*\])/)[1].replace(/'/g, '"')).filter((b) => b !== 'Open sea' && b !== 'Lake');
+  ok(out.every(([, lee, wind]) => lee < wind * 0.85), `low ground behind a range is drier than low ground facing the wind (${out.map(([s, l, w]) => `${s}: ${l} against ${w} mm`).join(', ')})`);
+  ok(all.every((k) => kinds.has(k)), `and all ${said.toLowerCase()} kinds of land turn up in those worlds (${all.filter((k) => !kinds.has(k)).join(', ') || 'none missing'})`);
+  await c.close();
+}
+
 // The map prints no latitudes or longitudes, on the map, on a place's page or under the pointer: the climate runs from
 // ice sheet to jungle over 3,000 km, and the numbers put a frozen north at 55°N, where Denmark is.
 {
@@ -947,23 +1002,32 @@ await M(() => { const r = document.getElementById('wSea'); r.value = String(+r.v
 const risen = await inWater(), riseToast = await map.textContent('#toast span');
 await map.click('#toast button');
 ok(risen.length > 1 && riseToast === `The sea rose over ${risen.length} places.` && (await inWater()).length === 0, `raising the sea says how many places it covered, and Undo brings them back ("${riseToast}")`);
+// A town near the coast with no other place within 9 cells, for a Sea loop round it, and the lowest of the other towns
+// on their own, for Lower.
+const lone = await M(() => {
+  const ps = window.terra.places(), alone = (p) => ps.every((q) => q === p || Math.hypot(q.x - p.x, q.y - p.y) > 9);
+  const nearSea = (p) => { for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) if (window.terra.cell(p.x + dx, p.y + dy).h < 0) return true; return false; };
+  const towns = ps.filter((p) => p.kind !== 'capital' && p.kind !== 'landmark' && alone(p) && p.x > 12 && p.x < 468 && p.y > 12 && p.y < 288);
+  const shore = towns.find(nearSea), elev = (p) => window.terra.cell(p.x, p.y).elev;
+  return { shore, low: towns.filter((p) => p !== shore).sort((a, b) => elev(a) - elev(b))[0] };
+});
 await map.keyboard.press('p');
 await map.click('.chip[data-v="sea"]');
-const krar = []; for (let k = 0; k <= 12; k++) krar.push([401.5 + Math.cos(k * Math.PI / 6) * 6, 235.5 + Math.sin(k * Math.PI / 6) * 6]);
+const krar = []; for (let k = 0; k <= 12; k++) krar.push([lone.shore.x + Math.cos(k * Math.PI / 6) * 6, lone.shore.y + Math.sin(k * Math.PI / 6) * 6]);
 await drag(krar, 4, map);
 const floodToast = await map.textContent('#toast span'), flooded = await inWater();
 await map.click('#toast button');
 await map.keyboard.press('l');
 await M(() => { for (const [id, v] of [['optSize', '6'], ['optStr', '10']]) { const r = document.getElementById(id); r.value = v; r.dispatchEvent(new Event('input')); } });
 await M(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-const brushAt = await map.locator('#map').boundingBox(), naeino = await M(() => window.terra.toScreen(124.5, 205.5));
+const brushAt = await map.locator('#map').boundingBox(), naeino = await M((p) => window.terra.toScreen(p.x, p.y), lone.low);
 await map.mouse.move(brushAt.x + naeino.x, brushAt.y + naeino.y);
 await map.mouse.down();
 for (let k = 0; k < 8; k++) { await map.mouse.move(brushAt.x + naeino.x + (k % 2 ? 2 : -2), brushAt.y + naeino.y); await map.waitForTimeout(60); }
 await map.mouse.up();
 await map.waitForTimeout(300);
 const brushToast = await map.textContent('#toast span'), lowered = await inWater();
-ok(flooded.join() === 'Krar' && floodToast === 'Flooded. The sea rose over Krar.' && lowered.join() === 'Naeino' && brushToast === 'Naeino is under water now.', `so do a Sea sketch and a brush ("${floodToast}", "${brushToast}")`);
+ok(flooded.join() === lone.shore.name && floodToast === `Flooded. The sea rose over ${lone.shore.name}.` && lowered.join() === lone.low.name && brushToast === `${lone.low.name} is under water now.`, `so do a Sea sketch and a brush ("${floodToast}", "${brushToast}")`);
 await map.context().close();
 
 // The README counts the kinds of land the map can show.
@@ -1199,11 +1263,11 @@ await oldCtx.close();
   await pg.goto(base);
   const changed = [];
   for (const [seed, shape, h, m, names] of [
-    [20417, 'continent', '8b20efbd125e', '512fcd5bb05c', 'f39ec175df17'],
-    [96298, 'continent', '736cd99437ab', 'cd459cbe598b', '8b2ab68b79c8'],
-    [950281, 'inland', '7ff144f0176e', '02cd964ad9ee', '5fcab7c3aa94'],
-    [857490, 'twin', '548a8b21cd78', 'be8627ced63b', '7894f8463569'],
-    [645278, 'inland', '358737c747f0', '14173dbaa8f3', 'c61fc9ca5499'],
+    [20417, 'continent', '8b20efbd125e', '5a1b133e1280', 'e4f78b0c12b5'],
+    [96298, 'continent', '736cd99437ab', '0b2596e96d31', '3c50d99221c1'],
+    [950281, 'inland', '7ff144f0176e', '1afc775afd2b', '4007ff4a1d91'],
+    [857490, 'twin', '548a8b21cd78', '2731c0e3d4f3', '95b2e535c260'],
+    [645278, 'inland', '358737c747f0', '049431645c33', 'bf8eae96f053'],
   ]) {
     const f = await pg.evaluate(([seed, shape]) => { window.terra.newWorld(seed, shape); return window.terra.fingerprint(); }, [seed, shape]);
     if (f.h !== h || f.m !== m || f.names !== names) changed.push(`${seed} ${shape}: h ${f.h}, m ${f.m}, names ${f.names}`);
@@ -1272,7 +1336,7 @@ await oldCtx.close();
   const pg = watch(await c.newPage());
   await pg.goto(base);
   await pg.evaluate(() => window.terra.newWorld(20417, 'continent'));
-  const riiel = await pg.evaluate(() => window.terra.places().find((p) => p.name === 'Riiel').id);
+  const { id: riiel, name: riielName } = await pg.evaluate(() => window.terra.places().find((p) => p.kind === 'capital'));
   await pg.evaluate((id) => window.terra.select({ type: 'place', id }), riiel);
   const realm = () => pg.evaluate(() => ({ name: document.getElementById('rName')?.value, title: document.getElementById('rTitle')?.value, color: document.querySelector('[data-color][aria-pressed=true]')?.dataset.color, realms: window.terra.state().realms }));
   const before = await realm();
@@ -1289,7 +1353,7 @@ await oldCtx.close();
   // settlements went, one fewer than its page counted, since the capital itself is gone.
   await pg.click('#pDelete');
   const removed = await pg.textContent('#toast span');
-  ok(new RegExp(`^Removed Riiel\\. The ${before.title} of ${before.name} is no longer a realm\\. (Its ${settlements - 1} other settlements now belong to|Of its ${settlements - 1} other settlements, )`).test(removed) && (await realm()).realms === before.realms - 1, `removing a capital says its realm is no more, and where its other settlements went ("${removed}")`);
+  ok(new RegExp(`^Removed ${riielName}\\. The ${before.title} of ${before.name} is no longer a realm\\. (Its ${settlements - 1} other settlements now belong to|Of its ${settlements - 1} other settlements, )`).test(removed) && (await realm()).realms === before.realms - 1, `removing a capital says its realm is no more, and where its other settlements went ("${removed}")`);
   await pg.click('#toast button');
   await pg.evaluate((id) => window.terra.select({ type: 'place', id }), riiel);
   const pop = () => pg.evaluate(() => { const dd = [...document.querySelectorAll('#pane-inspect .facts dd')].find((d) => d.previousElementSibling.textContent === 'Population'); return dd ? +dd.textContent.replace(/[~,]/g, '') : 0; });
@@ -1308,7 +1372,7 @@ await oldCtx.close();
   const pg = watch(await c.newPage());
   await pg.goto(base);
   await pg.evaluate(() => document.fonts.ready);
-  const nin = await pg.evaluate(() => window.terra.places().find((p) => p.name === 'Ninten'));
+  const nin = await pg.evaluate(() => window.terra.places().find((p) => p.kind === 'capital'));
   await pg.evaluate((p) => { window.terra.centerOn(p.x, p.y); window.terra.select({ type: 'place', id: p.id }); }, nin);
   // Pixels of the ring's colour where its right side crosses the name's first letters.
   const ringShows = () => pg.evaluate(async (p) => {
@@ -1356,7 +1420,7 @@ await oldCtx.close();
   const pg = watch(await c.newPage());
   await pg.goto(base);
   await pg.evaluate(() => window.terra.newWorld(20417, 'continent'));
-  const nin = await pg.evaluate(() => window.terra.places().find((p) => p.name === 'Ninten'));
+  const nin = await pg.evaluate(() => window.terra.places().find((p) => p.kind === 'capital'));
   await pg.evaluate((id) => window.terra.select({ type: 'place', id }), nin.id);
   await pg.focus('#pReroll');
   await pg.keyboard.press('Backspace');
@@ -1376,15 +1440,15 @@ await oldCtx.close();
   const pg = watch(await c.newPage());
   await pg.goto(base);
   await pg.evaluate(() => window.terra.newWorld(20417, 'continent'));
-  const nin = await pg.evaluate(() => window.terra.places().find((p) => p.name === 'Ninten'));
+  const nin = await pg.evaluate(() => window.terra.places().find((p) => p.kind === 'capital'));
   await pg.evaluate((id) => window.terra.select({ type: 'place', id }), nin.id);
-  const heading = await pg.getByRole('heading', { level: 2, name: 'Ninten', exact: true }).count();
+  const heading = await pg.getByRole('heading', { level: 2, name: nin.name, exact: true }).count();
   await pg.focus('#pName'); await pg.keyboard.press('End'); await pg.keyboard.type(' Vale');
-  const typed = await pg.getByRole('heading', { level: 2, name: 'Ninten Vale', exact: true }).count();
+  const typed = await pg.getByRole('heading', { level: 2, name: `${nin.name} Vale`, exact: true }).count();
   const fields = await pg.evaluate(() => [...document.querySelectorAll('#pane-inspect label')].map((l) => l.textContent).filter((t) => /name/i.test(t)));
   await pg.click('#tab-codex');
   const groups = await pg.evaluate(() => [document.querySelectorAll('#codexList h3').length, document.querySelectorAll('#codexList .clist').length]);
-  const row = await pg.getByRole('button', { name: /^Ninten Vale Capital · [\d,]+ people$/ }).count();
+  const row = await pg.getByRole('button', { name: new RegExp(`^${nin.name} Vale Capital · [\\d,]+ people$`) }).count();
   ok(heading === 1 && typed === 1 && JSON.stringify(fields) === '["Name","Realm name"]' && groups[0] === groups[1] && groups[0] > 3 && row === 1,
     `a place's page has its name for a heading, kept in step as it is typed, its realm's field is Realm name, and the Codex's groups are headings with populations in people (${heading}, ${typed}, ${fields.join(' / ')}, ${groups.join(' of ')} groups, ${row})`);
   await c.close();
@@ -1414,7 +1478,7 @@ await oldCtx.close();
   seen.push(['welcome link', await focused()]);
   await pg.focus('#pane-inspect .facts [data-goto]'); await pg.keyboard.press('Enter');
   seen.push(['nearest link', await focused()]);
-  const nin = await pg.evaluate(() => window.terra.places().find((p) => p.name === 'Ninten'));
+  const nin = await pg.evaluate(() => window.terra.places().find((p) => p.kind === 'capital'));
   await pg.evaluate(([x, y]) => window.terra.select({ type: 'loc', x: x + 6, y: y + 6 }), [nin.x, nin.y]);
   if (await pg.locator('#locTown').count()) { await pg.focus('#locTown'); await pg.keyboard.press('Enter'); seen.push(['found a town', await focused()]); }
   else seen.push(['found a town', 'no button']);
@@ -1717,13 +1781,17 @@ await oldCtx.close();
   await pg.goto(base);
   // The line's text, leaving out its Rename button.
   const row = (k) => pg.evaluate((k) => { const dt = [...document.querySelectorAll('#pane-inspect dt')].find((d) => d.textContent === k); return dt ? dt.nextElementSibling.textContent.replace(/ Rename$/, '') : null; }, k);
-  await pg.evaluate(() => { window.terra.newWorld(20417, 'continent'); window.terra.select({ type: 'loc', x: 262.5, y: 134.5 }); });
+  // A spot on the starting world's biggest river, 30 to 45 cells from its mouth as the crow flies.
+  await pg.evaluate(() => window.terra.newWorld(20417, 'continent'));
+  const spot = await pg.evaluate(bigRiverSpot), big = spot.name;
+  await pg.evaluate((w) => window.terra.select({ type: 'loc', x: w.x, y: w.y }), spot);
+  const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), core = big.replace(/^(River|The) /, '');
   const upstream = await row('River'), setting = await row('Setting');
-  const m = upstream && upstream.match(/^River Pameo flows (north|south|east|west|northeast|northwest|southeast|southwest) and reaches the sea, (\d+) leagues \(([\d,]+) km\) on\. It drains ([\d,]+) km²\.$/);
-  ok(m && +m[2] > 40 && Math.abs(+m[2] * 4.8 - +m[3].replace(/,/g, '')) < +m[3].replace(/,/g, '') * 0.1 && +m[4].replace(/,/g, '') > 100000 && !/River|Pameo/.test(setting), `a spot on a river says which way it flows, how far on it reaches the sea and what it drains, and its Setting leaves the river to that line ("${setting}"; "${upstream}")`);
+  const m = upstream && upstream.match(new RegExp(`^${esc(big)} flows (north|south|east|west|northeast|northwest|southeast|southwest) and reaches the sea, (\\d+) leagues \\(([\\d,]+) km\\) on\\. It drains ([\\d,]+) km²\\.$`));
+  ok(m && +m[2] > 40 && Math.abs(+m[2] * 4.8 - +m[3].replace(/,/g, '')) < +m[3].replace(/,/g, '') * 0.1 && +m[4].replace(/,/g, '') > 100000 && !/River/.test(setting) && !setting.includes(core), `a spot on a river says which way it flows, how far on it reaches the sea and what it drains, and its Setting leaves the river to that line ("${setting}"; "${upstream}")`);
   await pg.click('#pane-inspect [data-mouth]'); await pg.waitForTimeout(200);
   const mouth = await row('River'), sel = await pg.evaluate(() => document.querySelector('#pane-inspect .mono').textContent);
-  ok(/^River Pameo flows \w+ and reaches the sea here\. It drains/.test(mouth) && mouth.endsWith(`${m[4]} km².`), `its name opens the spot at its mouth ("${mouth}", ${sel})`);
+  ok(new RegExp(`^${esc(big)} flows \\w+ and reaches the sea here\\. It drains`).test(mouth) && mouth.endsWith(`${m[4]} km².`), `its name opens the spot at its mouth ("${mouth}", ${sel})`);
   await c.close();
 }
 
@@ -1760,9 +1828,11 @@ await oldCtx.close();
   const reloaded = nearOld(await E(() => window.terra.rivers()))[0];
   ok(undone.name === big.name && undone.x === big.x && reloaded.name === big.name && reloaded.x === moved.x && reloaded.y === moved.y, `Undo, Redo and a reload keep it (${undone.name}, ${reloaded.name})`);
   // A river drawn into it is named as its tributary.
-  await E(() => { window.terra.newWorld(20417, 'continent'); window.terra.centerOn(262.5, 134.5); });
+  await E(() => window.terra.newWorld(20417, 'continent'));
+  const on = await E(bigRiverSpot);
+  await E((w) => window.terra.centerOn(w.x, w.y), on);
   await pg.click('.tool[data-tool="sketch"]'); await pg.click('.chip[data-v="river"]');
-  await drag([[276.6, 148.6], [269.5, 141.5], [262.5, 134.5]], 8, pg);
+  await drag([[on.from.x, on.from.y], [(on.from.x + on.x) / 2, (on.from.y + on.y) / 2], [on.x, on.y]], 8, pg);
   const into = await pg.textContent('#toast span');
   ok(into.startsWith(`Drew a tributary of ${big.name.replace(/^The /, 'the ').replace(/^River /, 'the River ')}.`), `a river drawn into it is called its tributary ("${into}")`);
   await c.close();
@@ -1779,7 +1849,8 @@ await oldCtx.close();
   const E = (fn, arg) => pg.evaluate(fn, arg);
   const row = () => E(() => { const dt = [...document.querySelectorAll('#pane-inspect dt')].find((d) => d.textContent === 'River'); return dt ? dt.nextElementSibling.textContent : null; });
   const rename = async (to) => { await pg.click('#pane-inspect [data-rename]'); await pg.fill('#rvName', to); await pg.keyboard.press('Enter'); await pg.waitForTimeout(200); };
-  await E(() => { window.terra.newWorld(20417, 'continent'); window.terra.select({ type: 'loc', x: 262.5, y: 134.5 }); });
+  await E(() => window.terra.newWorld(20417, 'continent'));
+  await E((w) => window.terra.select({ type: 'loc', x: w.x, y: w.y }), await E(bigRiverSpot));
   const [first, second, third] = await E(() => window.terra.rivers());
   await rename('Silverrun');
   const after = await E(() => [window.terra.rivers()[0], window.terra.riverLabels().map((l) => l.name)]), line = await row();
@@ -1949,9 +2020,12 @@ await oldCtx.close();
   ok(brushed.every(([, changed, other, back]) => changed > 20 && !other && back), `each brush changes the ground or the rain under it, and Undo puts it back (${brushed.map(([t, n]) => `${t} ${n} cells`).join(', ')})`);
   await pg.click('.tool[data-tool="rain"]');
   await E(() => { for (const [id, v] of [['optSize', '6'], ['optStr', '10']]) { const r = document.getElementById(id); r.value = v; r.dispatchEvent(new Event('input')); } });
-  const grass = await E(() => window.terra.cell(121.5, 142.5).kind);
-  for (let k = 0; k < 4; k++) await drag([[117, 142], [126, 142], [117, 142]], 6, pg);
-  const greener = await E(() => window.terra.cell(121.5, 142.5).kind);
+  // Grassland with grassland all round it, away from the map's edges and up from the coast's marshes.
+  const field = await E(() => { for (let y = 20.5; y < 280; y += 2) for (let x = 20.5; x < 460; x += 2) { let all = window.terra.cell(x, y).elev > 150; for (let dy = -4; dy <= 4 && all; dy += 2) for (let dx = -4; dx <= 4 && all; dx += 2) if (window.terra.cell(x + dx, y + dy).kind !== 'Grassland') all = false; if (all) return { x, y }; } return null; });
+  await E((w) => window.terra.centerOn(w.x, w.y), field);
+  const grass = await E((w) => window.terra.cell(w.x, w.y).kind, field);
+  for (let k = 0; k < 4; k++) await drag([[field.x - 4.5, field.y - 0.5], [field.x + 4.5, field.y - 0.5], [field.x - 4.5, field.y - 0.5]], 6, pg);
+  const greener = await E((w) => window.terra.cell(w.x, w.y).kind, field);
   ok(grass === 'Grassland' && /forest/.test(greener), `Wetter turns grassland into forest (${grass}, then ${greener})`);
   await c.close();
 }
@@ -2434,7 +2508,9 @@ await oldCtx.close();
   const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const pg = watch(await c.newPage());
   await pg.goto(base);
-  const stored = () => pg.evaluate(() => { const w = JSON.parse(localStorage.getItem('terra-incognita/world/v1')); return { h: w.h, ninten: w.places[0].x }; });
+  // A place with dry land east of it, to drag a little way east.
+  const k = await pg.evaluate(() => window.terra.places().findIndex((p) => [2, 4, 6, 8].every((d) => { const c = window.terra.cell(p.x + d, p.y); return c.h >= 0 && !c.lake; })));
+  const stored = () => pg.evaluate((k) => { const w = JSON.parse(localStorage.getItem('terra-incognita/world/v1')); return { h: w.h, ninten: w.places[k].x }; }, k);
   const b = await pg.locator('#map').boundingBox();
   const at = async (x, y) => { const p = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), [x, y]); return [b.x + p.x, b.y + p.y]; };
   const before = await stored();
@@ -2446,7 +2522,7 @@ await oldCtx.close();
   const midStroke = await stored();
   await pg.mouse.up();
   await pg.click('.tool[data-tool="select"]');
-  const first = (await pg.evaluate(() => window.terra.places()))[0], f = await at(first.x, first.y);
+  const first = (await pg.evaluate(() => window.terra.places()))[k], f = await at(first.x, first.y);
   await pg.mouse.move(...f); await pg.mouse.down();
   for (let k = 1; k <= 6; k++) await pg.mouse.move(f[0] + k * 6, f[1]);
   await pg.evaluate(() => window.dispatchEvent(new Event('pagehide')));
@@ -2583,7 +2659,7 @@ await oldCtx.close();
   await pg.keyboard.press('v');
   // Select's options are shorter than Sketch's, so the map grows; let it take its new size before finding the town on it.
   await T(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-  const first = (await T(() => window.terra.places()))[0];
+  const first = await T(() => window.terra.places().find((p) => [2, 4, 6, 8].every((d) => { const c = window.terra.cell(p.x + d, p.y); return c.h >= 0 && !c.lake; })));
   const b = await pg.locator('#map').boundingBox(), f = await T(([x, y]) => window.terra.toScreen(x, y), [first.x, first.y]);
   await pg.mouse.move(b.x + f.x, b.y + f.y); await pg.mouse.down();
   for (let k = 1; k <= 6; k++) await pg.mouse.move(b.x + f.x + k * 6, b.y + f.y);

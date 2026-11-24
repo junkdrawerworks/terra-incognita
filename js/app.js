@@ -242,7 +242,41 @@ function generateTerrain(seed, shape) {
     const val = v[i];
     h[i] = val < q ? 0.5 * Math.pow((val - mn) / (q - mn), 0.7) * 0.998 : 0.5 + 0.5 * Math.pow((val - q) / (mx - q), 1.35);
   }
+  rainShadow(h, m);
   return { h, m };
+}
+// A generated world's rain comes in on a west wind. Crossing the sea the air takes up water; over land it gives a
+// little up as it goes, and much more where the ground rises under it, so slopes facing west are wet and the land
+// behind a range lies in its rain shadow, dry. Rain over the land as a whole stays as it was, only moved about.
+// Sketched ranges and the rain brushes leave the rain field as it is.
+function rainShadow(h, m) {
+  const E = new Float32Array(N), q = new Float32Array(N), lift = new Float32Array(N), tmp = new Float32Array(N);
+  for (let i = 0; i < N; i++) E[i] = h[i] >= 0.5 ? MAX_ELEV * Math.pow((h[i] - 0.5) / 0.5, 1.6) : 0;
+  // The ground as the wind feels it, smoothed over about 100 km, so a lone hill doesn't stripe the land behind it.
+  const box = (a, r) => {
+    for (let y = 0; y < H; y++) { let sum = 0; const o = y * W; for (let x = -r; x <= r; x++) sum += a[o + clamp(x, 0, W - 1)]; for (let x = 0; x < W; x++) { tmp[o + x] = sum / (2 * r + 1); sum += a[o + Math.min(W - 1, x + r + 1)] - a[o + Math.max(0, x - r)]; } }
+    for (let x = 0; x < W; x++) { let sum = 0; for (let y = -r; y <= r; y++) sum += tmp[clamp(y, 0, H - 1) * W + x]; for (let y = 0; y < H; y++) { a[y * W + x] = sum / (2 * r + 1); sum += tmp[Math.min(H - 1, y + r + 1) * W + x] - tmp[Math.max(0, y - r) * W + x]; } }
+  };
+  box(E, 5);
+  for (let y = 0; y < H; y++) {
+    let w = 1;
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x, up = x ? Math.max(0, E[i] - E[i - 1]) : 0;
+      if (h[i] < 0.5) w += (1 - w) * 0.1;
+      else { w *= 0.9985 * Math.exp(-up / 1500); }
+      q[i] = w; lift[i] = Math.min(1, up / 60) * w;
+    }
+  }
+  box(q, 3); box(lift, 3);
+  let before = 0, after = 0;
+  const nm = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    if (h[i] < 0.5) continue;
+    nm[i] = m[i] * (0.3 + 0.7 * q[i]) + 0.35 * lift[i];
+    before += m[i]; after += nm[i];
+  }
+  const k = after > 0 ? before / after : 1;
+  for (let i = 0; i < N; i++) if (h[i] >= 0.5) m[i] = clamp(nm[i] * k, 0, 1);
 }
 function computeTN() {
   const nz = makeNoise(world.seed + 99);

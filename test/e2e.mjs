@@ -456,8 +456,8 @@ ok(mf.name === 'Terra Incognita' && mf.short_name === 'Terra' && new URL(mf.id, 
   `the home-screen name is Terra, with a fixed id (${mf.id})` + (appManifest.errors.length ? ': ' + JSON.stringify(appManifest.errors) : ''));
 // Chrome on a phone shows its larger install window, with pictures, once the manifest has a screenshot for a narrow
 // screen (developer.chrome.com/blog/richer-pwa-installation). Each is a picture of the app at its real size, with words
-// for it, within what Chrome takes: 320 to 3,840 px a side, the long side no more than 2.3 times the short, and the
-// same shape for each screen.
+// for it, within what Chrome takes (web.dev/articles/add-manifest, under screenshots): 320 to 3,840 px a side, the long
+// side no more than 2.3 times the short, and the same shape for each screen.
 const shots = (mf.screenshots || []).map((sh) => { const png = readFileSync(join(root, sh.src)); return { ...sh, real: `${png.readUInt32BE(16)}x${png.readUInt32BE(20)}` }; });
 const shapes = new Map(); for (const sh of shots) { const [w, h] = sh.real.split('x').map(Number); (shapes.get(sh.form_factor) || shapes.set(sh.form_factor, new Set()).get(sh.form_factor)).add((w / h).toFixed(3)); }
 ok(shots.some((sh) => sh.form_factor === 'narrow') && shots.some((sh) => sh.form_factor === 'wide') && shots.every((sh) => sh.sizes === sh.real && sh.type === 'image/png' && sh.label && sh.real.split('x').every((v) => v >= 320 && v <= 3840)

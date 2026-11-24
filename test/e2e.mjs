@@ -1339,6 +1339,7 @@ for (const [width, height] of [[844, 390], [667, 375]]) {
   const sidePage = watch(await side.newPage());
   await sidePage.goto(base);
   await sidePage.click('.tool[data-tool="sketch"]');
+  await sidePage.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); // the map refits to its frame
   const fit = await sidePage.evaluate(() => {
     const r = (q) => document.querySelector(q).getBoundingClientRect(), wrap = r('#mapwrap'), a = window.terra.toScreen(0, 0), b = window.terra.toScreen(480, 300);
     return { mapTop: wrap.top + a.y, mapBottom: wrap.top + b.y, zoom: r('.zoom').bottom, opts: r('#toolOpts').bottom, wrapTop: wrap.top, toolsRight: r('#tools').right, toolsBottom: r('#tools').bottom, wrapLeft: wrap.left,
@@ -1375,10 +1376,11 @@ for (const [width, height] of [[320, 568], [360, 740], [390, 844], [412, 915]]) 
   await c.close();
 }
 
-// On a phone the World tab is under the map, so the map is scrolled out of view while it is used. A toast from there is
-// still on screen, at its bottom, with an Undo a finger can reach: it used to sit inside the map, above the screen.
+// On a phone the World tab is under the map, so on one under 700 px tall, where the map isn't kept in view, the map is
+// scrolled out of view while it is used. A toast from there is still on screen, at its bottom, with an Undo a finger can
+// reach: it used to sit inside the map, above the screen.
 {
-  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const c = await browser.newContext({ viewport: { width: 375, height: 667 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const pg = watch(await c.newPage());
   await pg.goto(base);
   await pg.tap('#tab-world');

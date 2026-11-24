@@ -1000,6 +1000,36 @@ ok(covered.length === 0, 'sea names stay clear of the scale bar' + (covered.leng
   await c.close();
 }
 
+// Every big island gets at least a village: in archipelago 20417 the whole northern row of islands was blank, eight of
+// its eleven lands of 20,000 km² or more. And no city outgrows its capital: in continent 29770 the city of Meath had
+// 81,000 people against 88,000 in its capital, Gwoselie. Each is held under four-fifths of its capital.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const out = [];
+  for (const [seed, shape] of [[20417, 'archipelago'], [8020, 'archipelago'], [29770, 'continent']]) {
+    out.push([seed, shape, ...await pg.evaluate(([seed, shape]) => {
+      window.terra.newWorld(seed, shape);
+      const W = 480, H = 300, land = [], comp = new Int32Array(W * H).fill(-1), size = [];
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) land.push(window.terra.cell(x + 0.5, y + 0.5).h >= 0);
+      for (let s = 0; s < W * H; s++) {
+        if (!land[s] || comp[s] >= 0) continue;
+        const q = [s]; comp[s] = size.length; let n = 0;
+        while (q.length) { const i = q.pop(); n++; const x = i % W, y = (i / W) | 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy, j = ny * W + nx; if (nx >= 0 && ny >= 0 && nx < W && ny < H && land[j] && comp[j] < 0) { comp[j] = size.length; q.push(j); } } }
+        size.push(n);
+      }
+      const ps = window.terra.places(), held = new Set(ps.map((p) => comp[Math.floor(p.y) * W + Math.floor(p.x)]));
+      const big = size.filter((n) => n >= 200).length, empty = size.filter((n, k) => n >= 200 && !held.has(k)).length;
+      const byId = new Map(ps.map((p) => [p.id, p])), over = ps.filter((p) => p.kind === 'city' && p.capital !== null && p.pop >= 0.8 * byId.get(p.capital).pop).map((p) => `${p.name} ${p.pop} against ${byId.get(p.capital).pop}`);
+      return [big, empty, over];
+    }, [seed, shape])]);
+  }
+  ok(out.every(([, , big, empty]) => big > 3 && empty === 0), `every land of 20,000 km² or more has a place on it (${out.map(([s, sh, big, empty]) => `${sh} ${s}: ${empty} of ${big} empty`).join(', ')})`);
+  ok(out.every(([, , , , over]) => over.length === 0), `and every city has fewer than four-fifths of its capital's people (${out.flatMap(([, , , , o]) => o).join(', ') || 'all do'})`);
+  await c.close();
+}
+
 // The map prints no latitudes or longitudes, on the map, on a place's page or under the pointer: the climate runs from
 // ice sheet to jungle over 3,000 km, and the numbers put a frozen north at 55°N, where Denmark is.
 {
@@ -1299,11 +1329,11 @@ await oldCtx.close();
   await pg.goto(base);
   const changed = [];
   for (const [seed, shape, h, m, names] of [
-    [20417, 'continent', '8b20efbd125e', '5a1b133e1280', '338120edf9b8'],
-    [96298, 'continent', '736cd99437ab', '0b2596e96d31', '14f238a8dabb'],
+    [20417, 'continent', '8b20efbd125e', '5a1b133e1280', 'f2cbe9720e98'],
+    [96298, 'continent', '736cd99437ab', '0b2596e96d31', '664926aa5e8a'],
     [950281, 'inland', '7ff144f0176e', '1afc775afd2b', 'c0865d20871a'],
-    [857490, 'twin', '6c377492048c', 'e7bb04ba7404', 'ac3b1056ed9f'],
-    [645278, 'inland', '358737c747f0', '049431645c33', 'bf8eae96f053'],
+    [857490, 'twin', '6c377492048c', 'e7bb04ba7404', 'bb7ca9e33956'],
+    [645278, 'inland', '358737c747f0', '049431645c33', '700fd4a719bc'],
   ]) {
     const f = await pg.evaluate(([seed, shape]) => { window.terra.newWorld(seed, shape); return window.terra.fingerprint(); }, [seed, shape]);
     if (f.h !== h || f.m !== m || f.names !== names) changed.push(`${seed} ${shape}: h ${f.h}, m ${f.m}, names ${f.names}`);

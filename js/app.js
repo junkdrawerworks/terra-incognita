@@ -40,6 +40,7 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;'
 const pick = (rng, arr) => arr[Math.floor(rng() * arr.length)];
 function shuffle(a, rng) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 const fmtInt = n => Math.round(n).toLocaleString('en-US');
+function floorSig(v, d) { const m = Math.pow(10, Math.floor(Math.log10(Math.max(1, v))) - d + 1); return Math.floor(v / m) * m; }
 function roundSig(v, d) { const m = Math.pow(10, Math.floor(Math.log10(Math.max(1, v))) - d + 1); return Math.round(v / m) * m; }
 function hexRgb(hex) { const n = parseInt(hex.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
 function hexA(hex, a) { const [r, g, b] = hexRgb(hex); return `rgba(${r},${g},${b},${a})`; }
@@ -767,6 +768,34 @@ function dryNear(i) {
   }
   return best;
 }
+// Every island of 20,000 km² (200 cells) or more with nothing on it gets a village, on its best site, and a landmark
+// where one fits, so a big island far from the realms isn't left blank. Ice, snowfields and bare rock aren't settled.
+function settleIslands(rng) {
+  const h = world.h, sea = world.sea, comp = D.dist, q = D.q; comp.fill(-1);
+  for (let s = 0; s < N; s++) {
+    if (h[s] < sea || comp[s] >= 0) continue;
+    let qh = 0, qt = 0; q[qt++] = s; comp[s] = 1;
+    while (qh < qt) { const c = q[qh++], x = c % W, y = (c / W) | 0; for (let k = 0; k < 4; k++) { const nx = x + NBX[k], ny = y + NBY[k]; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; const n = ny * W + nx; if (comp[n] < 0 && h[n] >= sea) { comp[n] = 1; q[qt++] = n; } } }
+    if (qt < 200) continue;
+    const cells = q.slice(0, qt), on = new Set(cells);
+    if (world.places.some(p => on.has(cellAt(p.x, p.y)))) continue;
+    let best = -1, bs = -Infinity;
+    for (const i of cells) {
+      const x = i % W, y = (i / W) | 0; if (x < 4 || y < 4 || x > W - 5 || y > H - 5 || D.lake[i]) continue;
+      const b = D.biome[i], E = elevM(i); if (E < DRY_M || E > 1800 || b === B.ICE || b === B.SNOW || b === B.ALPINE) continue;
+      const sc = siteScore(i); if (sc > bs) { bs = sc; best = i; }
+    }
+    if (best < 0) continue;
+    const v = makePlace('village', best % W + 0.5, ((best / W) | 0) + 0.5, rng); world.places.push(v);
+    const subs = shuffle(Object.keys(LANDMARKS), rng);
+    find: for (const sub of subs) for (let k = 0; k < 400; k++) {
+      const i = cells[(rng() * cells.length) | 0], x = i % W + 0.5, y = ((i / W) | 0) + 0.5;
+      if (D.lake[i] || elevM(i) < DRY_M || x < 8 || y < 8 || x > W - 8 || y > H - 8 || Math.hypot(x - v.x, y - v.y) < 8) continue;
+      if (!landmarkFits(sub, elevM(i), D.biome[i], nearWater(i, 1))) continue;
+      world.places.push(makePlace('landmark', x, y, rng, { sub })); break find;
+    }
+  }
+}
 function populate(seed) {
   const rng = mulberry32(seed * 7 + 13);
   world.places = []; world.labels = [];
@@ -810,7 +839,14 @@ function populate(seed) {
       world.places.push(makePlace('landmark', x, y, rng, { sub })); break;
     }
   }
+  settleIslands(rng);
   territories();
+  // No city outgrows its capital: each is held under four-fifths of the people of the capital whose realm it is in.
+  for (const p of world.places) {
+    if (p.kind !== 'city') continue;
+    const o = D.owner[cellAt(p.x, p.y)], cap = o >= 0 && D.realms[o] ? D.realms[o].place.pop : 0;
+    if (cap && p.pop >= cap * 0.8) p.pop = floorSig(cap * 0.8 - 1, 2);
+  }
   // A village or town the final borders put in a realm with another tongue (a free village claimed after all, or one
   // a neighbour's towns took) takes the realm's tongue and a name in it, so towns sound like the realm they are in.
   // Each draws from its own numbers, so no other name in the world changes.
@@ -3546,8 +3582,9 @@ window.terra = {
   // Your worlds, as the list has them, the open one marked; and the open one put in the larger store now.
   worlds: () => readIndex().map(e => ({ id: e.id, name: e.name, places: e.places, thumb: !!e.thumb, open: e.id === worldId })),
   syncWorlds: () => syncStore(),
-  // Each place, with its tongue and the tongue of the realm whose land it stands on (null on land no realm holds).
-  places: () => world.places.map(p => { const o = D.owner[cellAt(p.x, p.y)]; return { id: p.id, kind: p.kind, name: p.name, x: p.x, y: p.y, tongue: p.tongue, landTongue: o >= 0 && D.realms[o] ? D.realms[o].tongue : null }; }),
+  // Each place, with its people, its tongue, and the tongue and capital of the realm whose land it stands on (null on
+  // land no realm holds).
+  places: () => world.places.map(p => { const o = D.owner[cellAt(p.x, p.y)], r = o >= 0 ? D.realms[o] : null; return { id: p.id, kind: p.kind, name: p.name, x: p.x, y: p.y, pop: p.pop || 0, tongue: p.tongue, landTongue: r ? r.tongue : null, capital: r ? r.place.id : null }; }),
   labels: () => world.labels.map(l => ({ id: l.id, kind: l.kind, text: l.text, x: l.x, y: l.y })),
   state: () => {
     let land = 0, rivers = 0, lakes = 0;

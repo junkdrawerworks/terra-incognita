@@ -1190,7 +1190,7 @@ function newWorld(seed, shape, opts = {}) {
   world.name = worldTitle(shape, rng, D.realms.length ? D.realms[0].tongue : 'vale');
   // An Inland sea world's sea takes the name in its title: 'The Shores of X' lies on the X Sea.
   const core = shape === 'inland' && titleCore(world.name); if (core && D.mainSea) { D.mainSea.text = `The ${core} Sea`; keepLabelIn(D.mainSea); }
-  ui.selected = null; dropDraft();
+  ui.selected = null; measure = null; dropDraft();
   recomputeAll();
 }
 
@@ -1311,6 +1311,7 @@ function checkWorld(o, fromFile) {
   return { o, h: unpackF(o.h, fromFile), m: unpackF(o.m, fromFile) };
 }
 function applyWorld({ o, h, m }) {
+  measure = null;
   const placed = q => q && typeof q.x === 'number' && typeof q.y === 'number' && isFinite(q.x) && isFinite(q.y);
   if (!world) world = { h, m }; else { world.h.set(h); world.m.set(m); }
   const stamp = v => typeof v === 'string' && !isNaN(Date.parse(v)) ? v : null;
@@ -1804,6 +1805,7 @@ function drawMap(c, k, vw, vh, v, opt) {
   drawPlaces(c, v, vw, vh, atlas, INK, HALO, { ...opt, riverSize, avoid }, small);
   if (!opt.export && ui.tool === 'erase') drawSources(c, v);
   if (!opt.export) drawSelection(c, v, atlas);
+  if (!opt.export) drawMeasure(c, v, atlas);
   if (!opt.export && sketchDraft) drawSketch(c, v);
   if (panels) drawPanels(c, panels, u, atlas, INK, HALO);
   c.restore();
@@ -2087,6 +2089,59 @@ function removeSource(sp) {
   world.springs = world.springs.filter(q => q !== sp);
   recomputeAll(); markDirty();
   toast(`Took away the source of ${was}. Its valley stays, and rain finds its own way down it.`, { label: 'Undo', fn: undo });
+}
+// ------------------------------------------------------------------ measuring
+// Measure from here, on a place's page: the next tap on the map, on another place or any spot, measures the straight
+// line to it, in leagues and km, and how many days that is on foot. Nothing is saved. A day on foot is 8 leagues: the
+// normal pace of D&D 5th edition's Travel Pace table (Player's Handbook, 2014, chapter 8) is 24 miles a day, and a
+// league is 3 miles.
+let measure = null; // { from: a place's id, to: null while waiting for the tap, then { x, y, name }, said }
+const FOOT_DAY = 8 * LEAGUE; // km
+function startMeasure(p) {
+  measure = { from: p.id, to: null, said: '' };
+  renderMeasure(); updateCursor(); requestDraw(); mapIntoView();
+  toast(`${TAP} another place or any spot on the map to measure from ${placeIn(p)}.`, { label: 'Cancel', fn: endMeasure }, 20000);
+}
+function endMeasure() { if (!measure) return; measure = null; renderMeasure(); updateCursor(); requestDraw(); dropActionToast(); }
+// The line to a place or spot, as the crow flies: on foot unless it crosses the sea.
+function measureSay(a, b) {
+  const km = Math.hypot(b.x - a.x, b.y - a.y) * KM, lg = Math.round(km / LEAGUE);
+  let wet = false; const n = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) * 2);
+  for (let k = 0; k <= n && !wet; k++) { const i = cellAt(a.x + (b.x - a.x) * k / n, a.y + (b.y - a.y) * k / n); if (world.h[i] < world.sea) wet = true; }
+  const days = km / FOOT_DAY, foot = wet ? 'across the sea' : days < 0.75 ? 'under a day on foot' : `about ${Math.round(days)} day${Math.round(days) === 1 ? '' : 's'} on foot`;
+  const how = lg ? `${lg} league${lg === 1 ? '' : 's'} (${fmtInt(roundSig(km, 2))} km)` : `under a league (${fmtInt(Math.max(1, Math.round(km)))} km)`;
+  const from = placeIn(a);
+  return `${from[0].toUpperCase() + from.slice(1)} to ${b.name}: ${how} as the crow flies, ${foot}.`;
+}
+// The tap that ends a measure: a place (by its symbol or name) or a spot, named by its water where that has a name.
+function measureTo(sx, sy) {
+  const a = world.places.find(p => p.id === measure.from); if (!a) { endMeasure(); return; }
+  const hit = hitTest(sx, sy), q = hit && hit.type === 'place' ? findSel(hit) : null, w = toWorld(sx, sy);
+  if (!q && !(w.x >= 0 && w.y >= 0 && w.x < W && w.y < H)) { toast(`That is off the edge of the world. ${TAP} a place or a spot on the map.`, { label: 'Cancel', fn: endMeasure }, 20000); return; }
+  if (q === a) { toast(`That is ${placeIn(a)} itself. ${TAP} another place or spot.`, { label: 'Cancel', fn: endMeasure }, 20000); return; }
+  let to;
+  if (q) to = { x: q.x, y: q.y, name: placeIn(q) };
+  else { const f = facts(w.x, w.y, null), l = waterLabel(f, w); to = { x: w.x, y: w.y, name: l && l.text.trim() ? seaInText(l.text) : 'that spot' }; }
+  measure.to = to; measure.said = measureSay(a, to);
+  toast(measure.said, { label: 'Measure again', fn: () => startMeasure(a) }, 15000);
+  renderMeasure(); updateCursor(); requestDraw();
+}
+// The place page's button and the last measure's words under it.
+function renderMeasure() {
+  const b = $('#pMeasure'), out = $('#pMeasureOut'); if (!b || !ui.selected || ui.selected.type !== 'place') return;
+  const mine = measure && measure.from === ui.selected.id, waiting = mine && !measure.to;
+  b.textContent = waiting ? 'Stop measuring' : 'Measure from here'; b.setAttribute('aria-pressed', String(!!waiting));
+  out.textContent = mine && measure.to ? measure.said : waiting ? `${TAP} another place or any spot on the map.` : ''; out.hidden = !out.textContent;
+}
+// A dashed line from the place to what it was measured to, or, with a mouse, to the pointer while it waits.
+function drawMeasure(c, v, atlas) {
+  if (!measure) return; const a = world.places.find(p => p.id === measure.from); if (!a) return;
+  const b = measure.to || (hover ? toWorld(hover.x, hover.y) : null); if (!b) return;
+  const X0 = v.ox + a.x * v.s, Y0 = v.oy + a.y * v.s, X1 = v.ox + b.x * v.s, Y1 = v.oy + b.y * v.s, acc = atlas ? '#8a4b12' : '#c68a1a';
+  c.save(); c.lineCap = 'round'; c.setLineDash([7, 6]);
+  for (const [lw, col] of [[4.5, 'rgba(255,255,255,0.85)'], [2, acc]]) { c.beginPath(); c.moveTo(X0, Y0); c.lineTo(X1, Y1); c.lineWidth = lw; c.strokeStyle = col; c.stroke(); }
+  c.setLineDash([]); c.beginPath(); c.arc(X1, Y1, 4, 0, Math.PI * 2); c.fillStyle = acc; c.fill(); c.lineWidth = 1.5; c.strokeStyle = 'rgba(255,255,255,0.9)'; c.stroke();
+  c.restore();
 }
 function drawSelection(c, v, atlas) {
   const sel = ui.selected; if (!sel) return; const o = findSel(sel); if (!o) return;
@@ -2412,6 +2467,7 @@ function showBrushSize() { sizePreview = performance.now() + 700; requestDraw();
 function updateCursor() {
   if (gesture && (gesture.type === 'pan' || (gesture.type === 'click' && gesture.moved))) canvas.style.cursor = 'grabbing';
   else if (spaceDown) canvas.style.cursor = 'grab';
+  else if (measure && !measure.to) canvas.style.cursor = 'crosshair';
   else if (BRUSH_TOOLS.has(ui.tool)) canvas.style.cursor = 'none';
   else if (ui.tool === 'select') canvas.style.cursor = hoverHit ? 'pointer' : 'grab';
   else canvas.style.cursor = 'crosshair';
@@ -3064,6 +3120,10 @@ canvas.addEventListener('pointerdown', e => {
   if (ptrs.size > 2) return;
   if (e.button === 1 || e.button === 2 || spaceDown) { gesture = { type: 'pan', lx: pt.x, ly: pt.y }; updateCursor(); return; }
   if (e.button !== 0) return;
+  // While measuring, a tap measures, whatever the tool, and a drag still pans. Once measured, the next touch on the map
+  // takes the line away and does what it always does.
+  if (measure && measure.to) endMeasure();
+  if (measure) { gesture = { type: 'click', sx: pt.x, sy: pt.y, lx: pt.x, ly: pt.y, moved: false, measure: true }; return; }
   const w = toWorld(pt.x, pt.y);
   if (ui.tool === 'sketch') {
     if (w.x >= 0 && w.y >= 0 && w.x < W && w.y < H) { sketchDraft = { mode: ui.sketch.mode, pts: [w.x, w.y] }; gesture = { type: 'sketch' }; requestDraw(); }
@@ -3102,7 +3162,7 @@ canvas.addEventListener('pointermove', e => {
     const hh = hitTest(pt.x, pt.y); if (!!hh !== !!hoverHit) { hoverHit = hh; updateCursor(); }
   }
   scheduleStatus();
-  if (BRUSH_TOOLS.has(ui.tool)) requestDraw();
+  if (BRUSH_TOOLS.has(ui.tool) || (measure && !measure.to)) requestDraw();
 });
 function endPointer(e) {
   const pt = local(e); const had = ptrs.has(e.pointerId); ptrs.delete(e.pointerId);
@@ -3113,7 +3173,7 @@ function endPointer(e) {
   if (!g) return;
   if (g.type === 'stroke') endStroke();
   else if (g.type === 'sketch') { if (e.type === 'pointerup') finishSketch(); else { sketchDraft = null; requestDraw(); } }
-  else if (g.type === 'click' && !g.moved && e.type === 'pointerup') handleClick(pt.x, pt.y);
+  else if (g.type === 'click' && !g.moved && e.type === 'pointerup') { if (!g.measure) handleClick(pt.x, pt.y); else if (measure && !measure.to) measureTo(pt.x, pt.y); }
   else if (g.type === 'drag' && g.moved) finishDrag(g);
   updateCursor();
 }
@@ -3181,6 +3241,8 @@ function handleClick(sx, sy) {
 // page of the place there, or of the spot, and says what it is.
 function keyClick() {
   const cx = view.cw / 2, cy = view.ch / 2, t = ui.tool, w = toWorld(cx, cy), inside = w.x >= 0 && w.y >= 0 && w.x < W && w.y < H;
+  if (measure && measure.to) endMeasure();
+  if (measure) { measureTo(cx, cy); return; }
   if (t === 'sketch') { toast('A sketch is drawn with a mouse, a pen or a finger: hold and drag on the map.'); return; }
   if (BRUSH_TOOLS.has(t)) { if (inside) { startStroke(cx, cy); strokeFrame(); endStroke(); } return; }
   if (t !== 'select') { handleClick(cx, cy); return; }
@@ -3482,6 +3544,7 @@ function dropDraft(id) { for (const [k, d] of drafts) if (id === undefined || k 
 // next place founded gets the same id, and would otherwise open with the old place's draft.
 function dropOrphanDraft() { const ids = new Set(world.places.map(p => p.id)); for (const k of [...drafts.keys()]) if (!ids.has(k)) dropDraft(k); }
 function select(sel) {
+  if (measure && !(sel && sel.type === 'place' && sel.id === measure.from)) { measure = null; updateCursor(); }
   ui.selected = sel;
   if (sel) showTab('inspect');
   renderInspector(); requestDraw();
@@ -3638,6 +3701,8 @@ function placeHTML(p) {
     </div>
     <div class="field"><label for="pKind">Kind</label><select id="pKind">${kindOpts.map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
     ${factsHTML(f, p)}
+    <div class="row"><button class="btn sm" id="pMeasure" aria-pressed="false">Measure from here</button></div>
+    <p class="note" id="pMeasureOut" hidden></p>
     ${realm}
     <div class="section"><h3>Chronicle</h3>
       <div class="row">
@@ -3735,6 +3800,8 @@ function bindPlace(p) {
   }
   $('#pLore').addEventListener('input', e => { once(`Notes on ${p.name}`); p.lore = e.target.value; touched(); markDirty(); });
   $('#pDelete').onclick = () => removeSel({ type: 'place', id: p.id });
+  $('#pMeasure').onclick = () => { if (measure && measure.from === p.id && !measure.to) endMeasure(); else startMeasure(p); };
+  renderMeasure();
   $('#pRumor').onclick = () => { if (draftFor(p.id).busy) return; setDraft(p.id, { text: rumor(p), busy: false, kind: 'rumor', note: '', ctl: null }); renderDraft(); };
   const wb = $('#pWrite'); if (wb) wb.onclick = () => writeHistory(p);
   // Keeping a rumor or history is a step of its own, so Undo takes back just what was added.
@@ -4175,6 +4242,7 @@ window.addEventListener('keydown', e => {
   if (e.key === ' ' && (!el || el === document.body || el === canvas || (hover && el !== keyFocus))) { if (!spaceDown) { spaceDown = true; updateCursor(); } e.preventDefault(); return; }
   if (e.key === 'Escape') {
     if (!$('#newMenu').hidden) { closeNewMenu(); $('#btnNew').focus(); return; }
+    if (measure) { endMeasure(); return; }
     if (sketchDraft) { sketchDraft = null; gesture = null; requestDraw(); return; }
     select(null); refocus('#tab-inspect'); return;
   }

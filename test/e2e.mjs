@@ -713,6 +713,38 @@ ok(otherBox && cameBack[0] === rolledRumor && !cameBack[1], 'an unkept rumor wai
     && back.pop === town.pop && back.kind === 'town',
     `a town's population can be typed in (~${rolled[0]} to ${typed[0]}), a change of kind and the world file keep it, an empty box puts it back, its realm counts it (${realmWas} to ${realmNow}), and Undo ("${popStep}") takes it back`);
 }
+// Measure from here, on a place's page: the next click on the map, on another place, measures the straight line to it
+// in leagues and km and how many days that is on foot (8 leagues a day), or says it crosses the sea. Nothing is saved,
+// the page stays open, and the next click on the map takes the line away.
+{
+  const all = await desk.evaluate(() => window.terra.places());
+  const from = all.find((p) => p.kind === 'capital'), mb = await desk.locator('#map').boundingBox();
+  const at = async (p) => { const s = await desk.evaluate(([x, y]) => window.terra.toScreen(x, y), [p.x, p.y]); return [mb.x + s.x, mb.y + s.y]; };
+  const to = all.find((p) => p.kind === 'city' && p.id !== from.id && Math.hypot(p.x - from.x, p.y - from.y) > 30);
+  const toolWas = await desk.evaluate(() => document.querySelector('.tool[aria-pressed="true"]').dataset.tool);
+  await desk.evaluate(() => window.terra.setTool('select'));
+  await desk.evaluate((id) => window.terra.select({ type: 'place', id }), from.id);
+  const undoWas = (await desk.evaluate(() => window.terra.state())).undo;
+  await desk.click('#pMeasure');
+  const waiting = await desk.evaluate(() => [document.getElementById('pMeasure').textContent, document.getElementById('pMeasure').getAttribute('aria-pressed'), document.querySelector('#toast span').textContent]);
+  await desk.keyboard.press('Escape');
+  const stopped = await desk.textContent('#pMeasure');
+  await desk.click('#pMeasure');
+  await desk.mouse.click(...await at(to));
+  const said = await desk.textContent('#toast span'), out = await desk.textContent('#pMeasureOut'), still = await desk.evaluate(() => document.getElementById('pTitle').textContent);
+  const km = Math.hypot(to.x - from.x, to.y - from.y) * 10, lg = Math.round(km / 4.8);
+  const wet = await desk.evaluate(([a, b]) => { const n = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) * 2); for (let k = 0; k <= n; k++) if (window.terra.cell(a.x + (b.x - a.x) * k / n, a.y + (b.y - a.y) * k / n).h < 0) return true; return false; }, [from, to]);
+  const days = Math.round(km / 38.4), foot = wet ? 'across the sea' : `about ${days} day${days === 1 ? '' : 's'} on foot`;
+  const m = said.match(/^(.+) to (.+): (\d+) leagues \(([\d,]+) km\) as the crow flies, (.+)\.$/);
+  const undoNow = (await desk.evaluate(() => window.terra.state())).undo;
+  await desk.mouse.click(...await at(to));
+  const cleared = await desk.evaluate(() => [document.getElementById('pMeasureOut') ? document.getElementById('pMeasureOut').hidden : true, document.getElementById('pTitle') && document.getElementById('pTitle').textContent]);
+  ok(waiting[0] === 'Stop measuring' && waiting[1] === 'true' && waiting[2] === `Click another place or any spot on the map to measure from ${from.name}.` && stopped === 'Measure from here'
+    && m && m[1] === from.name && m[2] === to.name && +m[3] === lg && Math.abs(+m[4].replace(/,/g, '') - km) <= km * 0.05 && m[5] === foot && out === said && still === from.name && undoNow === undoWas
+    && cleared[0] && cleared[1] === to.name,
+    `Measure from here measures to the next place clicked ("${said}"), keeps the page open, saves nothing, and the next click goes on as usual (to ${cleared[1]})`);
+  await desk.evaluate((t) => window.terra.setTool(t), toolWas);
+}
 // A sea, a region or a range has a notes box on its page, and the world has one on its welcome page. The Codex finds
 // words in them, the world file keeps them, and Found new realms keeps a label with notes, without naming its water a
 // second time.

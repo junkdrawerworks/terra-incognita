@@ -12,7 +12,7 @@ and sea stop them. Every town has a page for its story.
   &nbsp;
   <img src="docs/phone-sketch.png" alt="A hand-drawn island in shaded relief, with two snowy ranges and named rivers and no towns yet, and a second island being sketched as a loop in the sea beside it" width="250">
   &nbsp;
-  <img src="docs/phone-place.png" alt="The page for an inland capital: its realm, where its roads go, its population, nearest neighbour and local goods, its realm's name, title, tongue and colour, and a rumor rolled from the map kept in its notes" width="250">
+  <img src="docs/phone-place.png" alt="The page for an inland capital: its population, nearest neighbour and local goods, a button to measure from it, its realm's name, title, tongue and colour, and a rumor rolled from the map kept in its notes" width="250">
 </p>
 
 ## How it plays
@@ -45,11 +45,12 @@ and sea stop them. Every town has a page for its story.
 - **Places.** Tap any town or patch of ground to see its elevation, climate, nearest neighbour and local goods, with
   distances in leagues of 4.8 km, its river: which way it flows, how far on it reaches the sea and how much land it
   drains, and the road it is on. A settlement's population is a guess from its land until you type in your own, which
-  stays through a change of kind and counts in its realm's total. Keep notes for your lore, or roll a rumor built from
-  the map around it. A sea, a region or a range named on the map has a page for notes too, and the world has its own
-  on the welcome page. From the keyboard, Tab to the map, pan it with the arrow keys and press Enter to read the spot
-  in the middle. The Codex lists every place and every sea, region and range named on the map, and finds words in all
-  your notes.
+  stays through a change of kind and counts in its realm's total. *Measure from here* on a place's page gives the
+  straight line to the next place or spot you tap, in leagues and km, and how long that is on foot at 8 leagues (24
+  miles) a day. Keep notes for your lore, or roll a rumor built from the map around it. A sea, a region or a range
+  named on the map has a page for notes too, and the world has its own on the welcome page. From the keyboard, Tab to
+  the map, pan it with the arrow keys and press Enter to read the spot in the middle. The Codex lists every place and
+  every sea, region and range named on the map, and finds words in all your notes.
 - **Keyboard.** Every tool has a letter (V, P, R…), [ and ] size the brush, F shows the whole map, and Ctrl S saves
   the world file; the World tab lists them.
 - **Two looks.** Terrain is shaded relief; Atlas is parchment with drawn mountains and trees. A world file opens in

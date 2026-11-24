@@ -755,18 +755,35 @@ function landmarkFits(sub, E, b, coastal) {
   }
 }
 function nearWater(i, r) { const x = i % W, y = (i / W) | 0; for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; if (world.h[ny * W + nx] < world.sea) return true; } return false; }
+const DRY_M = 3; // the least height above the sea a generated place goes on
+// A spot for a generated place: the cell itself if it stands DRY_M or more above the sea, or else the nearest dry land
+// within two cells that does (so a coastal town moves a cell or two inland), or -1 if there is none.
+function dryNear(i) {
+  if (elevM(i) >= DRY_M) return i;
+  const x = i % W, y = (i / W) | 0; let best = -1, bd = Infinity;
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+    const nx = x + dx, ny = y + dy, d = dx * dx + dy * dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H || d >= bd) continue;
+    const j = ny * W + nx; if (!D.lake[j] && world.h[j] >= world.sea && elevM(j) >= DRY_M) { bd = d; best = j; }
+  }
+  return best;
+}
 function populate(seed) {
   const rng = mulberry32(seed * 7 + 13);
   world.places = []; world.labels = [];
   const h = world.h, sea = world.sea;
   let land = 0; for (let i = 0; i < N; i++) if (h[i] >= sea) land++;
-  const cands = [];
+  // Places go on ground at least 3 m above the sea (DRY_M), so the first few steps up of the sea slider don't drown
+  // them: a site lower than that moves to the nearest that high, a cell or two inland. Only where there is none near
+  // does a place keep its low site, and then only on land with too few others.
+  const cands = [], low = [];
   for (let k = 0; k < 9000; k++) {
-    const i = (rng() * N) | 0; if (h[i] < sea || D.lake[i]) continue;
-    const x = i % W, y = (i / W) | 0; if (x < 4 || y < 4 || x > W - 5 || y > H - 5) continue;
-    const b = D.biome[i]; if (elevM(i) > 1800 || b === B.ICE || b === B.SNOW || b === B.ALPINE) continue;
-    cands.push({ i, x: x + 0.5, y: y + 0.5, s: siteScore(i) + rng() * 0.5 });
+    const i0 = (rng() * N) | 0; if (h[i0] < sea || D.lake[i0]) continue;
+    const x0 = i0 % W, y0 = (i0 / W) | 0; if (x0 < 4 || y0 < 4 || x0 > W - 5 || y0 > H - 5) continue;
+    const b = D.biome[i0]; if (elevM(i0) > 1800 || b === B.ICE || b === B.SNOW || b === B.ALPINE) continue;
+    const s = siteScore(i0) + rng() * 0.5, i = dryNear(i0);
+    if (i < 0) low.push({ i: i0, x: x0 + 0.5, y: y0 + 0.5, s }); else cands.push({ i, x: i % W + 0.5, y: ((i / W) | 0) + 0.5, s });
   }
+  if (cands.length < 60) cands.push(...low);
   cands.sort((a, b) => b.s - a.s);
   const nRealms = clamp(Math.round(land / 15000) + 1, 2, 5);
   const tongues = shuffle(TONGUE_IDS.slice(), rng);
@@ -786,7 +803,8 @@ function populate(seed) {
   for (const c of cands) { if (!free) break; if (D.owner[c.i] !== -1 || !far(c, world.places, 12)) continue; world.places.push(makePlace('village', c.x, c.y, rng)); free--; }
   for (const sub of Object.keys(LANDMARKS)) {
     for (let k = 0; k < 4000; k++) {
-      const i = (rng() * N) | 0; if (h[i] < sea || D.lake[i]) continue;
+      const i0 = (rng() * N) | 0; if (h[i0] < sea || D.lake[i0]) continue;
+      const i = dryNear(i0); if (i < 0) continue;
       const x = i % W + 0.5, y = ((i / W) | 0) + 0.5; if (x < 8 || y < 8 || x > W - 8 || y > H - 8) continue;
       if (!landmarkFits(sub, elevM(i), D.biome[i], nearWater(i, 1)) || !far({ x, y }, world.places, 10)) continue;
       world.places.push(makePlace('landmark', x, y, rng, { sub })); break;

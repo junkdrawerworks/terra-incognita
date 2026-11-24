@@ -1019,12 +1019,22 @@ ok(covered.length === 0, 'sea names stay clear of the scale bar' + (covered.leng
   await c.close();
 }
 
-// Raising the sea says how many places it covered, and its Undo brings them back up: in the starting world, three
-// steps of the slider cover 18 of its 54 places. A Sea sketch and a brush that leave a place in the water say so too.
+// Generated places stand at least 3 m above the sea, so the first steps up of the sea slider drown none of them: the
+// first step drowned 11 of the starting world's 54 places, which stood on ground a metre or less above the sea.
 await M(() => window.terra.newWorld(20417, 'continent'));
 const inWater = () => M(() => window.terra.places().filter((p) => { const c = window.terra.cell(p.x, p.y); return c.h < 0 || c.lake; }).map((p) => p.name));
 await map.click('#tab-world');
-await M(() => { const r = document.getElementById('wSea'); r.value = String(+r.value + 0.006); r.dispatchEvent(new Event('input')); r.dispatchEvent(new Event('change')); });
+const seaSteps = (n) => M((n) => { const r = document.getElementById('wSea'); r.value = String(+r.value + 0.002 * n); r.dispatchEvent(new Event('input')); r.dispatchEvent(new Event('change')); }, n);
+const lowest = await M(() => Math.min(...window.terra.places().map((p) => window.terra.cell(p.x, p.y).elev)));
+await seaSteps(1);
+const oneStep = await inWater();
+await seaSteps(1);
+const twoSteps = await inWater();
+await M(() => { const r = document.getElementById('wSea'); r.value = '0.5'; r.dispatchEvent(new Event('input')); r.dispatchEvent(new Event('change')); });
+ok(lowest >= 3 && oneStep.length === 0 && twoSteps.length === 0 && (await inWater()).length === 0, `the starting world's places stand 3 m or more above the sea (the lowest ${lowest.toFixed(1)} m), and one or two steps up of the sea drown none`);
+// Raising the sea says how many places it covered, and its Undo brings them back up: in the starting world, five
+// steps of the slider cover a few of its places. A Sea sketch and a brush that leave a place in the water say so too.
+await seaSteps(5);
 const risen = await inWater(), riseToast = await map.textContent('#toast span');
 await map.click('#toast button');
 ok(risen.length > 1 && riseToast === `The sea rose over ${risen.length} places.` && (await inWater()).length === 0, `raising the sea says how many places it covered, and Undo brings them back ("${riseToast}")`);
@@ -1289,10 +1299,10 @@ await oldCtx.close();
   await pg.goto(base);
   const changed = [];
   for (const [seed, shape, h, m, names] of [
-    [20417, 'continent', '8b20efbd125e', '5a1b133e1280', 'e4f78b0c12b5'],
-    [96298, 'continent', '736cd99437ab', '0b2596e96d31', '3c50d99221c1'],
-    [950281, 'inland', '7ff144f0176e', '1afc775afd2b', '4007ff4a1d91'],
-    [857490, 'twin', '6c377492048c', 'e7bb04ba7404', 'd4dad22e8455'],
+    [20417, 'continent', '8b20efbd125e', '5a1b133e1280', '338120edf9b8'],
+    [96298, 'continent', '736cd99437ab', '0b2596e96d31', '14f238a8dabb'],
+    [950281, 'inland', '7ff144f0176e', '1afc775afd2b', 'c0865d20871a'],
+    [857490, 'twin', '6c377492048c', 'e7bb04ba7404', 'ac3b1056ed9f'],
     [645278, 'inland', '358737c747f0', '049431645c33', 'bf8eae96f053'],
   ]) {
     const f = await pg.evaluate(([seed, shape]) => { window.terra.newWorld(seed, shape); return window.terra.fingerprint(); }, [seed, shape]);
@@ -2430,7 +2440,8 @@ await oldCtx.close();
   const b = await pg.locator('#map').boundingBox();
   const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
   const position = () => pg.evaluate(() => [...document.querySelectorAll('#pane-inspect .facts dd')].map((d) => d.textContent).join(' | '));
-  const cap = (await pg.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
+  // A capital with dry land where the drag ends, about 70 cells east on a phone's whole map.
+  const cap = await pg.evaluate(() => window.terra.places().find((p) => p.kind === 'capital' && [60, 65, 70, 75, 80].every((d) => { const c = window.terra.cell(p.x + d, p.y); return c.h >= 0 && !c.lake; })));
   const s = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), [cap.x, cap.y]), a = [b.x + s.x, b.y + s.y];
   await touch('touchStart', [a]);
   for (let k = 1; k <= 8; k++) { await touch('touchMove', [[a[0] + k * 5, a[1]]]); await pg.waitForTimeout(50); }
@@ -2724,8 +2735,9 @@ await oldCtx.close();
   const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const pg = watch(await c.newPage());
   await pg.goto(base);
-  const cap = (await pg.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
-  await pg.evaluate(([x, y]) => window.terra.select({ type: 'loc', x, y }), [cap.x + 6, cap.y]);
+  // Dry land 6 cells from the first capital.
+  const spot = await pg.evaluate(() => { const cap = window.terra.places().find((p) => p.kind === 'capital'); for (const [dx, dy] of [[6, 0], [-6, 0], [0, 6], [0, -6], [4, 4], [-4, -4]]) { const c = window.terra.cell(cap.x + dx, cap.y + dy); if (c.h >= 0 && !c.lake) return [cap.x + dx, cap.y + dy]; } return null; });
+  await pg.evaluate(([x, y]) => window.terra.select({ type: 'loc', x, y }), spot);
   await pg.click('#locTown');
   const town = (await pg.evaluate(() => window.terra.places())).at(-1);
   await pg.fill('#pLore', 'The ferry runs at dawn.');
@@ -2774,7 +2786,7 @@ await oldCtx.close();
   const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const pg = watch(await c.newPage());
   await pg.goto(base);
-  const cap = (await pg.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
+  const cap = await pg.evaluate(() => window.terra.places().find((p) => p.kind === 'capital' && [0, 4].every((dy) => { const c = window.terra.cell(p.x + 6, p.y + dy); return c.h >= 0 && !c.lake; })));
   await pg.click('.tool[data-tool="settle"]');
   const b = await pg.locator('#map').boundingBox();
   const found = async (dy) => { const s = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), [cap.x + 6, cap.y + dy]); await pg.mouse.click(b.x + s.x, b.y + s.y); return (await pg.evaluate(() => window.terra.places())).at(-1); };

@@ -1146,6 +1146,37 @@ async function bringBack() {
   indexWorld(id, { name, savedAt: stampOf(kept) }); forgetAside();
   await openWorld(id, `Brought back ${name}.`);
 }
+// A seed link, such as https://terra-incognita.junkdrawer.works/#seed=20417&shape=continent, grows that world from
+// its seed and shape. It carries nothing else: not the edits made since, and not the notes. In Claude's viewer, or a
+// copy opened from a file, it points to the site.
+function seedLink() {
+  const at = CL || !/^https?:$/.test(location.protocol) ? 'https://terra-incognita.junkdrawer.works/' : location.origin + location.pathname;
+  return `${at}#seed=${world.seed}&shape=${world.shape}`;
+}
+async function copySeedLink() {
+  if (SHAPES[world.shape].blank) { toast('A world sketched from blank ocean has no seed to share. Save world file sends it whole.', null, 8000); return; }
+  const link = seedLink(), box = $('#wLinkBox');
+  try { await navigator.clipboard.writeText(link); box.hidden = true; toast(`Seed link copied. It grows world ${world.seed} as generated, without your edits and notes.`, null, 8000); return; } catch (e) { }
+  // Where the clipboard is shut (inside some frames), the link is shown to copy by hand.
+  box.value = link; box.hidden = false; box.focus(); box.select();
+  toast('Copy the link from the box under the button.');
+}
+// The seed and shape a link opened the page with (or was pasted in with), or null. It goes from the address bar once
+// read, so a reload doesn't grow it again.
+function linkedSeed() {
+  if (!/^#seed=/.test(location.hash)) return null;
+  const q = new URLSearchParams(location.hash.slice(1)), seed = parseInt(q.get('seed'), 10), shape = q.get('shape');
+  try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { }
+  if (!(seed >= 1 && seed <= 999999)) return null;
+  return { seed, shape: SHAPES[shape] && !SHAPES[shape].blank ? shape : 'continent' };
+}
+// A link opened here adds its world to Your worlds, with an Undo; the world that was open stays in the list.
+function growLinked(l) {
+  const from = addWorld(() => newWorld(l.seed, l.shape, { noUndo: true })); if (from === null) return;
+  fitView(); syncWorldTab(); markDirty();
+  toast(`Grew world ${l.seed} from a seed link: the land as generated, without the sender's edits or notes.${keptIn(from)}`, { label: 'Undo', fn: undo }, 10000);
+}
+
 // '14:05' today, '3 Nov' this year, '3 Nov 2025' before.
 function whenSaid(iso) {
   const d = new Date(iso), now = new Date(); if (isNaN(d)) return '';
@@ -3012,6 +3043,7 @@ function bindWorldTab() {
   // Enter in Seed generates it, as the button does; on a touch screen the keyboard goes, so the map and Undo show.
   $('#wSeed').addEventListener('keydown', e => { if (e.key !== 'Enter' || e.isComposing) return; e.preventDefault(); $('#wGen').click(); if (TOUCH) e.target.blur(); });
   $('#wBlank').onclick = startBlank;
+  $('#wLink').onclick = copySeedLink;
   // Random seed grows a world from a new seed in one go, in the shape chosen, as Generate from seed does; the one before
   // stays in Your worlds, and Undo goes back to it.
   $('#wDice').onclick = () => generate(1 + Math.floor(Math.random() * 999998));
@@ -3168,7 +3200,9 @@ window.addEventListener('blur', () => { spaceDown = false; if (stroke) endStroke
 function init() {
   loadPrefs();
   let firstRun = false;
-  if (!loadLocal()) { firstRun = true; firstHint = unreadable === null; newWorld(DEFAULT_SEED, 'continent', { noUndo: true }); worldId = newWorldId(); }
+  // A seed link on a first visit grows its world in place of the starting one; on a later one it is added to Your worlds.
+  const linked = linkedSeed();
+  if (!loadLocal()) { firstRun = true; firstHint = unreadable === null && !linked; newWorld(linked ? linked.seed : DEFAULT_SEED, linked ? linked.shape : 'continent', { noUndo: true }); worldId = newWorldId(); }
   else recomputeAll();
   buildToolbar(); renderToolOpts(); bindWorldTab(); syncWorldTab(); updateUndoButtons(); updateCursor();
   if (MAC) { $('#btnUndo').title = 'Undo (⌘Z)'; $('#btnRedo').title = 'Redo (⇧⌘Z)'; $('#keyUndo').textContent = '⌘ Z'; $('#keySave').textContent = '⌘ S'; $('#keyOpen').textContent = '⌘ O'; }
@@ -3222,6 +3256,7 @@ function init() {
   openStore().then(() => { storeOK = true; syncStore(); }, () => { storeOK = false; }).then(renderWorlds);
   if (firstRun) {
     const kept = unreadable !== null;
+    if (!kept && linked) toast(`Grew world ${linked.seed} from a seed link: the land as generated, without the sender's edits or notes.`, null, 10000);
     if (saveLocal() && kept) {
       if (unkept === null) toast('Your saved world could not be read, so a new one is open. The old save is kept in this browser: Download the old save is in the World tab.', null, 12000);
       else {
@@ -3233,6 +3268,8 @@ function init() {
   refreshPlate();
   new ResizeObserver(resize).observe($('#mapwrap'));
   resize();
+  if (linked && !firstRun) growLinked(linked);
+  window.addEventListener('hashchange', () => { const l = linkedSeed(); if (l) growLinked(l); });
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', refreshPlate);
   new MutationObserver(refreshPlate).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   if (document.fonts) Promise.all([`16px ${F_DISPLAY}`, `italic 16px ${F_DISPLAY}`, `16px ${F_SC}`, `12px ${F_MONO}`].map(f => document.fonts.load(f).catch(() => { }))).then(requestDraw);

@@ -44,6 +44,9 @@ and sea stop them. Every town has a page for its story.
   of the World tab, with a picture of it and when it last changed, to open, duplicate or delete. A new world never
   replaces the one you had, and Undo goes back to it. The last world you deleted, or a world as it was before *Clear
   places and labels* took places with notes in them, waits under the list to be brought back.
+- **Seed links.** *Copy seed link* in the World tab copies a link such as
+  `https://terra-incognita.junkdrawer.works/#seed=20417&shape=continent`. Opening it grows that world from its seed and
+  shape and adds it to Your worlds. Edits and notes don't go with it; for those, send the world file.
 - **No account and no server.** Your worlds save themselves in your browser. *Save world file* and *Open world file*
   keep one or move it to another device, and *Save map image* makes a picture of it. It works offline and installs to a
   phone's home screen.

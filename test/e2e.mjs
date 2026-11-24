@@ -2664,6 +2664,38 @@ await oldCtx.close();
   await n.close();
 }
 
+// A seed link. Copy seed link copies …/#seed=N&shape=S for the world open; opening one grows that world, adds it to
+// Your worlds with an Undo, and takes the link from the address bar, so a reload doesn't grow it again. On a first
+// visit it grows in place of the starting world. A world sketched from blank ocean has no seed to share.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await c.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base.slice(0, -1) });
+  const pg = watch(await c.newPage());
+  await pg.goto(base + '#seed=4242&shape=archipelago');
+  await pg.waitForTimeout(400);
+  const first = await pg.evaluate(() => [window.terra.state(), window.terra.worlds().length, location.hash, document.querySelector('#toast span')?.textContent]);
+  ok(first[0].seed === 4242 && first[0].shape === 'archipelago' && first[1] === 1 && first[2] === '' && first[3].startsWith('Grew world 4242 from a seed link'), `a seed link on a first visit grows its world in place of the starting one ("${first[3]}")`);
+  await pg.click('#tab-world');
+  await pg.click('#wDice');
+  await pg.click('#wLink');
+  await pg.waitForTimeout(200);
+  const copied = await pg.evaluate(() => navigator.clipboard.readText());
+  const st = await pg.evaluate(() => window.terra.state());
+  ok(copied === `${base}#seed=${st.seed}&shape=${st.shape}`, `Copy seed link copies the world's seed and shape (${copied.slice(base.length)})`);
+  await pg.evaluate(() => { location.hash = 'seed=20417&shape=continent'; });
+  await pg.waitForFunction(() => window.terra.state().seed === 20417);
+  const grown = await pg.evaluate(() => [window.terra.worlds().length, location.hash, document.querySelector('#toast span').textContent]);
+  await pg.click('#toast button:has-text("Undo")');
+  const after = await pg.evaluate(() => [window.terra.state().seed, window.terra.worlds().length]);
+  ok(grown[0] === 3 && grown[1] === '' && grown[2].endsWith('is kept in Your worlds.') && after[0] === st.seed && after[1] === 2, `a seed link opened later adds its world to Your worlds, and Undo takes it out again ("${grown[2]}")`);
+  await pg.reload(); await pg.waitForTimeout(400);
+  ok((await pg.evaluate(() => [window.terra.state().seed, window.terra.worlds().length])).join() === `${st.seed},2`, 'a reload doesn\'t grow the link again');
+  await pg.click('#tab-world'); await pg.click('#wBlank');
+  await pg.click('#tab-world'); await pg.click('#wLink');
+  ok((await pg.textContent('#toast span')).startsWith('A world sketched from blank ocean has no seed to share.'), 'a world sketched from blank ocean has no seed link to give');
+  await c.close();
+}
+
 // Two tabs on the same world. A change saved in one is brought into the other, so notes written in tab A survive a
 // rename in tab B; it used to be saved over with B's stale copy. A tab with changes of its own still to save asks which
 // to keep, and either answer leaves both tabs able to save.

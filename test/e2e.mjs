@@ -2065,7 +2065,7 @@ await oldCtx.close();
     if (k) await pg.click('#zIn');
     await pg.waitForTimeout(80);
     const spots = await pg.evaluate(() => window.terra.nameSpots()), map = await pg.evaluate(() => { const a = window.terra.toScreen(0, 0), b = window.terra.toScreen(480, 300); return [Math.max(a.x, 0), Math.max(a.y, 0), Math.min(b.x, document.getElementById('map').clientWidth), Math.min(b.y, document.getElementById('map').clientHeight)]; });
-    const off = spots.names.filter((n) => n.kind !== 'capital' && n.kind !== 'city' && (n.box[0] < map[0] || n.box[1] < map[1] || n.box[2] > map[2] || n.box[3] > map[3])).map((n) => n.name);
+    const off = spots.names.filter((n) => n.kind !== 'capital' && (n.box[0] < map[0] || n.box[1] < map[1] || n.box[2] > map[2] || n.box[3] > map[3])).map((n) => n.name);
     looks.push({ k, clash: clash(spots), off, dropped: spots.marks.filter((m) => m.kind === 'village' && m.box[0] > map[0] && m.box[2] < map[2] && m.box[1] > map[1] && m.box[3] < map[3] && !spots.names.some((n) => n.id === m.id)).map((m) => m.id), sides: new Set(spots.names.map((n) => n.side)).size });
   }
   ok(looks.every((l) => !l.clash.length && !l.off.length), `on a phone, from the whole map to six steps in, no place name prints over another name or another place's symbol, or runs off the map (${looks.map((l) => [...l.clash, ...l.off].join(', ') || 'clear').join('; ')})`);
@@ -2088,6 +2088,17 @@ await oldCtx.close();
   await pg.waitForTimeout(80);
   ok((await pg.evaluate(() => window.terra.nameSpots().names.map((n) => n.id))).includes(village.id), `a village whose name is left off shows it once selected (${village.name})`);
   await pg.evaluate(() => window.terra.select(null));
+  // On a laptop, three steps in, a city by the screen's edge is named inside it or not at all (Olmailora's ran off it).
+  const lap = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const lp = watch(await lap.newPage());
+  await lp.goto(base);
+  await lp.evaluate(() => document.fonts.ready);
+  await lp.evaluate(() => window.terra.newWorld(20417, 'continent'));
+  for (let k = 0; k < 3; k++) await lp.click('#zIn');
+  await lp.waitForTimeout(150);
+  const edge = await lp.evaluate(() => { const w = document.getElementById('map').clientWidth, h = document.getElementById('map').clientHeight; return window.terra.nameSpots().names.filter((n) => n.kind !== 'capital' && (n.box[0] < 0 || n.box[2] > w || n.box[1] < 0 || n.box[3] > h)).map((n) => n.name); });
+  await lap.close();
+  ok(!edge.length, `on a laptop three steps in, no name but a capital's runs off the screen (${edge.join(', ') || 'none'})`);
   // The saved image, both looks: every capital, city and town named, and nothing printed over anything.
   for (const st of ['terrain', 'atlas']) {
     await pg.evaluate((st) => { window.terra.setStyle(st); window.terra.mapImage(4, true); }, st);

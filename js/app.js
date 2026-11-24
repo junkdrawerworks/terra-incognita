@@ -1952,8 +1952,8 @@ function drawSymbol(c, kind, sub, X, Y, sc, color, INK, iconHalo) {
 // of the symbol, or else to the left, above, below or at a corner, wherever the name is clear of the names and symbols
 // already there, the realms' names, the map's labels and river names, the compass and scale bar (opt.avoid) and the
 // map's edge. A town's, village's or landmark's name with no clear spot is left off until the map is zoomed in far
-// enough to give it one, and so is a city's that would print over another name; a capital's, and the selected
-// place's, always shows, in the spot where it covers least.
+// enough to give it one, and so is a city's that would print over another name or run off the map; a capital's, and
+// the selected place's, always shows, in the spot where it covers least.
 function drawPlaces(c, v, vw, vh, atlas, INK, HALO, opt, small = 1) {
   const s = v.s, zr = s / v.s0, sc = clamp(Math.pow(zr, 0.22), 1, 1.35) * small;
   selName = null;
@@ -1995,11 +1995,12 @@ function drawPlaces(c, v, vw, vh, atlas, INK, HALO, opt, small = 1) {
         const y = Y + dy * (d + hh), x0 = dx > 0 ? X + d : X - d - w;
         spots.push({ side, x: dx > 0 ? X + d : X - d, y, align: dx > 0 ? 'left' : 'right', box: [x0 - 1.5, y - hh, x0 + w + 1.5, y + hh] });
       }
-      // A spot's cost: how much it covers, where covering another place's name counts a thousand times over.
+      // A spot's cost: how much it covers, where covering another place's name, or running off the map, counts a
+      // thousand times over.
       let best = null, bestCost = Infinity;
       for (const sp of spots) {
         const b = sp.box, out = Math.max(0, ex0 - b[0]) + Math.max(0, b[2] - ex1) + Math.max(0, ey0 - b[1]) + Math.max(0, b[3] - ey1);
-        let cost = out * (b[3] - b[1]) * 4;
+        let cost = out * (b[3] - b[1]) * 1000;
         for (const o of clear) { if (o.own === p.id) continue; cost += overlap(b, o) * (o.own !== undefined ? 1000 : 1); if (cost >= bestCost) break; }
         if (cost < bestCost) { bestCost = cost; best = sp; }
         if (cost === 0) break;

@@ -159,7 +159,7 @@ const D = {
   filled: new Float32Array(N), down: new Int32Array(N), acc: new Float32Array(N), area: new Float32Array(N), order: new Int32Array(N), lake: new Uint8Array(N), lakeF: new Float32Array(N),
   vis: new Uint8Array(N), isR: new Uint8Array(N), hasUp: new Uint8Array(N), mouth: new Int32Array(N), body: new Int32Array(N),
   owner: new Int16Array(N), cost: new Float64Array(N), ind: new Float32Array(N), tmp: new Float32Array(N), dist: new Int16Array(N), q: new Int32Array(N),
-  realms: [], borders: [], coast: new Path2D(), contours: null, riverPaths: [], riverLabels: [], glyphs: [], riverNames: new Map(),
+  realms: [], borders: [], coast: new Path2D(), contours: null, riverPaths: [], riverLabels: [], riverMouths: [], glyphs: [], riverNames: new Map(),
 };
 const view = { s: 1, s0: 1, ox: 0, oy: 0, cw: 0, ch: 0, dpr: 1 };
 
@@ -417,9 +417,19 @@ function buildRivers() {
   }
   D.riverPaths = paths;
   nameRivers();
-  mouths.sort((a, b) => acc[b] - acc[a]);
-  const labels = [];
-  for (const m of mouths) {
+  mouths.sort((a, b) => acc[b] - acc[a]); D.riverMouths = mouths;
+  labelRivers();
+}
+// The four biggest rivers are named on the map, along their main stem, and so is every river drawn by hand, along the
+// line it was drawn (unless the river it is part of is named already).
+function labelRivers() {
+  const acc = D.acc, down = D.down, isR = D.isR, labels = [], named = new Set();
+  const label = (cells, k, m) => {
+    const a = cells[Math.max(0, k - 6)], b = cells[Math.min(cells.length - 1, k + 6)], p = cells[k];
+    let ang = Math.atan2(cyOf(b) - cyOf(a), cxOf(b) - cxOf(a)); if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI;
+    labels.push({ x: cxOf(p) + Math.sin(ang) * 1.8, y: cyOf(p) - Math.cos(ang) * 1.8, ang, name: riverName(m).full }); named.add(m);
+  };
+  for (const m of D.riverMouths) {
     if (labels.length >= 4 || acc[m] < RIVER_T * 8) break;
     const stem = [m]; let cur = m;
     for (let g = 0; g < 500; g++) {
@@ -428,9 +438,21 @@ function buildRivers() {
       if (best < 0) break; stem.push(best); cur = best;
     }
     if (stem.length < 26) continue;
-    const k = Math.floor(stem.length * 0.45), a = stem[k - 6], b = stem[k + 6], p = stem[k];
-    let ang = Math.atan2(cyOf(b) - cyOf(a), cxOf(b) - cxOf(a)); if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI;
-    labels.push({ x: cxOf(p) + Math.sin(ang) * 1.8, y: cyOf(p) - Math.cos(ang) * 1.8, ang, name: riverName(m).full });
+    label(stem, Math.floor(stem.length * 0.45), m);
+  }
+  // A drawn river is labelled from its source down to where it meets a bigger river, or if it meets one straight away,
+  // down to where it meets a lake or the sea.
+  for (const sp of world.springs || []) {
+    const src = cellAt(sp.x, sp.y); if (!isR[src]) continue;
+    const m = mouthOf(src); if (named.has(m)) continue;
+    const all = [src]; let own = 0;
+    for (let c = down[src], prev = src; c >= 0 && isR[c] && all.length < 120; prev = c, c = down[c]) {
+      const cx = c % W, cy = (c / W) | 0;
+      if (!own) for (let k = 0; k < 8; k++) { const nx = cx + NBX[k], ny = cy + NBY[k]; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; const n = ny * W + nx; if (n !== prev && down[n] === c && isR[n] && acc[n] > acc[prev]) own = all.length; }
+      all.push(c);
+    }
+    const run = own >= 8 ? all.slice(0, own) : all;
+    if (run.length >= 3) label(run, Math.floor(run.length * 0.45), m);
   }
   D.riverLabels = labels;
 }
@@ -2553,6 +2575,19 @@ function facts(x, y, self) {
   }
   return f;
 }
+// A name typed in for a river (by its mouth) is kept as its own, before any other: a river that had the same name takes
+// a new one, unless that name was typed in too. A box left empty, or as it was, changes nothing.
+function renameRiver(m, text) {
+  const name = text.replace(/\s+/g, ' ').trim().slice(0, RIVER_MAX), mine = world.rivers.find(r => r.y * W + r.x === m);
+  if (!name || !mine || name === mine.name) return;
+  const other = world.rivers.find(r => r !== mine && riverKey(r.name) === riverKey(name));
+  if (other && other.own) { toast(`Another river is already called ${other.name}.`); return; }
+  pushUndo({ meta: true });
+  mine.name = name; mine.own = true;
+  if (other) world.rivers = world.rivers.filter(r => r !== other);
+  riversFromTable = true; nameRivers(); labelRivers(); requestDraw(); markDirty();
+  if (other) toast(`The river that was ${other.name} is now ${riverName(other.y * W + other.x).full}.`, { label: 'Undo', fn: undo });
+}
 // Where a river goes from one of its cells, as its line on a page has it: 'flows southeast through Lake Vool and reaches
 // the sea at the Gulf of Lainho, 40 leagues (192 km) on. It drains 12,000 km².' The way it flows is taken a few cells
 // on, the distance is along its bed to its mouth, and what it drains is all the land upstream of its mouth.
@@ -2590,7 +2625,7 @@ function factsHTML(f, p) {
     rows.push(['Setting', bits.join(', ')]);
   }
   // The river's name goes to its mouth.
-  if (f.river) { const m = mouthOf(f.riverAt); rows.push(['River', `<button class="link" data-mouth="${m}">${esc(f.river.full)}</button> ${esc(riverWay(f.riverAt))}`]); }
+  if (f.river) { const m = mouthOf(f.riverAt); rows.push(['River', `<span class="rv-line"><button class="link" data-mouth="${m}">${esc(f.river.full)}</button> ${esc(riverWay(f.riverAt))} <button class="link" data-rename="${m}" aria-label="Rename ${esc(f.river.on)}">Rename</button></span>`]); }
   // The realm's name goes to its capital's page, where it is renamed and recoloured; on the capital itself it is text.
   const rname = f.realm && `<span data-realm="${f.realm.place.id}">${esc(f.realm.display)}</span>`;
   rows.push([f.water || f.lake ? 'Waters of' : 'Realm', f.realm ? `<span class="swatch" style="background:${f.realm.color}"></span> ${p === f.realm.place ? rname : `<button class="link" data-goto="${f.realm.place.id}">${rname}</button>`}` : (f.water || f.lake ? 'No realm' : 'Unclaimed')]);
@@ -2722,6 +2757,17 @@ function bindGotos(pane) {
   bindToolLinks(pane, '#pane-inspect [data-goto]');
   // A river's name shows its mouth, and that spot's page.
   pane.querySelectorAll('[data-mouth]').forEach(b => b.onclick = () => { const m = +b.dataset.mouth, x = m % W + 0.5, y = ((m / W) | 0) + 0.5; select({ type: 'loc', x, y }); centerOn(x, y); mapIntoView(); refocus('#showOnMap'); });
+  // Rename opens a box in the River line, as a town's name is one. Enter or leaving it keeps the name; Esc doesn't.
+  pane.querySelectorAll('[data-rename]').forEach(b => b.onclick = () => {
+    const m = +b.dataset.rename, line = b.closest('.rv-line'), was = riverName(m).full;
+    line.innerHTML = `<label class="sr" for="rvName">River name</label><input id="rvName" class="txt rv-name" value="${esc(was)}" maxlength="${RIVER_MAX}" autocomplete="off" spellcheck="false">`;
+    const box = $('#rvName', line); let done = false;
+    const finish = keep => { if (done) return; done = true; if (keep) renameRiver(m, box.value); renderInspector(); refocus(`#pane-inspect [data-rename="${m}"]`); };
+    box.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); } });
+    box.addEventListener('change', () => finish(true));
+    box.addEventListener('blur', () => finish(true));
+    box.focus(); box.select();
+  });
   // Show on map centres the map on what this page is about, and on a phone, where the map can be scrolled away above
   // the page, brings it into view.
   const show = $('#showOnMap', pane); if (show) show.onclick = () => { const o = findSel(ui.selected); if (o) { centerOn(o.x, o.y); mapIntoView(); } };
@@ -3459,6 +3505,8 @@ window.terra = {
   rivers: () => world.rivers.map(r => ({ ...r, own: !!r.own })),
   // The name of the river a spot is on, as its page has it, or null.
   riverAt: (x, y) => { const f = facts(x, y, null); return f.river ? f.river.full : null; },
+  // The rivers named on the map, as drawn at full size: their names, and where each sits.
+  riverLabels: () => D.riverLabels.map(l => ({ name: l.name, x: l.x, y: l.y })),
   riverNear: (x, y, r = 1.5) => {
     for (let dy = -Math.ceil(r); dy <= Math.ceil(r); dy++) for (let dx = -Math.ceil(r); dx <= Math.ceil(r); dx++) {
       if (dx * dx + dy * dy > r * r) continue; const i = cellAt(x + dx, y + dy); if (D.isR[i]) return true;

@@ -14,7 +14,7 @@
 // that a newer version wrote, kept aside and given back by Download the old save. Five seeds that must keep growing the
 // same worlds, and a world file from an earlier build that must keep opening. Rivers that keep their names through an
 // edit, an Undo and a reload, never two of one name, and a drawn river named in its toast; a place's River line, which
-// says where its river goes and links to its mouth. Then nothing lost and nothing undone by
+// says where its river goes and links to its mouth; a river renamed from it; and a drawn river named on the map. Then nothing lost and nothing undone by
 // surprise: a pinch that paints nothing (one finger off the map too), a drag a pinch cuts short (and a wobble it
 // doesn't keep), a town dragged into the sea, a page left mid-stroke, an autosave mid-stroke, Undo mid-stroke, a
 // toast's Undo, Undo naming the places it takes (and the rumor rolled for one), Found new realms and Clear naming the
@@ -1678,7 +1678,8 @@ await oldCtx.close();
   const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const pg = watch(await c.newPage());
   await pg.goto(base);
-  const row = (k) => pg.evaluate((k) => { const dt = [...document.querySelectorAll('#pane-inspect dt')].find((d) => d.textContent === k); return dt ? dt.nextElementSibling.textContent : null; }, k);
+  // The line's text, leaving out its Rename button.
+  const row = (k) => pg.evaluate((k) => { const dt = [...document.querySelectorAll('#pane-inspect dt')].find((d) => d.textContent === k); return dt ? dt.nextElementSibling.textContent.replace(/ Rename$/, '') : null; }, k);
   await pg.evaluate(() => { window.terra.newWorld(20417, 'continent'); window.terra.select({ type: 'loc', x: 262.5, y: 134.5 }); });
   const upstream = await row('River'), setting = await row('Setting');
   const m = upstream && upstream.match(/^River Pameo flows (north|south|east|west|northeast|northwest|southeast|southwest) and reaches the sea, (\d+) leagues \(([\d,]+) km\) on\. It drains ([\d,]+) km²\.$/);
@@ -1727,6 +1728,57 @@ await oldCtx.close();
   await drag([[276.6, 148.6], [269.5, 141.5], [262.5, 134.5]], 8, pg);
   const into = await pg.textContent('#toast span');
   ok(into.startsWith(`Drew a tributary of ${big.name.replace(/^The /, 'the ').replace(/^River /, 'the River ')}.`), `a river drawn into it is called its tributary ("${into}")`);
+  await c.close();
+}
+
+// A river can be given a name of your own from its River line, and keeps it through an edit and a reload; Undo takes it
+// back. A river that had that name takes another; one whose name was typed in too keeps it, and the box says so. And a
+// river drawn by hand is named on the map, though it's too short to be one of the four biggest, which were all a map
+// named.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const E = (fn, arg) => pg.evaluate(fn, arg);
+  const row = () => E(() => { const dt = [...document.querySelectorAll('#pane-inspect dt')].find((d) => d.textContent === 'River'); return dt ? dt.nextElementSibling.textContent : null; });
+  const rename = async (to) => { await pg.click('#pane-inspect [data-rename]'); await pg.fill('#rvName', to); await pg.keyboard.press('Enter'); await pg.waitForTimeout(200); };
+  await E(() => { window.terra.newWorld(20417, 'continent'); window.terra.select({ type: 'loc', x: 262.5, y: 134.5 }); });
+  const [first, second, third] = await E(() => window.terra.rivers());
+  await rename('Silverrun');
+  const after = await E(() => [window.terra.rivers()[0], window.terra.riverLabels().map((l) => l.name)]), line = await row();
+  ok(after[0].name === 'Silverrun' && after[0].own && after[1].includes('Silverrun') && !after[1].includes(first.name) && line.startsWith('Silverrun flows ') && await E(() => document.activeElement.dataset.rename) !== undefined,
+    `Rename in the River line names the river, on the page and on the map (${first.name} is now "${line.split(' flows')[0]}"; labels ${after[1].join(', ')})`);
+  await pg.click('#btnUndo'); await pg.waitForTimeout(300);
+  const undone = await E(() => window.terra.rivers()[0].name);
+  await pg.click('#btnRedo'); await pg.waitForTimeout(300);
+  // Escape leaves it as it was.
+  await pg.click('#pane-inspect [data-rename]'); await pg.fill('#rvName', 'Not this'); await pg.keyboard.press('Escape'); await pg.waitForTimeout(100);
+  const kept = await E(() => window.terra.rivers()[0].name);
+  // A sea loop over its mouth, then a reload.
+  await E(([x, y]) => window.terra.centerOn(x, y), [first.x, first.y]);
+  await pg.click('.tool[data-tool="sketch"]'); await pg.click('.chip[data-v="sea"]');
+  const loop = []; for (let a = 0; a <= 16; a++) loop.push([first.x + 0.5 + 5 * Math.cos(a / 16 * Math.PI * 2), first.y + 0.5 + 5 * Math.sin(a / 16 * Math.PI * 2)]);
+  await drag(loop, 3, pg);
+  await pg.waitForTimeout(1500); await pg.reload(); await pg.waitForTimeout(600);
+  const own = await E(() => window.terra.rivers().filter((r) => r.own).map((r) => r.name));
+  ok(undone === first.name && kept === 'Silverrun' && own.join() === 'Silverrun', `Undo takes the name back, Esc leaves it, and it lasts through a sea loop over the mouth and a reload (${undone}, ${kept}, ${own.join()})`);
+  // The second river given the third's name: the third takes a new one. Then the third given Silverrun: refused.
+  const spot = async (r) => E(([mx, my, name]) => { for (let d = 4; d < 40; d++) for (let a = 0; a < 48; a++) { const x = mx + 0.5 + d * Math.cos(a / 48 * Math.PI * 2), y = my + 0.5 + d * Math.sin(a / 48 * Math.PI * 2); if (window.terra.riverAt(x, y) === name) return [x, y]; } return null; }, [r.x, r.y, r.name]);
+  const at2 = await spot(second);
+  await E(([x, y]) => window.terra.select({ type: 'loc', x, y }), at2);
+  await rename(third.name);
+  const moved = await E(() => window.terra.rivers()), said = await pg.textContent('#toast span');
+  const thirdNow = moved.find((r) => r.x === third.x && r.y === third.y);
+  ok(moved.find((r) => r.x === second.x && r.y === second.y).name === third.name && thirdNow.name !== third.name && said === `The river that was ${third.name} is now ${thirdNow.name}.`, `a river given another's name takes it, and the other takes a new one ("${said}")`);
+  await rename('Silverrun');
+  const refused = await pg.textContent('#toast span');
+  ok(refused === 'Another river is already called Silverrun.' && (await E(() => window.terra.rivers())).filter((r) => r.name === 'Silverrun').length === 1, `two names typed in can't be the same ("${refused}")`);
+  // A short river drawn by hand down to the north coast of the starting world is named on the map.
+  await E(() => { window.terra.newWorld(20417, 'continent'); window.terra.centerOn(234, 60); });
+  await pg.click('.tool[data-tool="sketch"]'); await pg.click('.chip[data-v="river"]');
+  await drag([[228.5, 60.5], [233.5, 60.5], [239.5, 60.5]], 8, pg);
+  const drawn = await E(() => [window.terra.riverAt(231.5, 60.5), window.terra.riverLabels().map((l) => l.name)]);
+  ok(drawn[0] && drawn[1].length === 5 && drawn[1][4] === drawn[0], `a river drawn by hand is named on the map, as well as the four biggest (${drawn[0]}; labels ${drawn[1].join(', ')})`);
   await c.close();
 }
 

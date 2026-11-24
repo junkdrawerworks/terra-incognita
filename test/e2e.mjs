@@ -344,9 +344,18 @@ ok(JSON.stringify(await realmRows()) === JSON.stringify(beforeRealms), 'its bord
 const notesAfter = await S((id) => { window.terra.select({ type: 'place', id }); return document.getElementById('pLore').value; }, town.id);
 ok(notesAfter.endsWith('Ships unload salt at dawn.'), 'notes typed just before leaving are still there');
 
-// Save world file downloads it.
+// Save world file downloads it. Until then Keep your world says the world, with notes in it now, has never been saved
+// to a file; once saved, nothing, until there is newer work in it.
 await page.click('#tab-world');
+const dueBefore = await page.evaluate(() => [document.getElementById('wFileNote').hidden, document.getElementById('wFileNote').textContent]);
 const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#wSaveFile')]);
+await page.waitForTimeout(200);
+const dueSaved = await page.evaluate(() => document.getElementById('wFileNote').hidden);
+await page.waitForTimeout(1100);
+await page.evaluate(() => { const n = document.getElementById('worldName'); n.dispatchEvent(new Event('focus')); n.value = n.value + ' '; n.dispatchEvent(new Event('input')); n.value = n.value.trim(); n.dispatchEvent(new Event('input')); });
+await page.waitForTimeout(1100);
+const dueAfter = await page.evaluate(() => [document.getElementById('wFileNote').hidden, document.getElementById('wFileNote').textContent]);
+ok(!dueBefore[0] && dueBefore[1] === 'Not saved to a file yet.' && dueSaved && !dueAfter[0] && /^Not saved to a file since .+\.$/.test(dueAfter[1]), `Keep your world says when the world was last saved to a file, once there is newer work ("${dueBefore[1]}", then "${dueAfter[1]}")`);
 const saved = JSON.parse(await readFile(await dl.path(), 'utf8'));
 ok(dl.suggestedFilename().endsWith('.json') && saved.format === 'terra-incognita' && saved.places.length === st.places, 'Save world file downloads the world');
 ok(await page.locator('#pane-world .jd-foot').isVisible(), 'the World tab links back to the drawer');
@@ -2694,6 +2703,26 @@ await oldCtx.close();
   await pg.click('#tab-world'); await pg.click('#wLink');
   ok((await pg.textContent('#toast span')).startsWith('A world sketched from blank ocean has no seed to share.'), 'a world sketched from blank ocean has no seed link to give');
   await c.close();
+}
+
+// Run from the home screen, the app asks the browser to keep its storage, which Chrome grants there without asking; in
+// a tab it doesn't ask, since Firefox would show a prompt.
+{
+  const asked = async (installed) => {
+    const c = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    await c.addInitScript((installed) => {
+      const mm = window.matchMedia.bind(window);
+      window.matchMedia = (q) => q === '(display-mode: standalone)' ? { matches: installed, media: q, addEventListener() { }, removeEventListener() { } } : mm(q);
+      window.persistAsked = 0; navigator.storage.persisted = async () => false; navigator.storage.persist = async () => { window.persistAsked++; return true; };
+    }, installed);
+    const pg = watch(await c.newPage());
+    await pg.goto(base); await pg.waitForTimeout(300);
+    const n = await pg.evaluate(() => window.persistAsked);
+    await c.close();
+    return n;
+  };
+  const home = await asked(true), tab = await asked(false);
+  ok(home === 1 && tab === 0, `installed, it asks the browser to keep its storage once; in a tab it doesn't (${home}, ${tab})`);
 }
 
 // Two tabs on the same world. A change saved in one is brought into the other, so notes written in tab A survive a

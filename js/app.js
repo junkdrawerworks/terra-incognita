@@ -744,7 +744,7 @@ function newWorld(seed, shape, opts = {}) {
   if (world && !opts.noUndo) pushUndo({ h: true, m: true, meta: true, world: true });
   const t = generateTerrain(seed, shape);
   if (!world) world = { h: t.h, m: t.m }; else { world.h.set(t.h); world.m.set(t.m); }
-  Object.assign(world, { seed, shape, sea: 0.5, places: [], labels: [], springs: [], nextId: 1 });
+  Object.assign(world, { seed, shape, sea: 0.5, places: [], labels: [], springs: [], nextId: 1, editedAt: null, filedAt: null });
   computeTN(); hydrology(); fillPits(); snapToSave(world.h); snapToSave(world.m); hydrology(); computeClimate(); buildRivers();
   populate(seed);
   const rng = mulberry32(seed + 404);
@@ -767,7 +767,9 @@ function takeSnap(parts) {
 // Typing in the world's name is one Undo step per run of typing: a step from anything else, an Undo or a Redo ends the
 // run, so the next letter typed starts a new step.
 let renaming = false;
-function pushUndo(parts) { renaming = false; dropActionToast(); undoStack.push(takeSnap(parts)); if (undoStack.length > 30) undoStack.shift(); redoStack.length = 0; updateUndoButtons(); }
+// When the world last had work done on it, for Keep your world's reminder to save a file (see syncFileNote).
+const touched = () => { world.editedAt = new Date().toISOString(); };
+function pushUndo(parts) { if (!parts.world) touched(); renaming = false; dropActionToast(); undoStack.push(takeSnap(parts)); if (undoStack.length > 30) undoStack.shift(); redoStack.length = 0; updateUndoButtons(); }
 function applySnap(s) {
   const inv = takeSnap({ h: !!s.h, m: !!s.m, meta: !!s.meta, world: !!s.world });
   if (s.h) world.h.set(s.h);
@@ -835,7 +837,7 @@ function unpackF(str, whole) { const b = unb64(str); if (whole && b.length !== N
 // A world file also says which look it was saved in (Terrain or Atlas), and opening it switches to that look, so it
 // opens on another device as it was made. The autosave doesn't: there your own choice of look stays.
 function serialize(savedAt = new Date().toISOString(), forFile = false) {
-  return JSON.stringify({ format: 'terra-incognita', version: 1, ...(forFile ? {} : { id: worldId }), name: world.name, seed: world.seed, shape: world.shape, sea: world.sea, W, H, h: packF(world.h), m: packF(world.m), places: world.places, labels: world.labels, springs: world.springs || [], nextId: world.nextId, ...(forFile ? { style: ui.style } : {}), savedAt });
+  return JSON.stringify({ format: 'terra-incognita', version: 1, ...(forFile ? {} : { id: worldId }), name: world.name, seed: world.seed, shape: world.shape, sea: world.sea, W, H, h: packF(world.h), m: packF(world.m), places: world.places, labels: world.labels, springs: world.springs || [], nextId: world.nextId, editedAt: world.editedAt || null, filedAt: world.filedAt || null, ...(forFile ? { style: ui.style } : {}), savedAt });
 }
 // A world file must be whole: one cut short would open as a black map and then be autosaved over the world you had.
 // One saved by a newer version isn't opened at all, since saving it again here would lose whatever is new in it.
@@ -850,7 +852,8 @@ function checkWorld(o, fromFile) {
 function applyWorld({ o, h, m }) {
   const placed = q => q && typeof q.x === 'number' && typeof q.y === 'number' && isFinite(q.x) && isFinite(q.y);
   if (!world) world = { h, m }; else { world.h.set(h); world.m.set(m); }
-  Object.assign(world, { name: String(o.name || 'Untitled world'), seed: o.seed | 0, shape: SHAPES[o.shape] ? o.shape : 'continent', sea: clamp(+o.sea || 0.5, 0.4, 0.6), places: Array.isArray(o.places) ? o.places.filter(placed) : [], labels: Array.isArray(o.labels) ? o.labels.filter(placed) : [], nextId: o.nextId | 0 || 1,
+  const stamp = v => typeof v === 'string' && !isNaN(Date.parse(v)) ? v : null;
+  Object.assign(world, { editedAt: stamp(o.editedAt), filedAt: stamp(o.filedAt), name: String(o.name || 'Untitled world'), seed: o.seed | 0, shape: SHAPES[o.shape] ? o.shape : 'continent', sea: clamp(+o.sea || 0.5, 0.4, 0.6), places: Array.isArray(o.places) ? o.places.filter(placed) : [], labels: Array.isArray(o.labels) ? o.labels.filter(placed) : [], nextId: o.nextId | 0 || 1,
     springs: Array.isArray(o.springs) ? o.springs.filter(sp => sp && isFinite(sp.x) && isFinite(sp.y)).map(sp => ({ x: clamp(+sp.x, 0, W), y: clamp(+sp.y, 0, H), flow: clamp(+sp.flow || 0, 0, 500) })) : [] });
   const items = world.places.concat(world.labels), ids = new Set(), colors = new Set(world.places.map(p => p.realm && p.realm.color));
   for (const q of items) if (Number.isInteger(q.id)) world.nextId = Math.max(world.nextId, q.id + 1);
@@ -908,7 +911,7 @@ function saveLocal() {
     const at = new Date().toISOString(), text = serialize(at);
     localStorage.setItem(STORE_KEY, text); lastSavedAt = at; lastText = text; savedNote();
     indexWorld(worldId, { name: world.name, savedAt: at, places: world.places.length });
-    scheduleSync(); if (ui.tab === 'world') renderWorlds();
+    scheduleSync(); if (ui.tab === 'world') { renderWorlds(); syncFileNote(); }
     return true;
   } catch (e) {
     lastText = null;
@@ -1226,7 +1229,7 @@ function syncSaving() {
   $('#wSaveFile').hidden = $('#wSavePng').hidden = savingOff;
   $('#keySave').hidden = $('#keySave').nextElementSibling.hidden = savingOff;
   if (savingOff) $('#wKeepNote').innerHTML = 'This view can\'t save files. Open <a href="https://terra-incognita.junkdrawer.works/" target="_blank" rel="noopener">terra-incognita.junkdrawer.works</a> to keep a copy.';
-  syncOldSave(); if (!ui.selected) renderInspector();
+  syncOldSave(); syncFileNote(); if (!ui.selected) renderInspector();
 }
 if (CL) CL.use('sample').then(s => { sampleFn = s; if (ui.selected && ui.selected.type === 'place') renderInspector(); }).catch(() => { });
 
@@ -2818,7 +2821,7 @@ function bindPlace(p) {
   nm.addEventListener('change', () => { if (!p.name.trim()) { p.name = 'Nameless'; nm.value = p.name; named(); } refreshCodex(); requestDraw(); });
   $('#pReroll').onclick = () => { pushUndo({ meta: true }); p.name = freshName(() => p.kind === 'landmark' ? landmarkName(p.sub, p.tongue, Math.random) : makeName(p.tongue, Math.random)); nm.value = p.name; named(); requestDraw(); refreshCodex(); markDirty(); };
   $('#pKind').onchange = e => { changeKind(p, e.target.value); refocus('#pKind'); };
-  $('#pLore').addEventListener('input', e => { once(); p.lore = e.target.value; markDirty(); });
+  $('#pLore').addEventListener('input', e => { once(); p.lore = e.target.value; touched(); markDirty(); });
   $('#pDelete').onclick = () => removeSel({ type: 'place', id: p.id });
   $('#pRumor').onclick = () => { if (draftFor(p.id).busy) return; setDraft(p.id, { text: rumor(p), busy: false, kind: 'rumor', note: '', ctl: null }); renderDraft(); };
   const wb = $('#pWrite'); if (wb) wb.onclick = () => writeHistory(p);
@@ -2984,7 +2987,7 @@ function syncWorldTab() {
   $('#wSeaOut').textContent = `${Math.round(landShare() * 100)}% of the map is land`;
   for (const k of ['realms', 'rivers', 'labels', 'names', 'grid']) $('#ly' + k[0].toUpperCase() + k.slice(1)).checked = ui.layers[k];
   $('#styleTerrain').setAttribute('aria-pressed', String(ui.style === 'terrain')); $('#styleAtlas').setAttribute('aria-pressed', String(ui.style === 'atlas'));
-  renderWorlds();
+  renderWorlds(); syncFileNote();
 }
 function refreshPanels() { syncMapLabel(); renderInspector(); refreshCodex(); if (ui.tab === 'world') syncWorldTab(); else $('#worldName').value = world.name; }
 function setStyle(st) { if (ui.style === st) return; ui.style = st; buildContours(); buildGlyphs(); renderBase(); syncWorldTab(); requestDraw(); savePrefs(); }
@@ -3010,7 +3013,23 @@ function renderMapImage(S = 4, allNames = true) {
   drawMap(cv.getContext('2d'), 1, cw, ch, { s: S, ox: M, oy: M, s0: allNames ? S / 2 : S }, { plate: ui.style === 'atlas' ? '#E9DFC6' : '#DCE3E5', export: true, allNames });
   return cv;
 }
-const saveWorldFile = () => saveFile(slug() + '.json', serialize(undefined, true), 'World file saved.');
+async function saveWorldFile() {
+  const at = new Date().toISOString();
+  if (await saveFile(slug() + '.json', serialize(undefined, true), 'World file saved.')) { world.filedAt = at; markDirty(); syncFileNote(); }
+}
+// Once a world has work in it newer than its last Save world file (or notes, and no file yet), Keep your world says
+// since when: a browser can clear what a site keeps, the autosave included, and the file is the copy that lasts.
+function syncFileNote() {
+  const el = $('#wFileNote'); if (!el || !world) return;
+  const f = world.filedAt, due = !savingOff && (f ? !!world.editedAt && world.editedAt > f : !!world.editedAt || world.places.some(p => p.lore.trim()));
+  el.hidden = !due; if (due) el.textContent = f ? `Not saved to a file since ${whenSaid(f)}.` : 'Not saved to a file yet.';
+}
+// Run from the home screen, it asks the browser to keep what it stores rather than clear it after a while unused.
+// Chrome grants that there without asking; a tab doesn't ask, since Firefox would put up a prompt for it.
+function keepStorage() {
+  const installed = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  if (installed && navigator.storage && navigator.storage.persist) navigator.storage.persisted().then(p => p || navigator.storage.persist()).catch(() => { });
+}
 function savePng() {
   const cv = renderMapImage(4);
   cv.toBlob(blob => { if (blob) saveFile(slug() + '.png', blob, 'Map image saved.'); else toast('The image could not be made.'); }, 'image/png');
@@ -3089,7 +3108,7 @@ function bindWorldTab() {
           : 'That file is not a Terra Incognita world.');
         return;
       }
-      const from = addWorld(() => applyWorld(parsed)); if (from === null) return;
+      const from = addWorld(() => { applyWorld(parsed); world.filedAt = typeof parsed.o.savedAt === 'string' && !isNaN(Date.parse(parsed.o.savedAt)) ? parsed.o.savedAt : new Date().toISOString(); }); if (from === null) return;
       // In the look it was saved in; a file from before files kept one opens in the look on screen.
       const look = STYLES.includes(parsed.o.style) && parsed.o.style !== ui.style ? parsed.o.style : null;
       if (look) { ui.style = look; savePrefs(); }
@@ -3207,7 +3226,7 @@ function init() {
   buildToolbar(); renderToolOpts(); bindWorldTab(); syncWorldTab(); updateUndoButtons(); updateCursor();
   if (MAC) { $('#btnUndo').title = 'Undo (⌘Z)'; $('#btnRedo').title = 'Redo (⇧⌘Z)'; $('#keyUndo').textContent = '⌘ Z'; $('#keySave').textContent = '⌘ S'; $('#keyOpen').textContent = '⌘ O'; }
   $('#worldName').addEventListener('focus', () => { renaming = false; });
-  $('#worldName').addEventListener('input', e => { if (!renaming) { pushUndo({ meta: true }); renaming = true; } world.name = e.target.value; markDirty(); if (!ui.selected) renderInspector(); });
+  $('#worldName').addEventListener('input', e => { if (!renaming) { pushUndo({ meta: true }); renaming = true; } world.name = e.target.value; touched(); markDirty(); if (!ui.selected) renderInspector(); });
   // Left empty, the name is Untitled world, as a reload would make it, in the same Undo step; spaces round it go.
   $('#worldName').addEventListener('change', e => {
     const name = e.target.value.trim() || 'Untitled world'; e.target.value = name;
@@ -3251,7 +3270,7 @@ function init() {
     e.preventDefault(); const rows = $('#codexList').querySelectorAll('.crow');
     if (rows.length === 1) rows[0].click(); else e.target.blur();
   });
-  syncOldSave();
+  syncOldSave(); keepStorage();
   if (!firstRun) indexWorld(worldId, { name: world.name, savedAt: lastSavedAt, places: world.places.length });
   openStore().then(() => { storeOK = true; syncStore(); }, () => { storeOK = false; }).then(renderWorlds);
   if (firstRun) {

@@ -31,8 +31,8 @@ and sea stop them. Every town has a page for its story.
   it one of yours); where water can't get out it pools into a lake. A generated world names its open sea, its bays,
   gulfs and sounds, every sea the land closes in and its lakes of 30,000 km² or more.
 - **Climate from where it lies and how high.** Cold in the north, warm in the south, 6.5 °C cooler for every kilometre up, and
-  rainfall in millimetres a year, less where the air is too cold to carry much. In a generated world the rain comes in
-  on a west wind, so a range is wet on its west side and leaves dry land behind it. Fourteen kinds of land, from ice
+  rainfall in millimetres a year, less where the air is too cold to carry much. The rain comes in on a west wind, so
+  a range, generated or sketched, is wet on its west side and leaves dry land behind it. Fourteen kinds of land, from ice
   sheet to jungle.
 - **Realms.** A capital claims the land around it until hills, deserts and sea make going further too costly, and its
   towns push the border out. A big river is hard to cross, so where two realms meet near one the border follows it.

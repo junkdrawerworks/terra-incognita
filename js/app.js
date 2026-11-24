@@ -269,10 +269,24 @@ function cutStrait(h, seed) {
 // A generated world's rain comes in on a west wind. Crossing the sea the air takes up water; over land it gives a
 // little up as it goes, and much more where the ground rises under it, so slopes facing west are wet and the land
 // behind a range lies in its rain shadow, dry. Rain over the land as a whole stays as it was, only moved about.
-// Sketched ranges and the rain brushes leave the rain field as it is.
+// A range you sketch moves the rain the same way (see rangeRain); the rain brushes paint over it.
 function rainShadow(h, m) {
+  const { q, lift } = windField(h, 0.5);
+  let before = 0, after = 0;
+  const nm = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    if (h[i] < 0.5) continue;
+    nm[i] = m[i] * (0.3 + 0.7 * q[i]) + 0.35 * lift[i];
+    before += m[i]; after += nm[i];
+  }
+  const k = after > 0 ? before / after : 1;
+  for (let i = 0; i < N; i++) if (h[i] >= 0.5) m[i] = clamp(nm[i] * k, 0, 1);
+}
+// The west wind over the ground h (with the sea at sea): q, how much of its water the air still carries over each cell
+// (1 off the sea), and lift, how much the ground rising under it there wrings out.
+function windField(h, sea) {
   const E = new Float32Array(N), q = new Float32Array(N), lift = new Float32Array(N), tmp = new Float32Array(N);
-  for (let i = 0; i < N; i++) E[i] = h[i] >= 0.5 ? MAX_ELEV * Math.pow((h[i] - 0.5) / 0.5, 1.6) : 0;
+  for (let i = 0; i < N; i++) E[i] = h[i] >= sea ? MAX_ELEV * Math.pow((h[i] - sea) / (1 - sea), 1.6) : 0;
   // The ground as the wind feels it, smoothed over about 100 km, so a lone hill doesn't stripe the land behind it.
   const box = (a, r) => {
     for (let y = 0; y < H; y++) { let sum = 0; const o = y * W; for (let x = -r; x <= r; x++) sum += a[o + clamp(x, 0, W - 1)]; for (let x = 0; x < W; x++) { tmp[o + x] = sum / (2 * r + 1); sum += a[o + Math.min(W - 1, x + r + 1)] - a[o + Math.max(0, x - r)]; } }
@@ -283,21 +297,32 @@ function rainShadow(h, m) {
     let w = 1;
     for (let x = 0; x < W; x++) {
       const i = y * W + x, up = x ? Math.max(0, E[i] - E[i - 1]) : 0;
-      if (h[i] < 0.5) w += (1 - w) * 0.1;
+      if (h[i] < sea) w += (1 - w) * 0.1;
       else { w *= 0.9985 * Math.exp(-up / 1500); }
       q[i] = w; lift[i] = Math.min(1, up / 60) * w;
     }
   }
   box(q, 3); box(lift, 3);
-  let before = 0, after = 0;
-  const nm = new Float32Array(N);
-  for (let i = 0; i < N; i++) {
-    if (h[i] < 0.5) continue;
-    nm[i] = m[i] * (0.3 + 0.7 * q[i]) + 0.35 * lift[i];
-    before += m[i]; after += nm[i];
+  return { q, lift };
+}
+// A Mountain range you sketch casts a rain shadow as a generated one does: the rain the wind carries is worked out over
+// the ground as it was (prev) and as it is now, and the difference is laid over the rain already there, so its west
+// side gets a little wetter and the land behind it drier. Behind the range the change holds for 100 km, then fades
+// out by 300 km. Rows more than 80 km from the range are left alone (the wind's ground is smoothed over about that).
+function rangeRain(prev) {
+  const h = world.h, m = world.m, sea = world.sea, was = windField(prev, sea), now = windField(h, sea);
+  // Each row's east end of the range: the furthest east any cell within 8 rows of it rose.
+  const east = new Int16Array(H).fill(-1);
+  for (let y = 0; y < H; y++) for (let x = W - 1; x >= 0; x--) if (h[y * W + x] !== prev[y * W + x]) { for (let r = Math.max(0, y - 8); r <= Math.min(H - 1, y + 8); r++) east[r] = Math.max(east[r], x); break; }
+  for (let y = 0; y < H; y++) {
+    if (east[y] < 0) continue;
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x; if (h[i] < sea) continue;
+      const k = 1 - smooth(east[y] + 10, east[y] + 30, x); if (k <= 0) break;
+      const ratio = (0.3 + 0.7 * now.q[i]) / (0.3 + 0.7 * was.q[i]);
+      m[i] = clamp(m[i] * (1 + (ratio - 1) * k) + 0.35 * (now.lift[i] - was.lift[i]) * k, 0, 1);
+    }
   }
-  const k = after > 0 ? before / after : 1;
-  for (let i = 0; i < N; i++) if (h[i] >= 0.5) m[i] = clamp(nm[i] * k, 0, 1);
 }
 function computeTN() {
   const nz = makeNoise(world.seed + 99);
@@ -2598,7 +2623,7 @@ function renderToolOpts() {
     else if (sk.mode === 'range') h += `<label class="opt" for="optWidth">Width <input type="range" id="optWidth" min="3" max="24" value="${sk.width}"><output id="optWidthOut">${acrossKm(sk.width)}</output></label>`;
     else if (sk.mode !== 'road') h += `<label class="opt" for="optRough">Coast <input type="range" id="optRough" min="0" max="10" value="${sk.rough}"><output id="optRoughOut" style="min-width:6.5ch">${ROUGH_WORD[sk.rough]}</output></label>`;
     if (sk.mode === 'land' || sk.mode === 'range') h += `<span class="opt">Height ${chipGroup('Height', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], sk.height, 'skh')}</span>`;
-    h += `<span class="hint">${sk.mode === 'road' ? `Draw a road from one place to another. It goes where you draw it. To take one away, ${TOUCH ? 'tap' : 'click'} it with Erase.` : sk.mode === 'land' ? `Draw a loop. Land rises inside it, to about ${LAND_TOP[sk.height] || LAND_TOP.medium} m.` : sk.mode === 'sea' ? 'Draw a loop to flood it: bays, straits, inland seas.' : sk.mode === 'river' ? `Draw from the source toward the sea. A valley forms so the water follows your line, and it gathers tributaries as rain drains into the valley. To take one away, ${TOUCH ? 'tap' : 'click'} where it starts with Erase.` : `Draw along the ridge line. Peaks rise to about ${RANGE_TOP[sk.height] || RANGE_TOP.medium} m. A valley they block drains through a gorge at the lowest pass.`}${TWO_FINGERS}</span>`;
+    h += `<span class="hint">${sk.mode === 'road' ? `Draw a road from one place to another. It goes where you draw it. To take one away, ${TOUCH ? 'tap' : 'click'} it with Erase.` : sk.mode === 'land' ? `Draw a loop. Land rises inside it, to about ${LAND_TOP[sk.height] || LAND_TOP.medium} m.` : sk.mode === 'sea' ? 'Draw a loop to flood it: bays, straits, inland seas.' : sk.mode === 'river' ? `Draw from the source toward the sea. A valley forms so the water follows your line, and it gathers tributaries as rain drains into the valley. To take one away, ${TOUCH ? 'tap' : 'click'} where it starts with Erase.` : `Draw along the ridge line. Peaks rise to about ${RANGE_TOP[sk.height] || RANGE_TOP.medium} m. A valley they block drains through a gorge at the lowest pass, and the land east of them gets less rain.`}${TWO_FINGERS}</span>`;
   } else if (t === 'settle') {
     h += chipGroup('Settlement size', [['capital', 'Capital'], ['city', 'City'], ['town', 'Town'], ['village', 'Village']], ui.settleKind, 'settle') + `<span class="hint">${ui.settleKind === 'capital' ? 'A capital founds a new realm.' : `${TAP} dry land to found it.`}</span>`;
   } else if (t === 'landmark') {
@@ -2896,7 +2921,7 @@ function sketchRange(raw) {
   // A ridge drawn mostly over open water comes up as a chain of islands, and the toast says so.
   let wetRidge = 0; for (let k = 0; k < n; k++) if (h[cellAt(pts[2 * k], pts[2 * k + 1])] < sea) wetRidge++;
   const kept = stepRoom();
-  pushUndo({ h: true, meta: true }, 'Sketch a mountain range');
+  pushUndo({ h: true, m: true, meta: true }, 'Sketch a mountain range');
   let rose = 0;
   // Nothing past 1.8 times the widest the range wobbles to (noise stays within 1) is touched.
   const reach = Wd * 1.35 * 1.8, near = segmentGrid(pts, 0, n - 1, bx0, by0, bx1 + 1, by1 + 1, reach), all = Array.from({ length: n - 1 }, (_, k) => k);
@@ -2923,6 +2948,7 @@ function sketchRange(raw) {
     toast(`That ground is already higher than a ${height[0].toUpperCase() + height.slice(1)} range would make it. ${height === 'high' ? 'Use Raise' : 'Use Raise or a higher Height'} to build it up.`);
     return;
   }
+  rangeRain(undoStack[undoStack.length - 1].h);
   settleSketch(bx0, by0, bx1, by1);
   toast(wetRidge > n / 2 ? 'Mountains rose out of the sea as an island chain.' : 'Mountains raised.', { label: 'Undo', fn: undo });
 }

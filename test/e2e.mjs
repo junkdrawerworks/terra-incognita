@@ -356,7 +356,7 @@ const rangeSaid = await page.textContent('#toast span'), rangeHint = await page.
 await drag([[40, 30], [90, 26], [140, 34]], 8);
 const chainSaid = await page.textContent('#toast span');
 await page.click('#btnUndo'); await page.waitForTimeout(300);
-ok(rangeSaid === 'Mountains raised.' && rangeHint.startsWith('Draw along the ridge line. Peaks rise to about 4,000 m. A valley they block drains through a gorge at the lowest pass.') && rangeWidth === '180 km' && chainSaid === 'Mountains rose out of the sea as an island chain.' && (await state()).land === afterRange.land,
+ok(rangeSaid === 'Mountains raised.' && rangeHint.startsWith('Draw along the ridge line. Peaks rise to about 4,000 m. A valley they block drains through a gorge at the lowest pass, and the land east of them gets less rain.') && rangeWidth === '180 km' && chainSaid === 'Mountains rose out of the sea as an island chain.' && (await state()).land === afterRange.land,
   `a range says it was raised, or rose out of the sea as islands, and its hint gives the peaks' height and its width in km ("${rangeHint}", Width ${rangeWidth})`);
 
 // A river drawn from inland out to sea.
@@ -2922,6 +2922,31 @@ await oldCtx.close();
   for (let k = 0; k < 4; k++) await drag([[field.x - 4.5, field.y - 0.5], [field.x + 4.5, field.y - 0.5], [field.x - 4.5, field.y - 0.5]], 6, pg);
   const greener = await E((w) => window.terra.cell(w.x, w.y).kind, field);
   ok(grass === 'Grassland' && /forest/.test(greener), `Wetter turns grassland into forest (${grass}, then ${greener})`);
+  await c.close();
+}
+
+// A Mountain range you sketch casts a rain shadow as a generated one does, on the same west wind: the land just east of
+// it gets drier and its west side a little wetter, the change fading out by 300 km east of it, and Undo takes the rain
+// back with the range. Sketched ranges left the rain as it was.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => window.terra.newWorld(1, 'blank'));
+  await pg.click('.tool[data-tool="sketch"]');
+  await pg.click('.chip[data-v="land"]'); await pg.click('.chip[data-v="low"]');
+  await drag([[110, 80], [410, 80], [410, 220], [110, 220], [110, 80]], 30, pg);
+  // The mean rain (m, 0 to 1) over rows 125 to 175, between two columns.
+  const rain = (x0, x1) => pg.evaluate(([x0, x1]) => { let s = 0, n = 0; for (let y = 125; y <= 175; y++) for (let x = x0; x <= x1; x++) { s += window.terra.cell(x + 0.5, y + 0.5).m; n++; } return s / n; }, [x0, x1]);
+  const zones = async () => ({ west: await rain(226, 236), lee: await rain(244, 262), far: await rain(300, 380), print: (await pg.evaluate(() => window.terra.fingerprint())).m });
+  const before = await zones();
+  await pg.click('.chip[data-v="range"]'); await pg.click('.chip[data-v="medium"]');
+  await drag([[240, 95], [240, 205]], 30, pg);
+  const after = await zones();
+  await pg.click('#btnUndo'); await pg.waitForTimeout(200);
+  const undone = await zones();
+  ok(after.lee < before.lee * 0.9 && after.west > before.west * 1.03 && after.far === before.far && undone.print === before.print,
+    `a sketched range dries the land east of it and wets its west side (east ${before.lee.toFixed(3)} to ${after.lee.toFixed(3)}, west ${before.west.toFixed(3)} to ${after.west.toFixed(3)}, 60 to 140 cells east unchanged), and Undo puts the rain back`);
   await c.close();
 }
 

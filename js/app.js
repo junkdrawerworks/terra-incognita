@@ -1853,8 +1853,14 @@ function drawUserLabels(c, v, atlas) {
   c.letterSpacing = '0px';
 }
 const P_ORDER = { landmark: 0, village: 1, town: 2, city: 3, capital: 4 };
-// Text widths by font, spacing and text, since names are measured on every frame to place them.
+// Text widths by font, spacing and text, since names are measured on every frame to place them. A width measured
+// before the map's fonts arrived is in the fallback font, so they are measured again once the fonts are in.
 const textWidths = new Map();
+if (document.fonts) {
+  const fresh = () => { textWidths.clear(); requestDraw(); };
+  document.fonts.ready.then(fresh, () => { });
+  if (document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', fresh);
+}
 function textW(c, text) {
   const k = c.font + '|' + c.letterSpacing + '|' + text; let w = textWidths.get(k);
   if (w === undefined) { if (textWidths.size > 5000) textWidths.clear(); w = c.measureText(text).width; textWidths.set(k, w); }

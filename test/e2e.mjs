@@ -2163,6 +2163,29 @@ await oldCtx.close();
   await c.close();
 }
 
+// A place name's spot is worked out from its width in the map's own lettering: the page draws the map before its fonts
+// arrive, and widths measured then, in the fallback font, were kept, so names were placed for words of another size.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  // The fonts come in late, as on a slow connection, so the first map is drawn without them.
+  await pg.route('**/*.woff2', async (r) => { await new Promise((d) => setTimeout(d, 700)); await r.continue(); });
+  await pg.goto(base);
+  await pg.waitForFunction(() => window.terra && window.terra.state().places > 0);
+  await pg.evaluate(() => document.fonts.ready);
+  await pg.waitForTimeout(150);
+  const off = await pg.evaluate(() => {
+    // A city's name box is its width and its letters' size, with 1.5 px to spare all round.
+    const g = document.createElement('canvas').getContext('2d');
+    return window.terra.nameSpots().names.filter((n) => n.kind === 'city').map((n) => {
+      g.font = `${n.box[3] - n.box[1] - 3}px "IM Fell English", Georgia, serif`;
+      return { name: n.name, drawn: n.box[2] - n.box[0] - 3, fell: g.measureText(n.name).width };
+    }).filter((r) => Math.abs(r.drawn - r.fell) > 0.5);
+  });
+  ok(!off.length, `place names are spaced by their width in the map's own lettering once its fonts are in (${off.map((r) => `${r.name} ${r.drawn.toFixed(1)} against ${r.fell.toFixed(1)}`).join(', ') || 'all cities match'})`);
+  await c.close();
+}
+
 // The Atlas on a phone's whole map draws a share of its trees, so they don't run into a solid mat (they were 1.9 px
 // apart and 3 px across); a laptop's whole map and a closer look draw them all.
 {

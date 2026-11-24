@@ -84,14 +84,12 @@ async function sketchIsland(page) {
   await page.waitForTimeout(200);
   await save(await page.screenshot(), 'docs/phone-world.png');
 
-  // The island as drawn, a step in from the whole map, before any realms and their names, with a second island being
-  // drawn as a loop off its north-east coast, clear of the compass and the zoom buttons.
+  // The island as drawn, on the whole map (which fills the frame's width on a phone, so a step in would put the second
+  // loop off its east edge), before any realms and their names, with a second island being drawn as a loop off its
+  // north-east coast, clear of the compass and the zoom buttons.
   await sketchIsland(page);
   await page.click('.chip[data-v="land"]');
   await S(page, () => window.terra.fitView());
-  await page.click('#zIn');
-  // The options sit under the map on a phone, so picking one scrolls the top of the map away: bring it back.
-  await S(page, () => { document.querySelector('.stage').scrollIntoView({ block: 'start' }); window.scrollBy(0, -12); });
   await drag(page, [[394, 88], [426, 82], [440, 104], [422, 124], [396, 118]], { steps: 6, up: false });
   await page.waitForTimeout(100);
   await save(await page.screenshot(), 'docs/phone-sketch.png');

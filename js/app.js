@@ -2539,7 +2539,7 @@ function renderToolOpts() {
       <span class="hint">${t === 'rain' || t === 'drought' ? 'Rainfall shifts forests, grassland and desert.' : `${BRUSH_HINT[t]} Hold and drag. Rivers and borders settle when you let go.`}${TWO_FINGERS}</span>`;
   } else if (t === 'sketch') {
     const sk = ui.sketch;
-    h += chipGroup('Sketch mode', [['land', 'Land'], ['sea', 'Sea'], ['range', 'Mountain range'], ['river', 'River'], ['road', 'Road']], sk.mode, 'skmode');
+    h += chipGroup('Sketch mode', [['land', 'Land'], ['sea', 'Sea'], ['range', 'Range'], ['river', 'River'], ['road', 'Road']], sk.mode, 'skmode');
     if (sk.mode === 'river') h += `<label class="opt" for="optValley">Valley <input type="range" id="optValley" min="2" max="12" value="${sk.valley}"><output id="optValleyOut">${acrossKm(sk.valley)}</output></label>`;
     else if (sk.mode === 'range') h += `<label class="opt" for="optWidth">Width <input type="range" id="optWidth" min="3" max="24" value="${sk.width}"><output id="optWidthOut">${acrossKm(sk.width)}</output></label>`;
     else if (sk.mode !== 'road') h += `<label class="opt" for="optRough">Coast <input type="range" id="optRough" min="0" max="10" value="${sk.rough}"><output id="optRoughOut" style="min-width:6.5ch">${ROUGH_WORD[sk.rough]}</output></label>`;
@@ -3771,7 +3771,7 @@ function welcomeHTML() {
     <p>Open water, waiting for its first coastline.</p>
     <ul class="tips">
       <li>With ${toolLink('sketch', 'Sketch')} and <b>Land</b> picked, draw a loop on the sea. Land rises inside it, with hills and a natural coast.</li>
-      <li>Choose <b>Sea</b> to carve bays, straits and inland seas, <b>Mountain range</b> to draw a ridge line, or <b>River</b> to run water from a source to the coast. Other rivers and lakes form on their own.</li>
+      <li>Choose <b>Sea</b> to carve bays, straits and inland seas, <b>Range</b> to draw a mountain range along its ridge line, or <b>River</b> to run water from a source to the coast. Other rivers and lakes form on their own.</li>
       <li>When the land looks right, <b>Found new realms</b> in the World tab fills it with towns, borders and names.</li>${keepTip()}
     </ul>${worldNotesHTML()}</div>${JD_FOOT}`;
   // A generated world says what this is, in the README's words; one drawn by hand says so instead.

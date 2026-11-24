@@ -126,6 +126,9 @@ const tops = new Set();
 for (const t of ['select', 'sketch', 'raise', 'settle', 'landmark', 'label', 'erase']) { await page.click(`.tool[data-tool="${t}"]`); tops.add(await mapTop()); }
 await page.click('.tool[data-tool="sketch"]');
 for (const m of ['sea', 'range', 'river', 'land']) { await page.click(`.chip[data-v="${m}"]`); tops.add(await mapTop()); }
+// The five Sketch choices keep to one row on a phone. 'Mountain range' put Road alone on a second row at 390 px.
+const skRows = await S(() => [...document.querySelectorAll('#toolOpts .chip[data-g="skmode"]')].map((b) => [b.textContent, Math.round(b.getBoundingClientRect().top)]));
+ok(skRows.length === 5 && new Set(skRows.map((r) => r[1])).size === 1 && skRows[2][0] === 'Range', `the Sketch choices keep to one row on a phone (${skRows.map((r) => r[0]).join(', ')})`);
 await page.click('.tool[data-tool="select"]');
 ok(tops.size === 1, `switching tools leaves the map where it is on a phone (${[...tops].join(', ')} px down the page)`);
 // Each brush that reshapes the ground says what it does first. They all said the same thing, so Smooth went unexplained.

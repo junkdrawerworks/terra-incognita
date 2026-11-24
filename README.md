@@ -18,7 +18,7 @@ and sea stop them. Every town has a page for its story.
 ## How it plays
 
 - **Sketch.** *Land*: draw a loop and land rises inside it, with hills and a coast as smooth or jagged as you like.
-  *Sea*: a loop floods, for bays, straits and inland seas. *Mountain range*: draw the ridge line; a valley it blocks
+  *Sea*: a loop floods, for bays, straits and inland seas. *Range*: draw a mountain range's ridge line; a valley it blocks
   drains through a gorge at the lowest pass instead of becoming a lake. *River*: draw from the source toward the sea,
   and a valley forms so the water follows your line; the map names every river you draw, and Erase on the ring where
   one starts takes it away again (its valley stays). *Road*: a road of your own goes where you draw it, and Erase on

@@ -1714,9 +1714,21 @@ let needsDraw = false, plateColor = '#C4CFD3', plateInk = '';
 // the map's own ink).
 function refreshPlate() { const cs = getComputedStyle(document.documentElement); plateColor = cs.getPropertyValue('--plate').trim() || '#C4CFD3'; plateInk = cs.getPropertyValue('--plate-ink').trim(); requestDraw(); }
 function requestDraw() { if (needsDraw) return; needsDraw = true; requestAnimationFrame(() => { needsDraw = false; draw(); }); }
+// While a line is sketched, the map under it doesn't change, so it is drawn once into a still copy and each move draws
+// that copy and the line over it, not the whole map again (which took about 150 ms a move on a slow phone).
+let still = null;
 function draw() {
   if (!world || !view.cw) return;
-  drawMap(ctx, view.dpr, view.cw, view.ch, view, { plate: plateColor, frame: plateInk || null });
+  const opt = { plate: plateColor, frame: plateInk || null };
+  if (!sketchDraft) { still = null; drawMap(ctx, view.dpr, view.cw, view.ch, view, opt); return; }
+  const key = [view.s, view.ox, view.oy, view.cw, view.ch, view.dpr, canvas.width, canvas.height, ui.style, JSON.stringify(ui.layers), plateColor, plateInk, document.activeElement === canvas].join();
+  if (!still || still.key !== key) {
+    drawMap(ctx, view.dpr, view.cw, view.ch, view, { ...opt, noSketch: true });
+    if (!still) still = { c: document.createElement('canvas') };
+    still.c.width = canvas.width; still.c.height = canvas.height; still.c.getContext('2d').drawImage(canvas, 0, 0); still.key = key;
+  } else { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(still.c, 0, 0); }
+  ctx.save(); ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+  ctx.beginPath(); ctx.rect(view.ox, view.oy, W * view.s, H * view.s); ctx.clip(); drawSketch(ctx, view); ctx.restore();
 }
 const LM_PATHS = {
   ruin: { d: 'M-5.5 3.2h11v1.6h-11z M-4.6 3.2v-7h2v7z M-1 3.2v-4.2h2v4.2z M2.6 3.2v-8.6h2v8.6z', fill: true },
@@ -1730,7 +1742,9 @@ for (const k in LM_PATHS) { LM_PATHS[k].p = new Path2D(LM_PATHS[k].d); if (LM_PA
 function starPath(c, X, Y, R, r) { c.beginPath(); for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, rr = k % 2 ? r : R; c.lineTo(X + Math.cos(a) * rr, Y + Math.sin(a) * rr); } c.closePath(); }
 function haloText(c, text, X, Y, fill, halo, lw) { if (halo) { c.lineWidth = lw; c.strokeStyle = halo; c.lineJoin = 'round'; c.strokeText(text, X, Y); } c.fillStyle = fill; c.fillText(text, X, Y); }
 
+let mapDraws = 0; // how many times the whole map has been drawn on screen, for the test of a sketch
 function drawMap(c, k, vw, vh, v, opt) {
+  if (!opt.export) mapDraws++;
   const s = v.s, ox = v.ox, oy = v.oy, atlas = ui.style === 'atlas', L = ui.layers, zr = s / v.s0;
   const small = clamp(Math.sqrt(v.s0 / 1.9), 0.78, 1); // names and icons shrink a little on a phone-sized map
   const INK = atlas ? '#46351f' : '#14222b';
@@ -1808,7 +1822,7 @@ function drawMap(c, k, vw, vh, v, opt) {
   if (!opt.export && ui.tool === 'erase') drawSources(c, v);
   if (!opt.export) drawSelection(c, v, atlas);
   if (!opt.export) drawMeasure(c, v, atlas);
-  if (!opt.export && sketchDraft) drawSketch(c, v);
+  if (!opt.export && !opt.noSketch && sketchDraft) drawSketch(c, v);
   if (panels) drawPanels(c, panels, u, atlas, INK, HALO);
   c.restore();
 
@@ -4435,8 +4449,8 @@ if ('serviceWorker' in navigator && !inFrame && location.protocol.startsWith('ht
 window.terra = {
   newWorld: (seed, shape = 'continent') => { newWorld(seed, shape); syncWorldTab(); fitView(); },
   startBlank, setStyle, setTool, fitView, select, centerOn,
-  // How many times the coast has been traced since the page opened.
-  coastTraces: () => coastTraces,
+  // How many times the coast has been traced, and the whole map drawn on screen, since the page opened.
+  coastTraces: () => coastTraces, mapDraws: () => mapDraws,
   // Whether a world is still being grown or opened after its message went up.
   busy: () => busyWith > 0,
   // The view: its scale against the whole map's (1 when it shows the whole map), and the part of the map in sight, in

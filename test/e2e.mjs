@@ -3027,6 +3027,25 @@ await oldCtx.close();
   await c.close();
 }
 
+// A line being sketched is drawn over a still copy of the map, not with the whole map drawn again at every move; the
+// line shows as it grows, and the map is drawn whole again once it is done.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } }), pg = await c.newPage();
+  await pg.goto(base);
+  await pg.click('.tool[data-tool="sketch"]'); await pg.click('.chip[data-v="range"]');
+  const b = await pg.locator('#map').boundingBox(), a = await pg.evaluate(() => window.terra.toScreen(150, 150)), z = await pg.evaluate(() => window.terra.toScreen(250, 150));
+  const pixel = () => pg.evaluate(([x, y]) => { const c = document.getElementById('map'), k = c.width / c.getBoundingClientRect().width; return [...c.getContext('2d').getImageData(Math.round(x * k), Math.round(y * k), 1, 1).data].join(); }, [(a.x + z.x) / 2, a.y]);
+  const frames = () => pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const bare = await pixel(), d0 = await pg.evaluate(() => window.terra.mapDraws());
+  await pg.mouse.move(b.x + a.x, b.y + a.y); await pg.mouse.down();
+  for (let k = 1; k <= 20; k++) { await pg.mouse.move(b.x + a.x + (z.x - a.x) * k / 20, b.y + a.y); await frames(); }
+  const d1 = await pg.evaluate(() => window.terra.mapDraws()), drawn = await pixel();
+  await pg.keyboard.press('Escape'); await pg.mouse.up(); await frames();
+  const d2 = await pg.evaluate(() => window.terra.mapDraws()), after = await pixel();
+  ok(d1 - d0 <= 2 && drawn !== bare && d2 > d1 && after === bare, `sketching a line drew the whole map ${d1 - d0} time${d1 - d0 === 1 ? "" : "s"} over 20 moves, the line showing over it, and once more when it was let go`);
+  await c.close();
+}
+
 // A touch screen says Tap, tells you two fingers move the map, and leaves out the keyboard shortcuts; a mouse says Click
 // and lists them, with ⌘ on a Mac. A Land loop's hint says how high it rises.
 {

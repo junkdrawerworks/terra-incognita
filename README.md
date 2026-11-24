@@ -63,11 +63,12 @@ and sea stop them. Every town has a page for its story.
   `https://terra-incognita.junkdrawer.works/#seed=20417&shape=continent`. Opening it grows that world from its seed and
   shape and adds it to Your worlds. Edits and notes don't go with it; for those, send the world file.
 - **No account and no server.** Your worlds save themselves in your browser. *Save world file* and *Open world file*
-  keep one or move it to another device, and *Save map image* makes a picture of it under its name, with a key and a
-  scale in leagues and km, 1,980 px wide or, ticked *Large*, 3,960 px for printing; on a phone it opens the share sheet.
-  Printing the page (Ctrl P) prints that map, large, on a landscape page under the world's name, without the app. A browser can clear what a site keeps, so once a world has
-  work in it newer than its last world file, the World tab says since when. It works offline and installs to a phone's
-  home screen, where it asks the browser to keep its storage.
+  keep one or move it to another device, and *Save map image* makes a picture of it with its name, a key and a scale
+  in leagues and km, 1,980 px wide or, ticked *Large*, 3,960 px for printing; on a phone it opens the share sheet.
+  Printing the page (Ctrl P) prints that map, large, on a landscape page under the world's name, without the app. A
+  browser can clear what a site keeps, so once a world has work in it newer than its last world file, the World tab
+  says since when. It works offline and installs to a phone's home screen, where it asks the browser to keep its
+  storage.
 
 ## Running it
 

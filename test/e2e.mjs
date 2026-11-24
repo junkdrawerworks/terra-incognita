@@ -1379,11 +1379,11 @@ await oldCtx.close();
   await pg.goto(base);
   const changed = [];
   for (const [seed, shape, h, m, names] of [
-    [20417, 'continent', '8b20efbd125e', '5a1b133e1280', 'f2cbe9720e98'],
-    [96298, 'continent', '736cd99437ab', '0b2596e96d31', '664926aa5e8a'],
+    [20417, 'continent', '8b20efbd125e', '5a1b133e1280', '6153123942ca'],
+    [96298, 'continent', '736cd99437ab', '0b2596e96d31', '4e12959bdaf1'],
     [950281, 'inland', '7ff144f0176e', '1afc775afd2b', 'c0865d20871a'],
-    [857490, 'twin', '6c377492048c', 'e7bb04ba7404', 'bb7ca9e33956'],
-    [645278, 'inland', '358737c747f0', '049431645c33', '700fd4a719bc'],
+    [857490, 'twin', '6c377492048c', 'e7bb04ba7404', '93f0439a59e7'],
+    [645278, 'inland', '358737c747f0', '049431645c33', 'e315af110263'],
   ]) {
     const f = await pg.evaluate(([seed, shape]) => { window.terra.newWorld(seed, shape); return window.terra.fingerprint(); }, [seed, shape]);
     if (f.h !== h || f.m !== m || f.names !== names) changed.push(`${seed} ${shape}: h ${f.h}, m ${f.m}, names ${f.names}`);
@@ -1397,6 +1397,38 @@ await oldCtx.close();
     for (const p of ps) if (p.kind !== 'capital' && p.kind !== 'landmark' && p.landTongue && p.tongue !== p.landTongue) foreign.push(`${seed} ${p.name} (${p.tongue} in a ${p.landTongue} realm)`);
   }
   ok(foreign.length === 0, 'every town and village is named in the tongue of the realm it stands in' + (foreign.length ? ': ' + foreign.join(', ') : ''));
+  await c.close();
+}
+
+// Realm borders follow the land: a big river is dear to cross, so where two realms meet near one the border follows it
+// (it lay on or beside a big river less often than the land does, 1.8% of border cells against 3.7%); a realm's reach
+// wanders with the world's seed, so the same land and towns under another seed draw other borders (where a realm met
+// unclaimed land its edge was a smooth arc); and the number of realms is one more or one fewer than the land alone
+// gives, as the seed has it (every continent had five).
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  let border = 0, beside = 0, land = 0, landBeside = 0;
+  for (const [seed, shape] of [[20417, 'continent'], [222, 'continent'], [15939, 'twin'], [96298, 'continent'], [53527, 'continent'], [8020, 'twin']]) {
+    const b = await pg.evaluate(([seed, shape]) => { window.terra.newWorld(seed, shape); return window.terra.borderStats(); }, [seed, shape]);
+    border += b.border; beside += b.beside; land += b.land; landBeside += b.landBeside;
+  }
+  const onRiver = beside / border, chance = landBeside / land;
+  ok(onRiver > chance * 1.3, `realm borders lie on or beside big rivers more often than the land does (${(onRiver * 100).toFixed(1)}% of border cells, ${(chance * 100).toFixed(1)}% of land)`);
+  const counts = [];
+  for (const seed of [11, 222, 3333, 20417, 96298, 53527, 4242, 777, 31337]) counts.push(await pg.evaluate((seed) => { window.terra.newWorld(seed, 'continent'); return window.terra.state().realms; }, seed));
+  ok(new Set(counts).size >= 3 && Math.max(...counts) - Math.min(...counts) <= 2, `continents have different numbers of realms from seed to seed (${counts.join(', ')})`);
+  await pg.evaluate(() => window.terra.newWorld(20417, 'continent'));
+  const first = await pg.evaluate(() => window.terra.borderStats().owners), o = JSON.parse(await pg.evaluate(() => window.terra.worldText()));
+  await pg.click('#tab-world');
+  await pg.setInputFiles('#wFile', { name: 'world.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ ...o, seed: 4242 })) });
+  await pg.waitForFunction(() => window.terra.state().seed === 4242);
+  const other = await pg.evaluate(() => [window.terra.borderStats().owners, window.terra.state().places]);
+  await pg.setInputFiles('#wFile', { name: 'world.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(o)) });
+  await pg.waitForFunction(() => window.terra.state().seed === 20417);
+  const again = await pg.evaluate(() => window.terra.borderStats().owners);
+  ok(other[1] === o.places.length && other[0] !== first && again === first, `the same land and towns under another seed draw other borders, and under its own seed the same ones (${first}, ${other[0]}, ${again})`);
   await c.close();
 }
 

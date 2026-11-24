@@ -33,7 +33,9 @@ and sea stop them. Every town has a page for its story.
   on a west wind, so a range is wet on its west side and leaves dry land behind it. Fourteen kinds of land, from ice
   sheet to jungle.
 - **Realms.** A capital claims the land around it until hills, deserts and sea make going further too costly, and its
-  towns push the border out. Each realm has its own tongue, so towns founded inside it sound like they belong there.
+  towns push the border out. A big river is hard to cross, so where two realms meet near one the border follows it.
+  A generated world has two to six realms, as many as its land holds, give or take one. Each realm has its own
+  tongue, so towns founded inside it sound like they belong there.
 - **Places.** Tap any town or patch of ground to see its elevation, climate, nearest neighbour and local
   goods, with distances in leagues of 4.8 km, and its river: which way it flows, how far on it reaches the sea and how
   much land it drains. Keep notes for your lore, or roll a rumor built from the map around it. From the keyboard, Tab

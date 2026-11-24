@@ -162,7 +162,7 @@ const D = {
   biome: new Uint8Array(N), temp: new Float32Array(N), tN: new Float32Array(N),
   filled: new Float32Array(N), down: new Int32Array(N), acc: new Float32Array(N), area: new Float32Array(N), order: new Int32Array(N), lake: new Uint8Array(N), lakeF: new Float32Array(N),
   vis: new Uint8Array(N), isR: new Uint8Array(N), hasUp: new Uint8Array(N), mouth: new Int32Array(N), body: new Int32Array(N),
-  owner: new Int16Array(N), cost: new Float64Array(N), ind: new Float32Array(N), tmp: new Float32Array(N), dist: new Int16Array(N), q: new Int32Array(N),
+  owner: new Int16Array(N), cost: new Float64Array(N), reach: new Float64Array(N), ind: new Float32Array(N), tmp: new Float32Array(N), cross: new Float32Array(N), dist: new Int16Array(N), q: new Int32Array(N),
   realms: [], borders: [], coast: new Path2D(), lakeShores: [], riverEnds: [], contours: null, riverPaths: [], riverLabels: [], riverMouths: [], glyphs: [], riverNames: new Map(),
 };
 const view = { s: 1, s0: 1, ox: 0, oy: 0, cw: 0, ch: 0, dpr: 1 };
@@ -626,10 +626,12 @@ function territories() {
     get name() { return p.realm.name; }, get title() { return p.realm.title; }, get color() { return p.realm.color; },
     get tongue() { return p.tongue; }, get display() { return realmDisplay(p.realm); },
   }));
-  const own = D.owner, cost = D.cost, h = world.h, sea = world.sea, Lim = 115;
+  // cost decides which realm a cell falls to, reach how far a realm gets: a big river is dear to cross, so where two
+  // realms meet near one the border follows the river, but it doesn't shorten a realm's reach.
+  const own = D.owner, cost = D.cost, reach = D.reach, h = world.h, sea = world.sea, Lim = 115, cross = riverCrossing(), rough = roughGround();
   const run = seeds => {
     own.fill(-1); cost.fill(Infinity); heap.clear();
-    for (const s of seeds) { const i = cellAt(s.x, s.y); if (s.c < cost[i]) { cost[i] = s.c; own[i] = s.r; heap.push(s.c, i); } }
+    for (const s of seeds) { const i = cellAt(s.x, s.y); if (s.c < cost[i]) { cost[i] = reach[i] = s.c; own[i] = s.r; heap.push(s.c, i); } }
     while (heap.n) {
       const c = heap.pop(); if (heap.lastKey > cost[c]) continue;
       const cx = c % W, cy = (c / W) | 0;
@@ -638,8 +640,11 @@ function territories() {
         const n = ny * W + nx; let step;
         if (h[n] < sea) step = 4.5;
         else { const b = D.biome[n]; step = 1 + 4.5 * (h[n] - sea) / (1 - sea) + (D.lake[n] ? 3 : 0) + ((b === B.DESERT || b === B.ICE || b === B.SNOW) ? 1.2 : 0); }
-        const nc = cost[c] + step * NBD[k];
-        if (nc < cost[n] && nc <= Lim) { cost[n] = nc; own[n] = own[c]; heap.push(nc, n); }
+        // A step between two river cells set corner to corner crosses the river too.
+        let over = cross[n]; if (k >= 4 && !over) over = Math.min(cross[cy * W + nx], cross[ny * W + cx]);
+        step *= rough[n];
+        const nr = reach[c] + step * NBD[k], nc = cost[c] + step * NBD[k] + over;
+        if (nc < cost[n] && nr <= Lim) { cost[n] = nc; reach[n] = nr; own[n] = own[c]; heap.push(nc, n); }
       }
     }
   };
@@ -667,6 +672,22 @@ function territories() {
     r.lx = cx; r.ly = cy;
   }
   for (const p of world.places) { if (p.kind === 'landmark') continue; const o = own[cellAt(p.x, p.y)]; if (o >= 0) { D.realms[o].pop += p.pop || 0; D.realms[o].count++; } }
+}
+// What crossing each cell costs a realm spreading over it: nothing, or on a big river (more than 6 times the water a
+// river needs to show) from 10 up to 24 for the greatest.
+function riverCrossing() {
+  const a = D.cross, big = RIVER_T * 6;
+  for (let i = 0; i < N; i++) a[i] = D.isR[i] && D.acc[i] > big && world.h[i] >= world.sea ? Math.min(40, 20 + 6 * Math.log2(D.acc[i] / big)) : 0;
+  return a;
+}
+// How hard each cell is going for a realm, beyond its height and kind of land: a broad, gentle noise from the world's
+// seed, a third either way at most, so a realm's edge where its reach runs out wanders instead of drawing an arc.
+const roughCache = { seed: null, a: new Float32Array(N) };
+function roughGround() {
+  if (roughCache.seed === world.seed) return roughCache.a;
+  const nz = makeNoise(hash3(world.seed, 4111, 7)), a = roughCache.a;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) a[y * W + x] = 1 + 0.33 * clamp(fbm(nz, x / 28, y / 28, 3) * 1.6, -1, 1);
+  roughCache.seed = world.seed; return a;
 }
 function blur(a) {
   const t = D.tmp;
@@ -837,7 +858,8 @@ function populate(seed) {
   }
   if (cands.length < 60) cands.push(...low);
   cands.sort((a, b) => b.s - a.s);
-  const nRealms = clamp(Math.round(land / 15000) + 1, 2, 5);
+  // One realm for about every 15,000 cells of land, up to five, then one more or one fewer as the seed has it.
+  const nRealms = clamp(clamp(Math.round(land / 15000) + 1, 2, 5) + Math.floor(mulberry32(seed * 13 + 5)() * 3) - 1, 2, 6);
   const tongues = shuffle(TONGUE_IDS.slice(), rng);
   const far = (c, list, d) => list.every(p => (p.x - c.x) ** 2 + (p.y - c.y) ** 2 >= d * d);
   const caps = [];
@@ -3672,6 +3694,24 @@ window.terra = {
   lakeShores: () => D.lakeShores.map(a => Array.from(a)),
   // The rivers named on the map, as drawn at full size: their names, and where each sits.
   riverLabels: () => D.riverLabels.map(l => ({ name: l.name, x: l.x, y: l.y })),
+  // The realms' borders on land: how many cells lie on one (beside another realm's land), how many of those lie on or
+  // beside a big river (one a realm pays extra to cross), the same two counts for all land, and a short hash of which
+  // realm holds each cell.
+  borderStats: () => {
+    const h = world.h, sea = world.sea, o = D.owner, t = { border: 0, beside: 0, land: 0, landBeside: 0, owners: 0 };
+    const big = i => { const x = i % W, y = (i / W) | 0; for (let k = 0; k < 8; k++) if (D.cross[cellAt(x + NBX[k], y + NBY[k])] > 0) return true; return D.cross[i] > 0; };
+    let hs = 2166136261;
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      const i = y * W + x; hs = Math.imul(hs ^ (o[i] + 1), 16777619);
+      if (h[i] < sea || D.lake[i]) continue; const b = big(i); t.land++; if (b) t.landBeside++;
+      if (o[i] < 0) continue;
+      let on = false; for (let k = 0; k < 4; k++) { const j = (y + NBY[k]) * W + x + NBX[k]; if (h[j] >= sea && o[j] >= 0 && o[j] !== o[i]) on = true; }
+      if (on) { t.border++; if (b) t.beside++; }
+    }
+    t.owners = (hs >>> 0).toString(16); return t;
+  },
+  // The open world as a world file has it.
+  worldText: () => serialize(new Date().toISOString(), true),
   riverNear: (x, y, r = 1.5) => {
     for (let dy = -Math.ceil(r); dy <= Math.ceil(r); dy++) for (let dx = -Math.ceil(r); dx <= Math.ceil(r); dx++) {
       if (dx * dx + dy * dy > r * r) continue; const i = cellAt(x + dx, y + dy); if (D.isR[i]) return true;

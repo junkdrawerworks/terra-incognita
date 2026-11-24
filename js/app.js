@@ -1,4 +1,4 @@
-// Terra Incognita: a world-building map. Everything runs in the page; the world is kept in localStorage.
+// Terra Incognita: a world-building map. Everything runs in the page; your worlds are kept in this browser (see Your worlds).
 import { guardEdges } from './edge-guard.js';
 (() => {
 'use strict';
@@ -781,8 +781,8 @@ function applySnap(s) {
   return inv;
 }
 // A whole world brought back (from New world, Generate or Open) is named, as it was when it came.
-function undo() { if (settleGesture()) return; dropActionToast(); const s = undoStack.pop(); if (!s) return; const was = world.places; redoStack.push(applySnap(s)); afterRestore(s.world); if (s.world) toast(`Back to ${world.name}.`, { label: 'Redo', fn: redo }, 6000); else tellPlaces(was, true); }
-function redo() { if (settleGesture()) return; dropActionToast(); const s = redoStack.pop(); if (!s) return; const was = world.places; undoStack.push(applySnap(s)); afterRestore(s.world); if (s.world) toast(`${world.name} again.`, { label: 'Undo', fn: undo }, 6000); else tellPlaces(was, false); }
+function undo() { if (settleGesture()) return; dropActionToast(); const s = undoStack.pop(); if (!s) return; if (s.switchFrom) { leaveFor(s.switchFrom, true); return; } const was = world.places; redoStack.push(applySnap(s)); afterRestore(s.world); if (s.world) toast(`Back to ${world.name}.`, { label: 'Redo', fn: redo }, 6000); else tellPlaces(was, true); }
+function redo() { if (settleGesture()) return; dropActionToast(); const s = redoStack.pop(); if (!s) return; if (s.switchTo) { leaveFor(s.switchTo, false); return; } const was = world.places; undoStack.push(applySnap(s)); afterRestore(s.world); if (s.world) toast(`${world.name} again.`, { label: 'Undo', fn: undo }, 6000); else tellPlaces(was, false); }
 // Undo and Redo say so when places go or come back, and when notes go with them (a place founded with notes in it,
 // by another tab or a file, has no step of its own for them).
 function tellPlaces(was, undid) {
@@ -835,7 +835,7 @@ function unpackF(str, whole) { const b = unb64(str); if (whole && b.length !== N
 // A world file also says which look it was saved in (Terrain or Atlas), and opening it switches to that look, so it
 // opens on another device as it was made. The autosave doesn't: there your own choice of look stays.
 function serialize(savedAt = new Date().toISOString(), forFile = false) {
-  return JSON.stringify({ format: 'terra-incognita', version: 1, name: world.name, seed: world.seed, shape: world.shape, sea: world.sea, W, H, h: packF(world.h), m: packF(world.m), places: world.places, labels: world.labels, springs: world.springs || [], nextId: world.nextId, ...(forFile ? { style: ui.style } : {}), savedAt });
+  return JSON.stringify({ format: 'terra-incognita', version: 1, ...(forFile ? {} : { id: worldId }), name: world.name, seed: world.seed, shape: world.shape, sea: world.sea, W, H, h: packF(world.h), m: packF(world.m), places: world.places, labels: world.labels, springs: world.springs || [], nextId: world.nextId, ...(forFile ? { style: ui.style } : {}), savedAt });
 }
 // A world file must be whole: one cut short would open as a black map and then be autosaved over the world you had.
 // One saved by a newer version isn't opened at all, since saving it again here would lose whatever is new in it.
@@ -899,12 +899,19 @@ function saveLocal() {
   try {
     // A world kept in this browser that couldn't be read is copied aside before the first autosave goes over it, unless
     // one is kept aside already: that one stays, and this one is offered as a download instead (unkept).
+    const cur = localStorage.getItem(STORE_KEY);
     if (unreadable !== null) { if (keptAside() === null) localStorage.setItem(UNREADABLE_KEY, unreadable); else unkept = unreadable; unreadable = null; syncOldSave(); }
-    else if (stampOf(localStorage.getItem(STORE_KEY)) !== lastSavedAt) { askAboutOtherTab(); return false; }
-    const at = new Date().toISOString();
-    localStorage.setItem(STORE_KEY, serialize(at)); lastSavedAt = at; savedNote();
+    else if (storedStamp(cur) !== lastSavedAt) { askAboutOtherTab(); return false; }
+    // The autosave holds the world saved last in any tab. Another of Your worlds there goes into the larger store before
+    // this one is saved over it, in case its own tab's copy hasn't got there yet.
+    const curId = idOf(cur); if (curId && curId !== worldId) storePut(curId, cur).catch(() => { });
+    const at = new Date().toISOString(), text = serialize(at);
+    localStorage.setItem(STORE_KEY, text); lastSavedAt = at; lastText = text; savedNote();
+    indexWorld(worldId, { name: world.name, savedAt: at, places: world.places.length });
+    scheduleSync(); if (ui.tab === 'world') renderWorlds();
     return true;
   } catch (e) {
+    lastText = null;
     // In Claude's viewer it's the view that has no storage, not the person's browser.
     const msg = CL ? 'This view can\'t keep an autosave. Use Save world file to keep your work.' : 'This browser would not keep an autosave. Use Save world file to keep your work.';
     setSaveNote(msg, true); if (!saveWarned) { saveWarned = true; toast(msg); }
@@ -916,19 +923,27 @@ let unkept = null; // one that couldn't be kept aside, since another already is
 function loadLocal() {
   let s = null; try { s = localStorage.getItem(STORE_KEY); } catch (e) { return false; }
   if (!s) return false;
-  try { loadObj(JSON.parse(s)); lastSavedAt = stampOf(s); return true; } catch (e) { unreadable = s; return false; }
+  try { loadObj(JSON.parse(s)); } catch (e) { unreadable = s; return false; }
+  lastSavedAt = stampOf(s); lastText = s; worldId = idOf(s);
+  // A save from before Your worlds says nothing about which world it is: it is given an id, and becomes the first world
+  // in the list, as it was saved.
+  if (!worldId) { worldId = newWorldId(); try { lastText = rewrap(s, worldId); localStorage.setItem(STORE_KEY, lastText); } catch (e) { } }
+  return true;
 }
 // When another tab saves the world, this one brings the change in, keeping its view and what's open, with an Undo. If
 // this tab has changes of its own still to save (or a stroke or drag under way), it asks which to keep instead.
 window.addEventListener('storage', e => {
+  if (e.key === INDEX_KEY || e.key === ASIDE_KEY) { if (ui.tab === 'world') renderWorlds(); return; }
   if (e.key !== STORE_KEY || e.newValue === null || !world || stampOf(e.newValue) === lastSavedAt) return;
+  // Another tab saving another of Your worlds changes nothing here.
+  const id = idOf(e.newValue); if (id && id !== worldId) return;
   if (otherClash || saveTimer || stroke || (gesture && gesture.type === 'drag' && gesture.moved)) askAboutOtherTab();
   else bringIn(e.newValue);
 });
 function bringIn(text) {
   let parsed; try { parsed = checkWorld(JSON.parse(text)); } catch (e) { return false; }
   const sel = ui.selected;
-  pushUndo({ h: true, m: true, meta: true, world: true }); applyWorld(parsed); lastSavedAt = stampOf(text); savedNote();
+  pushUndo({ h: true, m: true, meta: true, world: true }); applyWorld(parsed); lastSavedAt = stampOf(text); lastText = text; savedNote();
   if (sel && sel.type !== 'loc' && !findSel(sel)) { ui.selected = null; dropDraft(); }
   recomputeAll(); syncWorldTab(); updateStatus();
   toast('Brought in the changes from another tab.', { label: 'Undo', fn: undo });
@@ -942,12 +957,15 @@ function askAboutOtherTab() {
   toast('This world was changed in another tab.', [
     { label: 'Load theirs', fn: () => {
       let s = null; try { s = localStorage.getItem(STORE_KEY); } catch (e) { }
-      if (s === null) { otherClash = false; lastSavedAt = null; saveNow(); return; }
-      // A world this page can't read (one a newer version saved) opens after a reload, from the newest page.
-      if (stampOf(s) === lastSavedAt) { otherClash = false; saveNow(); return; }
-      otherClash = false; if (!bringIn(s)) { otherClash = true; location.reload(); }
+      // With another of Your worlds in the autosave now, theirs is this world's copy in the larger store.
+      (s === null || !idOf(s) || idOf(s) === worldId ? Promise.resolve(s) : storeGet(worldId).catch(() => null)).then(s => {
+        if (typeof s !== 'string') { otherClash = false; lastSavedAt = storedStamp(); saveNow(); return; }
+        // A world this page can't read (one a newer version saved) opens after a reload, from the newest page.
+        if (stampOf(s) === lastSavedAt) { otherClash = false; saveNow(); return; }
+        otherClash = false; if (!bringIn(s)) { otherClash = true; location.reload(); }
+      });
     } },
-    { label: 'Keep this tab\'s', fn: () => { otherClash = false; try { lastSavedAt = stampOf(localStorage.getItem(STORE_KEY)); } catch (e) { } saveNow(); } },
+    { label: 'Keep this tab\'s', fn: () => { otherClash = false; lastSavedAt = storedStamp(); saveNow(); } },
   ], Infinity);
 }
 // The save kept aside, as stored, or null when there isn't one. Download the old save shows only while there is.
@@ -957,6 +975,212 @@ function savePrefs() { try { localStorage.setItem(PREF_KEY, JSON.stringify({ sty
 const STYLES = ['terrain', 'atlas'];
 function loadPrefs() { try { const p = JSON.parse(localStorage.getItem(PREF_KEY) || 'null'); if (p) { if (STYLES.includes(p.style)) ui.style = p.style; Object.assign(ui.layers, p.layers || {}); Object.assign(ui.brush, p.brush || {}); Object.assign(ui.sketch, p.sketch || {}); } } catch (e) { } }
 function setSaveNote(t, warn) { const el = $('#wSaveNote'); el.textContent = t; el.classList.toggle('warn', !!warn); }
+
+// ------------------------------------------------------------------ your worlds
+// Every world made or opened here is kept in Your worlds, at the top of the World tab. The open one is the autosave
+// above, which is written at once, so a page closed mid-change keeps the change. Each world's copy, the open one's
+// included, is kept in IndexedDB, the browser's larger store: a world is about 0.8 MB, and localStorage holds about
+// 5 MB a site. The list itself, with a small picture of each world, is in localStorage, to show at once. The autosave
+// holds whichever world was saved last in any tab, and says which (its id).
+const INDEX_KEY = 'terra-incognita/worlds/v1', ASIDE_KEY = 'terra-incognita/aside/v1', ASIDE_ID = '#aside';
+let worldId = null, lastText = null; // the open world's id, and its text as last autosaved (null when that failed)
+let storeOK = null; // whether the larger store works here: null until it answers
+const newWorldId = () => 'w' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const idOf = s => { const m = typeof s === 'string' && /^\{"format":"terra-incognita","version":\d+,"id":"([^"]+)"/.exec(s.slice(0, 120)); return m ? m[1] : null; };
+// A stored world's text with an id (and any other fields given), its savedAt still last, where stampOf finds it. A
+// world file's look goes: the autosave keeps none.
+function rewrap(text, id, fields = {}) {
+  const { format, version, id: _id, style: _style, savedAt, ...rest } = JSON.parse(text), { savedAt: at = savedAt, ...f } = fields;
+  return JSON.stringify({ format, version, id, ...rest, ...f, savedAt: at });
+}
+// When this world was last saved, as far as this tab can tell: the autosave's savedAt while it holds this world (or a
+// save from before Your worlds), and with another world there, the list's.
+function storedStamp(cur) {
+  if (cur === undefined) { cur = null; try { cur = localStorage.getItem(STORE_KEY); } catch (e) { } }
+  const id = idOf(cur); if (cur !== null && (!id || id === worldId)) return stampOf(cur);
+  const e = readIndex().find(x => x.id === worldId); return e && e.savedAt ? e.savedAt : null;
+}
+function readIndex() { try { const a = JSON.parse(localStorage.getItem(INDEX_KEY) || '[]'); return Array.isArray(a) ? a.filter(e => e && typeof e.id === 'string') : []; } catch (e) { return []; } }
+function writeIndex(a) { try { localStorage.setItem(INDEX_KEY, JSON.stringify(a)); } catch (e) { } }
+function indexWorld(id, fields) { const a = readIndex(); let e = a.find(x => x.id === id); if (!e) a.push(e = { id }); Object.assign(e, fields); writeIndex(a); }
+const unindexWorld = id => writeIndex(readIndex().filter(e => e.id !== id));
+let dbOpen = null;
+function openStore() {
+  return dbOpen || (dbOpen = new Promise((res, rej) => {
+    const r = indexedDB.open('terra-incognita', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('worlds');
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); r.onblocked = () => rej(new Error('blocked'));
+  }));
+}
+function inStore(mode, fn) {
+  return openStore().then(d => new Promise((res, rej) => {
+    const t = d.transaction('worlds', mode), r = fn(t.objectStore('worlds'));
+    t.oncomplete = () => res(r ? r.result : undefined); t.onerror = t.onabort = () => rej(t.error || new Error('aborted'));
+  }));
+}
+const storeGet = id => inStore('readonly', st => st.get(id));
+const storeDel = id => inStore('readwrite', st => { st.delete(id); });
+// A world's text goes in unless the copy there is newer: another tab may have put one in since.
+const storePut = (id, text) => inStore('readwrite', st => { const g = st.get(id); g.onsuccess = () => { const o = g.result; if (typeof o !== 'string' || (stampOf(o) || '') <= (stampOf(text) || '')) st.put(text, id); }; });
+// The open world goes into the larger store a little after each autosave, with a fresh picture for the list, and at
+// once before another world takes its place on screen. True once it is there.
+let syncTimer = 0;
+function scheduleSync() { clearTimeout(syncTimer); syncTimer = setTimeout(syncStore, 2000); }
+function syncStore() {
+  clearTimeout(syncTimer); syncTimer = 0;
+  if (!worldId) return Promise.resolve(false);
+  const id = worldId, text = lastText || serialize();
+  indexWorld(id, { thumb: thumbnail() });
+  return storePut(id, text).then(() => (storeOK = true), () => (storeOK = false));
+}
+function thumbnail() {
+  try {
+    const cv = document.createElement('canvas'); cv.width = 128; cv.height = 80; const g = cv.getContext('2d');
+    for (const L of ui.layers.realms ? [L_SEA, L_LAND, L_TINT] : [L_SEA, L_LAND]) g.drawImage(L.c, 0, 0, 128, 80);
+    return cv.toDataURL('image/jpeg', 0.7);
+  } catch (e) { return ''; }
+}
+// A world's text, or the autosave's if that holds a newer save of the same world (from another tab).
+function freshest(id, text) { let s = null; try { s = localStorage.getItem(STORE_KEY); } catch (e) { } return idOf(s) === id && (stampOf(s) || '') > (stampOf(text) || '') ? s : text; }
+// The open world's text as it is now, saved first if a save was waiting.
+function currentText() { saveBeforeLeaving(); return !otherClash && lastText ? lastText : serialize(); }
+// An Undo step that goes back to another world keeps that world's own last ten steps. Of the worlds before that (up to
+// ten back) it keeps only the steps that go back to another world, so Undo can still walk back through a run of new
+// worlds, while their brush strokes and the like don't pile up.
+function keepSteps(st, depth = 0) {
+  if (depth > 10) return [];
+  const sub = o => ({ ...o, undo: keepSteps(o.undo, depth + 1), redo: keepSteps(o.redo, depth + 1) });
+  return (depth ? st.filter(x => x.switchFrom || x.switchTo) : st).slice(-10).map(x => x.switchFrom ? { switchFrom: sub(x.switchFrom) } : x.switchTo ? { switchTo: sub(x.switchTo) } : x);
+}
+// New world, Generate, Random seed, Start from blank ocean and Open world file add a world to Your worlds (make puts it
+// on screen), and the one that was open stays there. Undo goes back to that one, with its own Undo steps, and takes
+// the new world out of the list again; Redo puts it back. Where the larger store doesn't work, the new world takes the
+// open one's place, as it did before Your worlds, and Undo brings that back. Returns the name of the world that was
+// open, or null when nothing could change: while another tab's question about this world waits for an answer.
+function addWorld(make, id = newWorldId()) {
+  if (otherClash) return null;
+  const fromName = world.name;
+  if (storeOK === false) { saveBeforeLeaving(); pushUndo({ h: true, m: true, meta: true, world: true }); make(); return fromName; }
+  const from = { id: worldId, text: currentText(), undo: keepSteps(undoStack), redo: keepSteps(redoStack) };
+  syncStore().then(ok => { if (!ok) toast(`This browser would not keep ${fromName} in Your worlds. Undo brings it back until you leave the page; Save world file keeps a copy.`, null, 12000); });
+  undoStack.length = redoStack.length = 0; renaming = false; dropActionToast();
+  make(); worldId = id; lastText = null; lastSavedAt = null; ui.selected = null; dropDraft();
+  undoStack.push({ switchFrom: from }); updateUndoButtons();
+  saveLocal(); renderWorlds();
+  return fromName;
+}
+const keptIn = name => storeOK === false ? '' : ` ${name} is kept in Your worlds.`;
+// Puts a world on screen as it was stored: one opened from Your worlds, or the one an Undo or Redo goes back to.
+function enterWorld(id, parsed, text) {
+  applyWorld(parsed); worldId = id; ui.selected = null; dropDraft(); renaming = false;
+  clearTimeout(saveTimer); saveTimer = 0;
+  try { const cur = localStorage.getItem(STORE_KEY), curId = idOf(cur); if (curId && curId !== id) storePut(curId, cur).catch(() => { }); localStorage.setItem(STORE_KEY, text); } catch (e) { }
+  lastSavedAt = stampOf(text); lastText = text;
+  indexWorld(id, { name: world.name, savedAt: lastSavedAt, places: world.places.length });
+  recomputeAll(); fitView(); syncWorldTab(); updateStatus(); scheduleSync();
+}
+// Undo of a new world (undid) goes back to the world that was open before it, and takes the new one out of Your worlds;
+// Redo puts it back. Each comes back with the Undo steps it had.
+function leaveFor(to, undid) {
+  const text = freshest(to.id, to.text);
+  let parsed; try { parsed = checkWorld(JSON.parse(text)); } catch (e) { toast('That world could not be read.'); return; }
+  const back = { id: worldId, text: currentText(), undo: keepSteps(undoStack), redo: keepSteps(redoStack), thumb: thumbnail() };
+  enterWorld(to.id, parsed, text); if (to.thumb) indexWorld(to.id, { thumb: to.thumb });
+  undoStack.length = redoStack.length = 0; undoStack.push(...to.undo); redoStack.push(...to.redo);
+  if (undid) { redoStack.push({ switchTo: back }); unindexWorld(back.id); storeDel(back.id).catch(() => { }); }
+  else undoStack.push({ switchFrom: back });
+  updateUndoButtons(); renderWorlds();
+  if (undid) toast(`Back to ${world.name}.`, { label: 'Redo', fn: redo }, 6000); else toast(`${world.name} again.`, { label: 'Undo', fn: undo }, 6000);
+}
+// Opening a world from Your worlds isn't a change to undo: it opens with no Undo steps, as after a reload.
+let switching = false;
+async function openWorld(id, said) {
+  if (id === worldId || switching || otherClash) return;
+  switching = true;
+  try {
+    currentText(); await syncStore();
+    let text = null; try { text = await storeGet(id); } catch (e) { }
+    if (typeof text === 'string') text = freshest(id, text);
+    if (typeof text !== 'string') { toast('That world is no longer kept in this browser.'); unindexWorld(id); renderWorlds(); return; }
+    let parsed; try { parsed = checkWorld(JSON.parse(text)); } catch (e) { toast(e.message === 'newer' ? 'That world was saved by a newer Terra Incognita. Reload the page, then open it again.' : 'That world could not be read.'); return; }
+    enterWorld(id, parsed, idOf(text) === id ? text : rewrap(text, id));
+    undoStack.length = redoStack.length = 0; updateUndoButtons(); renderWorlds(); refocus('#worldList button');
+    toast(said || `Opened ${world.name}.`);
+  } finally { switching = false; }
+}
+async function duplicateWorld(id) {
+  let text = id === worldId ? currentText() : null;
+  if (text === null) try { text = await storeGet(id); } catch (e) { }
+  if (typeof text !== 'string') { toast('That world is no longer kept in this browser.'); return; }
+  const e = readIndex().find(x => x.id === id) || {}, nid = newWorldId(), name = `${id === worldId ? world.name : e.name || 'Untitled world'} (copy)`;
+  const copy = rewrap(text, nid, { name, savedAt: new Date().toISOString() });
+  try { await storePut(nid, copy); } catch (err) { toast('This browser would not keep a copy.'); return; }
+  indexWorld(nid, { name, savedAt: stampOf(copy), places: e.places, thumb: id === worldId ? thumbnail() : e.thumb });
+  renderWorlds(); refocus('#worldList [data-wdup]');
+  toast(`Made a copy: ${name}.`, { label: 'Open it', fn: () => openWorld(nid) });
+}
+// A world deleted from Your worlds is kept aside (see below), and the toast's Undo puts it straight back.
+async function deleteWorld(id) {
+  const e = readIndex().find(x => x.id === id); if (!e || id === worldId) return;
+  let text = null; try { text = await storeGet(id); } catch (err) { }
+  unindexWorld(id); storeDel(id).catch(() => { });
+  if (typeof text === 'string') keepAside(text, { id, name: e.name, why: 'deleted', at: new Date().toISOString() });
+  renderWorlds(); refocus('#worldList button');
+  toast(`Deleted ${e.name}.`, { label: 'Undo', fn: () => { if (typeof text !== 'string') return; indexWorld(id, e); storePut(id, text).catch(() => { }); if ((readAside() || {}).id === id) forgetAside(); renderWorlds(); } }, 10000);
+}
+// One world is kept aside: the last one deleted from Your worlds, or a world as it was before Clear places and labels
+// or Found new realms took places with notes in them. Undo covers those only until the page is left; Bring it back
+// works after that too, and adds it to Your worlds as a world of its own, so nothing open is lost either way.
+function readAside() { try { const a = JSON.parse(localStorage.getItem(ASIDE_KEY) || 'null'); return a && typeof a.id === 'string' ? a : null; } catch (e) { return null; } }
+function keepAside(text, meta) { inStore('readwrite', st => { st.put(text, ASIDE_ID); }).then(() => { try { localStorage.setItem(ASIDE_KEY, JSON.stringify(meta)); } catch (e) { } renderWorlds(); }, () => { }); }
+function forgetAside() { try { localStorage.removeItem(ASIDE_KEY); } catch (e) { } inStore('readwrite', st => { st.delete(ASIDE_ID); }).catch(() => { }); renderWorlds(); }
+const ASIDE_WHY = { clear: 'Clear places and labels', realms: 'Found new realms' }, ASIDE_NAME = { clear: 'before Clear', realms: 'before new realms' };
+// It goes into Your worlds and opens, and the world that was open stays in the list.
+async function bringBack() {
+  const a = readAside(); if (!a || switching) return;
+  let text = null; try { text = await storeGet(ASIDE_ID); } catch (e) { }
+  if (typeof text !== 'string') { forgetAside(); toast('That world is no longer kept in this browser.'); return; }
+  const deleted = a.why === 'deleted', id = deleted && a.id !== worldId && !readIndex().some(e => e.id === a.id) ? a.id : newWorldId();
+  const name = deleted ? a.name : `${a.name} (${ASIDE_NAME[a.why] || 'kept aside'})`;
+  let kept; try { kept = rewrap(text, id, { name }); await storePut(id, kept); } catch (e) { toast('That world could not be brought back.'); return; }
+  indexWorld(id, { name, savedAt: stampOf(kept) }); forgetAside();
+  await openWorld(id, `Brought back ${name}.`);
+}
+// '14:05' today, '3 Nov' this year, '3 Nov 2025' before.
+function whenSaid(iso) {
+  const d = new Date(iso), now = new Date(); if (isNaN(d)) return '';
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return d.toLocaleDateString([], d.getFullYear() === now.getFullYear() ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' });
+}
+const atWhen = iso => (new Date(iso).toDateString() === new Date().toDateString() ? 'at ' : 'on ') + whenSaid(iso);
+function renderWorlds() {
+  const ul = $('#worldList'); if (!ul || !world) return;
+  const list = readIndex();
+  if (worldId && !list.some(e => e.id === worldId)) list.push({ id: worldId, savedAt: lastSavedAt });
+  // The open world first, then the rest by when they were last changed.
+  list.sort((a, b) => a.id === worldId ? -1 : b.id === worldId ? 1 : String(b.savedAt || '').localeCompare(String(a.savedAt || '')));
+  const off = storeOK === false;
+  ul.innerHTML = list.map(e => {
+    const open = e.id === worldId, nm = esc(open ? world.name : e.name || 'Untitled world'), n = open ? world.places.length : e.places || 0, pic = open ? thumbnail() : e.thumb;
+    const meta = [open ? 'Open now' : '', `${fmtInt(n)} place${n === 1 ? '' : 's'}`, e.savedAt ? `changed ${whenSaid(e.savedAt)}` : ''].filter(Boolean).join(' · ');
+    return `<li class="wrow${open ? ' open' : ''}" data-id="${esc(e.id)}"${open ? ' aria-current="true"' : ''}>${pic ? `<img class="wthumb" src="${esc(pic)}" alt="" width="64" height="40">` : '<span class="wthumb"></span>'}
+      <div class="wtext"><span class="nm">${nm}</span><span class="meta">${meta.charAt(0).toUpperCase() + meta.slice(1)}</span></div>
+      <div class="row wacts">${open ? '' : `<button class="btn sm" type="button" data-wopen aria-label="Open ${nm}">Open</button>`}${off ? '' : `<button class="btn sm" type="button" data-wdup aria-label="Duplicate ${nm}">Duplicate</button>`}${open ? '' : `<button class="btn sm" type="button" data-wdel aria-label="Delete ${nm}">Delete</button>`}</div></li>`;
+  }).join('');
+  ul.querySelectorAll('.wrow').forEach(li => {
+    const id = li.dataset.id, b = k => li.querySelector(`[data-${k}]`);
+    if (b('wopen')) b('wopen').onclick = () => openWorld(id);
+    if (b('wdup')) b('wdup').onclick = () => duplicateWorld(id);
+    if (b('wdel')) b('wdel').onclick = () => deleteWorld(id);
+  });
+  const a = off ? null : readAside(), el = $('#wAside');
+  el.hidden = !a;
+  if (a) {
+    el.innerHTML = `${esc(a.name)} ${a.why === 'deleted' ? `was deleted ${atWhen(a.at)}.` : `is kept as it was before ${ASIDE_WHY[a.why] || 'a change'} ${atWhen(a.at)}.`} <button class="link" id="wAsideBack" type="button">Bring it back</button>`;
+    $('#wAsideBack').onclick = bringBack;
+  }
+  $('#wWorldsNote').textContent = off ? 'This browser can\'t keep a second world, so a new one takes this one\'s place. Save world file keeps a copy.' : 'Every world you make or open is kept here, in this browser.';
+}
 
 // ------------------------------------------------------------------ claude runtime (optional)
 const CL = (window.claude && typeof window.claude.use === 'function') ? window.claude : null;
@@ -2729,6 +2953,7 @@ function syncWorldTab() {
   $('#wSeaOut').textContent = `${Math.round(landShare() * 100)}% of the map is land`;
   for (const k of ['realms', 'rivers', 'labels', 'names', 'grid']) $('#ly' + k[0].toUpperCase() + k.slice(1)).checked = ui.layers[k];
   $('#styleTerrain').setAttribute('aria-pressed', String(ui.style === 'terrain')); $('#styleAtlas').setAttribute('aria-pressed', String(ui.style === 'atlas'));
+  renderWorlds();
 }
 function refreshPanels() { syncMapLabel(); renderInspector(); refreshCodex(); if (ui.tab === 'world') syncWorldTab(); else $('#worldName').value = world.name; }
 function setStyle(st) { if (ui.style === st) return; ui.style = st; buildContours(); buildGlyphs(); renderBase(); syncWorldTab(); requestDraw(); savePrefs(); }
@@ -2765,6 +2990,7 @@ function savePng() {
 function populateRealms() {
   if (!landShare()) { toast('New realms need dry land. Sketch some first.'); return; }
   const noted = world.places.filter(p => p.lore.trim()).map(p => p.name);
+  if (noted.length) keepAside(currentText(), { id: worldId, name: world.name, why: 'realms', at: new Date().toISOString() });
   pushUndo({ meta: true }); populate(1 + Math.floor(Math.random() * 999998)); ui.selected = null; recomputePolitics(); refreshPanels(); requestDraw(); markDirty();
   const lost = noted.length === 1 ? ` ${noted[0]} and its notes were replaced.` : noted.length === 2 ? ` ${noted[0]} and ${noted[1]} and their notes were replaced.` : noted.length ? ` ${noted.length} places with notes were replaced, ${noted[0]} and ${noted[1]} among them.` : '';
   toast(foundedSay() + lost, { label: 'Undo', fn: undo }, noted.length ? 10000 : 0);
@@ -2781,13 +3007,13 @@ function foundedSay() {
 }
 function bindWorldTab() {
   $('#wShape').innerHTML = Object.entries(SHAPES).filter(([, v]) => !v.blank).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
-  const generate = s => { newWorld(s, $('#wShape').value); syncWorldTab(); markDirty(); toast(`Generated world ${s}.`, { label: 'Undo', fn: undo }); };
+  const generate = s => { const from = addWorld(() => newWorld(s, $('#wShape').value, { noUndo: true })); if (from === null) return; syncWorldTab(); markDirty(); toast(`Generated world ${s}.${keptIn(from)}`, { label: 'Undo', fn: undo }); };
   $('#wGen').onclick = () => generate(clamp(parseInt($('#wSeed').value, 10) || 1, 1, 999999));
   // Enter in Seed generates it, as the button does; on a touch screen the keyboard goes, so the map and Undo show.
   $('#wSeed').addEventListener('keydown', e => { if (e.key !== 'Enter' || e.isComposing) return; e.preventDefault(); $('#wGen').click(); if (TOUCH) e.target.blur(); });
   $('#wBlank').onclick = startBlank;
-  // Random seed grows a world from a new seed in one go, in the shape chosen, as Generate from seed does; Undo brings
-  // back the one before.
+  // Random seed grows a world from a new seed in one go, in the shape chosen, as Generate from seed does; the one before
+  // stays in Your worlds, and Undo goes back to it.
   $('#wDice').onclick = () => generate(1 + Math.floor(Math.random() * 999998));
   let seaEditing = false, seaDry = null;
   $('#wSea').addEventListener('input', e => {
@@ -2806,6 +3032,7 @@ function bindWorldTab() {
   $('#wClear').onclick = () => {
     const np = world.places.length, nl = world.labels.length, noted = world.places.filter(p => p.lore.trim()).length;
     if (!np && !nl) { toast('There are no places or labels to clear.'); return; }
+    if (noted) keepAside(currentText(), { id: worldId, name: world.name, why: 'clear', at: new Date().toISOString() });
     pushUndo({ meta: true }); world.places = []; world.labels = []; ui.selected = null; recomputePolitics(); refreshPanels(); requestDraw(); markDirty();
     const count = (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`;
     toast(`Cleared ${[np && count(np, 'place'), nl && count(nl, 'label')].filter(Boolean).join(' and ')}${noted ? `, and the notes on ${noted === np ? (np === 1 ? 'it' : 'all of them') : `${noted} of them`}` : ''}.`, { label: 'Undo', fn: undo }, noted ? 10000 : 0);
@@ -2830,11 +3057,11 @@ function bindWorldTab() {
           : 'That file is not a Terra Incognita world.');
         return;
       }
-      pushUndo({ h: true, m: true, meta: true, world: true }); applyWorld(parsed);
+      const from = addWorld(() => applyWorld(parsed)); if (from === null) return;
       // In the look it was saved in; a file from before files kept one opens in the look on screen.
       const look = STYLES.includes(parsed.o.style) && parsed.o.style !== ui.style ? parsed.o.style : null;
       if (look) { ui.style = look; savePrefs(); }
-      ui.selected = null; dropDraft(); recomputeAll(); fitView(); syncWorldTab(); markDirty(); toast(`Opened ${world.name}${look ? `, in ${look === 'atlas' ? 'Atlas' : 'Terrain'} as it was saved` : ''}.`, { label: 'Undo', fn: undo });
+      ui.selected = null; dropDraft(); recomputeAll(); fitView(); syncWorldTab(); markDirty(); toast(`Opened ${world.name}${look ? `, in ${look === 'atlas' ? 'Atlas' : 'Terrain'} as it was saved` : ''}.${keptIn(from)}`, { label: 'Undo', fn: undo });
     };
     rd.readAsText(file); e.target.value = '';
   };
@@ -2848,7 +3075,7 @@ function openNewMenu() {
 }
 function closeNewMenu() { $('#newMenu').hidden = true; $('#btnNew').setAttribute('aria-expanded', 'false'); }
 function startBlank() {
-  newWorld(1 + Math.floor(Math.random() * 999998), 'blank');
+  if (addWorld(() => newWorld(1 + Math.floor(Math.random() * 999998), 'blank', { noUndo: true })) === null) return;
   ui.sketch.mode = 'land'; setTool('sketch'); fitView(); syncWorldTab(); markDirty();
   toast('Blank ocean ready. Draw a loop to raise your first coast.', { label: 'Undo', fn: undo });
 }
@@ -2941,7 +3168,7 @@ window.addEventListener('blur', () => { spaceDown = false; if (stroke) endStroke
 function init() {
   loadPrefs();
   let firstRun = false;
-  if (!loadLocal()) { firstRun = true; firstHint = unreadable === null; newWorld(DEFAULT_SEED, 'continent', { noUndo: true }); }
+  if (!loadLocal()) { firstRun = true; firstHint = unreadable === null; newWorld(DEFAULT_SEED, 'continent', { noUndo: true }); worldId = newWorldId(); }
   else recomputeAll();
   buildToolbar(); renderToolOpts(); bindWorldTab(); syncWorldTab(); updateUndoButtons(); updateCursor();
   if (MAC) { $('#btnUndo').title = 'Undo (⌘Z)'; $('#btnRedo').title = 'Redo (⇧⌘Z)'; $('#keyUndo').textContent = '⌘ Z'; $('#keySave').textContent = '⌘ S'; $('#keyOpen').textContent = '⌘ O'; }
@@ -2954,15 +3181,20 @@ function init() {
   });
   $('#btnUndo').onclick = undo; $('#btnRedo').onclick = redo;
   $('#btnNew').onclick = () => $('#newMenu').hidden ? openNewMenu() : closeNewMenu();
-  $('#mnRandom').onclick = () => { closeNewMenu(); const s = 1 + Math.floor(Math.random() * 999998); newWorld(s, world.shape && world.shape !== 'blank' ? world.shape : 'continent'); syncWorldTab(); markDirty(); toast(`Generated world ${s}.`, { label: 'Undo', fn: undo }); };
+  $('#mnRandom').onclick = () => {
+    closeNewMenu(); const s = 1 + Math.floor(Math.random() * 999998), shape = world.shape && world.shape !== 'blank' ? world.shape : 'continent';
+    const from = addWorld(() => newWorld(s, shape, { noUndo: true })); if (from === null) return;
+    syncWorldTab(); markDirty(); toast(`Generated world ${s}.${keptIn(from)}`, { label: 'Undo', fn: undo });
+  };
   $('#mnBlank').onclick = () => { closeNewMenu(); startBlank(); };
   document.addEventListener('pointerdown', e => { const m = $('#newMenu'), b = $('#btnNew'); if (!m.hidden && !m.contains(e.target) && !b.contains(e.target)) closeNewMenu(); });
   window.addEventListener('resize', closeNewMenu);
   // The menu is placed under its button, so it closes when the page scrolls, and when focus moves on to anything else.
   window.addEventListener('scroll', () => { if (!$('#newMenu').hidden) closeNewMenu(); }, { passive: true });
   $('#newMenu').addEventListener('focusout', e => { const to = e.relatedTarget; if (to && !$('#newMenu').contains(to) && to !== $('#btnNew')) closeNewMenu(); });
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveBeforeLeaving(); });
-  window.addEventListener('pagehide', saveBeforeLeaving);
+  const leaving = () => { saveBeforeLeaving(); if (syncTimer) syncStore(); };
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') leaving(); });
+  window.addEventListener('pagehide', leaving);
   $('#styleTerrain').onclick = () => setStyle('terrain'); $('#styleAtlas').onclick = () => setStyle('atlas');
   $('#zIn').onclick = () => zoomAt(view.cw / 2, view.ch / 2, 1.35); $('#zOut').onclick = () => zoomAt(view.cw / 2, view.ch / 2, 1 / 1.35); $('#zFit').onclick = fitView;
   for (const k of ['inspect', 'codex', 'world']) $('#tab-' + k).onclick = () => showTab(k);
@@ -2986,6 +3218,8 @@ function init() {
     if (rows.length === 1) rows[0].click(); else e.target.blur();
   });
   syncOldSave();
+  if (!firstRun) indexWorld(worldId, { name: world.name, savedAt: lastSavedAt, places: world.places.length });
+  openStore().then(() => { storeOK = true; syncStore(); }, () => { storeOK = false; }).then(renderWorlds);
   if (firstRun) {
     const kept = unreadable !== null;
     if (saveLocal() && kept) {
@@ -3014,6 +3248,9 @@ if ('serviceWorker' in navigator && !inFrame && location.protocol.startsWith('ht
 window.terra = {
   newWorld: (seed, shape = 'continent') => { newWorld(seed, shape); syncWorldTab(); fitView(); },
   startBlank, setStyle, setTool, fitView, select, centerOn,
+  // Your worlds, as the list has them, the open one marked; and the open one put in the larger store now.
+  worlds: () => readIndex().map(e => ({ id: e.id, name: e.name, places: e.places, thumb: !!e.thumb, open: e.id === worldId })),
+  syncWorlds: () => syncStore(),
   // Each place, with its tongue and the tongue of the realm whose land it stands on (null on land no realm holds).
   places: () => world.places.map(p => { const o = D.owner[cellAt(p.x, p.y)]; return { id: p.id, kind: p.kind, name: p.name, x: p.x, y: p.y, tongue: p.tongue, landTongue: o >= 0 && D.realms[o] ? D.realms[o].tongue : null }; }),
   labels: () => world.labels.map(l => ({ id: l.id, kind: l.kind, text: l.text, x: l.x, y: l.y })),

@@ -80,6 +80,12 @@
       </section>
       <section class="pane" id="pane-world" role="tabpanel" aria-labelledby="tab-world" hidden>
         <div class="section">
+          <h3 id="wWorldsH">Your worlds</h3>
+          <ul class="worlds" id="worldList" aria-labelledby="wWorldsH"></ul>
+          <p class="note" id="wWorldsNote">Every world you make or open is kept here, in this browser.</p>
+          <p class="note" id="wAside" hidden></p>
+        </div>
+        <div class="section">
           <h3>Generate</h3>
           <div class="grid2">
             <label for="wSeed">Seed<input id="wSeed" type="number" inputmode="numeric" enterkeyhint="go" min="1" max="999999"></label>
@@ -90,7 +96,7 @@
             <button class="btn sm" id="wDice">Random seed</button>
             <button class="btn sm" id="wBlank">Start from blank ocean</button>
           </div>
-          <p class="note">Generating replaces the current map. Undo brings it back.</p>
+          <p class="note">Generating starts a new world. The one open now stays in Your worlds, and Undo goes back to it.</p>
         </div>
         <div class="section">
           <h3><label for="wSea">Sea level</label></h3>

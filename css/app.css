@@ -173,6 +173,16 @@ textarea{width:100%;min-height:130px;font:14px/1.55 var(--f-ui);border:1px solid
 .tips{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:7px;color:var(--ink)}
 .search{height:34px;border:1px solid var(--field-line);border-radius:8px;background:var(--panel-2);padding:0 11px;width:100%}
 .clist{display:flex;flex-direction:column;gap:2px}
+/* Your worlds: a picture of each world beside its name, with its buttons under the name. */
+.worlds{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.wrow{display:grid;grid-template-columns:64px minmax(0,1fr);gap:6px 10px;align-items:start;padding:6px;border-radius:8px}
+.wrow.open{background:var(--panel-2)}
+.wthumb{display:block;width:64px;height:40px;border-radius:4px;object-fit:cover;background:var(--panel-2);box-shadow:inset 0 0 0 1px var(--line);grid-row:span 2}
+.wtext{display:flex;flex-direction:column;min-width:0;gap:1px}
+.wtext .nm{font-family:var(--f-display);font-size:16px;line-height:1.2;overflow-wrap:anywhere}
+.wtext .meta{font-size:11.5px;color:var(--muted)}
+.wacts{grid-column:2}
+.wacts:empty{display:none}
 .crow{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:10px;align-items:center;width:100%;text-align:left;padding:7px 8px;border-radius:8px;border:0;background:transparent;cursor:pointer}
 .crow:hover{background:var(--panel-2)}
 .crow .nm{font-family:var(--f-display);font-size:16px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

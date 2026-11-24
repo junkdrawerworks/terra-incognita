@@ -1,5 +1,5 @@
 // Offline support: keep a copy of Terra Incognita so it draws with no signal.
-// Your world lives in localStorage, not here.
+// Your worlds live in localStorage and IndexedDB, not here.
 // When you add, rename or remove a file the page loads, update SHELL (npm test checks it) and bump CACHE.
 // Network first, so a new version shows up as soon as you're online, but a page the network hasn't answered in a few
 // seconds opens from the copy instead (see page()).
@@ -9,7 +9,7 @@
 // fingerprint of every file in SHELL: change any of them and test/e2e.mjs fails until FILES is changed to match (it
 // says what to), which changes this file, so every copy is made whole again at once.
 const CACHE = 'terra-incognita-v3'; // bump the number when the file list changes
-const FILES = 'e5e0e303'; // test/e2e.mjs checks this
+const FILES = '1aa2d600'; // test/e2e.mjs checks this
 const SHELL = [
   './', 'index.html', 'css/app.css', 'js/app.js', 'js/edge-guard.js', 'manifest.webmanifest', 'icon.svg',
   'icon-180.png', 'icon-192.png', 'icon-512.png', 'icon-512-maskable.png',

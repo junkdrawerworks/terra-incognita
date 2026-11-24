@@ -696,7 +696,7 @@ await desk.click('#tab-world');
 const seedWas = (await desk.evaluate(() => window.terra.state())).seed;
 await desk.fill('#wSeed', '4242'); await desk.press('#wSeed', 'Enter');
 const seedSaid = await desk.textContent('#toast span');
-ok((await desk.evaluate(() => window.terra.state())).seed === 4242 && seedSaid === 'Generated world 4242.' && await desk.locator('#toast button', { hasText: 'Undo' }).isVisible() && await desk.getAttribute('#wSeed', 'enterkeyhint') === 'go', `Enter in Seed generates world 4242, with Undo ("${seedSaid}")`);
+ok((await desk.evaluate(() => window.terra.state())).seed === 4242 && seedSaid.startsWith('Generated world 4242.') && await desk.locator('#toast button', { hasText: 'Undo' }).isVisible() && await desk.getAttribute('#wSeed', 'enterkeyhint') === 'go', `Enter in Seed generates world 4242, with Undo ("${seedSaid}")`);
 await desk.click('#toast button:has-text("Undo")');
 ok((await desk.evaluate(() => window.terra.state())).seed === seedWas, 'and Undo brings back the world before');
 // Shortcuts still work straight after using a slider: Ctrl+Z takes back the sea level it set.
@@ -1629,7 +1629,7 @@ await oldCtx.close();
   const [again] = await Promise.all([pg.waitForEvent('download'), pg.click('#wSaveFile')]);
   const resaved = JSON.parse(await readFile(await again.path(), 'utf8'));
   const lost = Object.keys(old).filter((k) => k !== 'savedAt' && JSON.stringify(old[k]) !== JSON.stringify(resaved[k]));
-  ok(opened === `Opened ${old.name}.` && lost.length === 0, `a world file from an earlier build opens with every field intact (${old.places.length} places, ${old.labels.length} labels, ${old.springs.length} spring)` + (lost.length ? ': changed ' + lost.join(', ') : ''));
+  ok(opened.startsWith(`Opened ${old.name}.`) && lost.length === 0, `a world file from an earlier build opens with every field intact (${old.places.length} places, ${old.labels.length} labels, ${old.springs.length} spring)` + (lost.length ? ': changed ' + lost.join(', ') : ''));
   const cap = old.places.find((p) => p.lore);
   ok(await pg.evaluate((id) => { window.terra.select({ type: 'place', id }); return document.getElementById('pLore').value; }, cap.id) === cap.lore, 'and its notes are there');
   await c.close();
@@ -2571,6 +2571,99 @@ await oldCtx.close();
   await c.close();
 }
 
+// Your worlds. A save from before the list (one with no id) becomes its first world. Random seed and Open world file
+// add a world, and the one that was open stays in the list: they used to replace it, and after a reload it was gone.
+// Undo goes back to it, with its own Undo steps, and takes the new one out of the list again; Redo puts it back. The
+// list opens, duplicates and deletes worlds, and Bring it back returns a deleted world after a reload, and a world as
+// it was before Clear took places with notes. Two tabs on two worlds each save their own without asking.
+{
+  const fixture = await readFile(join(root, 'test/fixtures/world-v1.json'), 'utf8');
+  const old = JSON.parse(fixture);
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 }, acceptDownloads: true });
+  await c.addInitScript((text) => { if (!localStorage.getItem('seeded')) { localStorage.setItem('seeded', '1'); localStorage.setItem('terra-incognita/world/v1', text); } }, fixture);
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.waitForTimeout(600);
+  const worlds = () => pg.evaluate(() => window.terra.worlds());
+  let w = await worlds();
+  const slotId = await pg.evaluate(() => JSON.parse(localStorage.getItem('terra-incognita/world/v1')).id);
+  ok(w.length === 1 && w[0].name === old.name && w[0].open && w[0].id === slotId && (await pg.evaluate(() => window.terra.state().name)) === old.name, `a save from before Your worlds opens as its first world (${old.name})`);
+  await pg.fill('#worldName', 'Kept world');
+  await pg.waitForTimeout(1200);
+  await pg.click('#tab-world');
+  await pg.click('#wDice');
+  const made = await pg.evaluate(() => [window.terra.state(), document.querySelector('#toast span').textContent]);
+  w = await worlds();
+  ok(w.length === 2 && w.some((x) => x.name === 'Kept world' && !x.open) && w.find((x) => x.open).name === made[0].name && made[1].endsWith('Kept world is kept in Your worlds.'), `Random seed adds ${made[0].name} to Your worlds, and Kept world stays there ("${made[1]}")`);
+  await pg.click('#btnUndo');
+  const back = await pg.evaluate(() => [window.terra.state(), window.terra.worlds()]);
+  ok(back[0].name === 'Kept world' && back[0].undo === 1 && back[1].length === 1, 'Undo goes back to Kept world, with its own Undo step, and takes the new world out of the list');
+  await pg.click('#btnRedo');
+  ok((await pg.evaluate(() => window.terra.state().name)) === made[0].name && (await worlds()).length === 2, 'and Redo puts the new world back');
+  await pg.evaluate(() => window.terra.syncWorlds());
+  await pg.reload(); await pg.waitForTimeout(600);
+  await pg.click('#tab-world');
+  const rows = await pg.evaluate(() => [...document.querySelectorAll('#worldList .wrow')].map((r) => [r.querySelector('.nm').textContent, !!r.querySelector('img.wthumb'), !!r.querySelector('[data-wopen]')]));
+  ok(rows.length === 2 && rows[0][0] === made[0].name && !rows[0][2] && rows[1][0] === 'Kept world' && rows[1][2] && rows.every((r) => r[1]), `after a reload Your worlds lists both, each with a picture, the open one first (${rows.map((r) => r[0]).join(', ')})`);
+  await pg.click('#worldList [data-wopen]');
+  await pg.waitForFunction(() => window.terra.state().name === 'Kept world');
+  const keptSt = await pg.evaluate(() => window.terra.state());
+  ok(keptSt.places === old.places.length && keptSt.undo === 0, `Open brings Kept world back as it was (${keptSt.places} places)`);
+  const [fdl] = await Promise.all([pg.waitForEvent('download'), pg.click('#wSaveFile')]);
+  await pg.setInputFiles('#wFile', await fdl.path());
+  await pg.waitForFunction(() => document.querySelector('#toast span')?.textContent.startsWith('Opened'));
+  ok((await worlds()).length === 3, 'Open world file adds the world it opens too');
+  await pg.click('#worldList .wrow.open [data-wdup]');
+  await pg.waitForFunction(() => window.terra.worlds().length === 4);
+  const copy = (await worlds()).find((x) => x.name === 'Kept world (copy)');
+  ok(copy && !copy.open, 'Duplicate adds a copy, and the world open stays open');
+  await pg.click(`#worldList .wrow[data-id="${copy.id}"] [data-wdel]`);
+  await pg.waitForFunction(() => window.terra.worlds().length === 3);
+  await pg.waitForTimeout(300);
+  await pg.reload(); await pg.waitForTimeout(600); await pg.click('#tab-world');
+  const asideSays = await pg.textContent('#wAside');
+  await pg.click('#wAsideBack');
+  await pg.waitForFunction(() => window.terra.state().name === 'Kept world (copy)');
+  ok(/^Kept world \(copy\) was deleted (at|on) .+\. Bring it back$/.test(asideSays) && (await worlds()).length === 4 && await pg.locator('#wAside').isHidden(), `Delete keeps the world aside, and Bring it back returns it after a reload ("${asideSays}")`);
+  const cap = (await pg.evaluate(() => window.terra.places()))[0];
+  await pg.evaluate((id) => window.terra.select({ type: 'place', id }), cap.id);
+  await pg.fill('#pLore', 'Written before Clear.');
+  await pg.click('#tab-world');
+  await pg.click('#wClear');
+  await pg.waitForTimeout(400);
+  await pg.reload(); await pg.waitForTimeout(600); await pg.click('#tab-world');
+  const clearSays = await pg.textContent('#wAside');
+  await pg.click('#wAsideBack');
+  await pg.waitForFunction(() => window.terra.state().places > 0);
+  const before = await pg.evaluate((name) => { const p = window.terra.places().find((q) => q.name === name); window.terra.select({ type: 'place', id: p.id }); return [window.terra.state().name, document.getElementById('pLore').value]; }, cap.name);
+  ok(/^Kept world \(copy\) is kept as it was before Clear places and labels (at|on) /.test(clearSays) && before[0] === 'Kept world (copy) (before Clear)' && before[1] === 'Written before Clear.' && (await worlds()).length === 5, `a Clear that took notes keeps the world as it was, to bring back after a reload ("${clearSays}")`);
+  // Two tabs: B adds a world while A stays on its own, and each saves its own world without asking about the other.
+  const B = watch(await c.newPage());
+  await B.goto(base); await B.waitForTimeout(600);
+  await B.click('#tab-world'); await B.click('#wDice'); await B.waitForTimeout(300);
+  const rename = (p, n) => p.evaluate((n) => { const el = document.getElementById('worldName'); el.dispatchEvent(new Event('focus')); el.value = n; el.dispatchEvent(new Event('input')); }, n);
+  const said = (p) => p.evaluate(() => document.getElementById('toast').hidden ? '' : document.querySelector('#toast span').textContent);
+  await rename(pg, 'Renamed in tab A'); await pg.waitForTimeout(1300);
+  await rename(B, 'Renamed in tab B'); await B.waitForTimeout(1300);
+  await rename(pg, 'Renamed again in tab A'); await pg.waitForTimeout(1300);
+  const names = (await pg.evaluate(() => window.terra.worlds())).map((x) => x.name), saids = [await said(pg), await said(B)];
+  ok(saids.every((t) => !t.includes('another tab')) && names.includes('Renamed again in tab A') && names.includes('Renamed in tab B') && names.length === 6, `two tabs on two worlds each save their own without asking (${names.length} worlds)`);
+  await c.close();
+  // Where the browser's larger store doesn't work, a new world takes the open one's place, as it used to, and Undo
+  // brings that back; the list says so.
+  const n = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await n.addInitScript(() => { IDBFactory.prototype.open = function () { throw new Error('no'); }; });
+  const np = watch(await n.newPage());
+  await np.goto(base); await np.waitForTimeout(600);
+  await np.click('#tab-world');
+  const was = await np.evaluate(() => window.terra.state().name);
+  await np.click('#wDice');
+  const off = await np.evaluate(() => [window.terra.worlds().length, document.getElementById('wWorldsNote').textContent, document.querySelector('#toast span').textContent]);
+  await np.click('#btnUndo');
+  ok(off[0] === 1 && off[1].startsWith('This browser can\'t keep a second world') && !off[2].includes('Your worlds') && (await np.evaluate(() => window.terra.state().name)) === was, `without the larger store, Random seed replaces the world and Undo brings it back ("${off[1]}")`);
+  await n.close();
+}
+
 // Two tabs on the same world. A change saved in one is brought into the other, so notes written in tab A survive a
 // rename in tab B; it used to be saved over with B's stale copy. A tab with changes of its own still to save asks which
 // to keep, and either answer leaves both tabs able to save.
@@ -2829,7 +2922,7 @@ await oldCtx.close();
   await pg.waitForTimeout(1300);
   const look = await pg.evaluate(() => [document.getElementById('styleAtlas').getAttribute('aria-pressed'), 'style' in JSON.parse(localStorage.getItem('terra-incognita/world/v1'))]);
   await pg.click('#styleTerrain');
-  ok(lookFile.style === 'atlas' && look[0] === 'true' && !look[1] && lookSaid.endsWith(', in Atlas as it was saved.'), `a world file saved in Atlas opens in Atlas ("${lookSaid}"), and the autosave keeps no look`);
+  ok(lookFile.style === 'atlas' && look[0] === 'true' && !look[1] && lookSaid.includes(', in Atlas as it was saved.'), `a world file saved in Atlas opens in Atlas ("${lookSaid}"), and the autosave keeps no look`);
 
   // Each Shape grows its own kind of world, with land and realms on it.
   const shapes = [];

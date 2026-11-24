@@ -2098,6 +2098,32 @@ await oldCtx.close();
   await c.close();
 }
 
+// The World tab has a Map key under Layers: the four kinds of settlement, the six landmarks, a river, a road and a
+// realm's border, and in the Terrain look a swatch for each kind of land the world has. Nothing on screen said what a
+// star or a ringed dot meant.
+{
+  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => window.terra.newWorld(20417, 'continent'));
+  await pg.click('#tab-world');
+  const key = () => pg.evaluate(() => ({ items: [...document.querySelectorAll('#wKey li:not(.sub)')].map((li) => li.textContent.trim()), icons: document.querySelectorAll('#wKey li:not(.sub) svg, #wKey li .land').length, wide: document.documentElement.scrollWidth <= innerWidth }));
+  const terrain = await key();
+  const kinds = ['Capital', 'City', 'Town', 'Village', 'Ruin', 'Tower', 'Temple', 'Cave', 'Battlefield', 'Monument', 'River', 'Road', "Realm's border"];
+  const land = terrain.items.slice(kinds.length);
+  ok(kinds.every((k, i) => terrain.items[i] === k) && terrain.icons === terrain.items.length && terrain.wide, `the Map key names each symbol beside its picture (${terrain.items.slice(0, kinds.length).join(', ')})`);
+  const onMap = await pg.evaluate(() => { const n = {}; for (let y = 0; y < 300; y++) for (let x = 0; x < 480; x++) { const c = window.terra.cell(x, y); if (c.h >= 0 && !c.lake) n[c.kind] = (n[c.kind] || 0) + 1; } return Object.keys(n).filter((k) => n[k] >= 10); });
+  ok(land.length >= 12 && land.length === onMap.length && onMap.every((k) => land.includes(k)), `in the Terrain look it has a swatch for each kind of land on the map (${land.length} on seed 20417: ${land.join(', ')})`);
+  await pg.evaluate(() => window.terra.setStyle('atlas'));
+  const atlas = await key();
+  await pg.evaluate(() => { window.terra.setStyle('terrain'); window.terra.newWorld(20417, 'archipelago'); });
+  const isles = await key();
+  await pg.evaluate(() => window.terra.startBlank());
+  const blank = await key();
+  ok(atlas.items.length === kinds.length && isles.items.length > kinds.length && isles.items.length <= kinds.length + 14 && blank.items.length === kinds.length, `the Atlas look's key has no land swatches, an archipelago's has its own (${isles.items.length - kinds.length}), and blank ocean's none`);
+  await c.close();
+}
+
 // The Atlas on a phone's whole map draws a share of its trees, so they don't run into a solid mat (they were 1.9 px
 // apart and 3 px across); a laptop's whole map and a closer look draw them all.
 {

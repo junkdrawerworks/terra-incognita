@@ -3694,7 +3694,27 @@ function syncWorldTab() {
   $('#wSeaOut').textContent = `${Math.round(landShare() * 100)}% of the map is land`;
   for (const k of ['realms', 'rivers', 'roads', 'labels', 'names', 'grid']) $('#ly' + k[0].toUpperCase() + k.slice(1)).checked = ui.layers[k];
   $('#styleTerrain').setAttribute('aria-pressed', String(ui.style === 'terrain')); $('#styleAtlas').setAttribute('aria-pressed', String(ui.style === 'atlas'));
-  renderWorlds(); syncFileNote();
+  renderWorlds(); syncFileNote(); renderMapKey();
+}
+// The Map key in the World tab: each kind of place (a capital's star in its realm's colour), the six landmarks, a river,
+// a road and a realm's border, drawn as the map draws them; and in the Terrain look a swatch for each kind of land this world has at least 1,000 km² of.
+function renderMapKey() {
+  const el = $('#wKey'); if (!el) return;
+  const atlas = ui.style === 'atlas', line = (stroke, extra = '') => `<svg width="22" height="14" viewBox="0 0 22 14" aria-hidden="true">${extra}<path d="M1 9c4-6 8 2 12-3s6-2 8-3" fill="none" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round"${stroke === 'currentColor' ? ' stroke-dasharray="4 3"' : ''}/></svg>`;
+  const item = (icon, text) => `<li>${icon}<span>${text}</span></li>`;
+  let html = item(kindGlyph({ kind: 'capital', realm: { color: (D.realms[0] && D.realms[0].color) || REALM_COLORS[0] } }), 'Capital')
+    + ['city', 'town', 'village'].map(k => item(kindGlyph({ kind: k }), k[0].toUpperCase() + k.slice(1))).join('')
+    + Object.keys(LANDMARKS).map(k => item(kindGlyph({ kind: 'landmark', sub: k }), LANDMARKS[k].label)).join('')
+    + item(line(atlas ? '#6c95a0' : '#3b7ba0'), 'River')
+    + item(`<svg width="22" height="14" viewBox="0 0 22 14" aria-hidden="true"><path d="M1 9c4-6 8 2 12-3s6-2 8-3" fill="none" stroke="rgba(246,236,214,.55)" stroke-width="3.6" stroke-linecap="round"/><path d="M1 9c4-6 8 2 12-3s6-2 8-3" fill="none" stroke="${atlas ? '#80341a' : '#6e2810'}" stroke-width="1.4" stroke-dasharray="3 2"/></svg>`, 'Road')
+    + item(line('currentColor', `<path d="M1 9c4-6 8 2 12-3s6-2 8-3" fill="none" stroke="${hexA((D.realms[0] && D.realms[0].color) || REALM_COLORS[0], 0.42)}" stroke-width="5" stroke-linecap="round"/>`), "Realm's border");
+  if (!atlas) {
+    const n = new Uint32Array(BIOME_NAME.length);
+    for (let i = 0; i < N; i++) if (world.h[i] >= world.sea && !D.lake[i]) n[D.biome[i]]++;
+    const kinds = BIOME_NAME.map((name, b) => ({ name, b })).filter(({ b }) => b !== B.OCEAN && b !== B.LAKE && n[b] >= 10);
+    if (kinds.length) html += `<li class="sub" aria-hidden="true">Land</li>` + kinds.map(({ name, b }) => item(`<span class="land" style="background:rgb(${TER[b].join(',')})"></span>`, name)).join('');
+  }
+  el.innerHTML = html;
 }
 function refreshPanels() { syncMapLabel(); renderInspector(); refreshCodex(); if (ui.tab === 'world') syncWorldTab(); else $('#worldName').value = world.name; }
 function setStyle(st) { if (ui.style === st) return; ui.style = st; buildContours(); buildGlyphs(); renderBase(); syncWorldTab(); requestDraw(); savePrefs(); }

@@ -207,6 +207,11 @@ textarea{width:100%;min-height:130px;font:14px/1.55 var(--f-ui);border:1px solid
 .checks label{display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer}
 .checks input{accent-color:var(--accent);width:15px;height:15px}
 .checks .wide{grid-column:1/-1}
+.key{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;font-size:13px}
+.key li{display:flex;gap:8px;align-items:center;min-width:0}
+.key svg{flex:none}
+.key .land{width:16px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,.25);flex:none}
+.key .sub{grid-column:1/-1;margin-top:4px;font-size:11.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 .keys{display:grid;grid-template-columns:auto 1fr;gap:5px 12px;margin:0;font-size:12.5px}
 .keys dt{font:12px var(--f-mono);color:var(--ink)}
 .keys dd{margin:0;color:var(--muted)}

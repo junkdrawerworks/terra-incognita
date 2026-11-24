@@ -8,11 +8,11 @@ their own, the climate decides where forest and desert go, and realms spread out
 and sea stop them. Every town has a page for its story.
 
 <p align="center">
-  <img src="docs/phone-world.png" alt="A generated continent in shaded relief, with five realms outlined in color, named rivers, and capitals marked with stars" width="250">
+  <img src="docs/phone-world.png" alt="A generated continent in shaded relief, with five realms outlined in color, roads between their towns, named rivers, and capitals marked with stars" width="250">
   &nbsp;
   <img src="docs/phone-sketch.png" alt="A hand-drawn island in shaded relief, with two snowy ranges and named rivers and no towns yet, and a second island being sketched as a loop in the sea beside it" width="250">
   &nbsp;
-  <img src="docs/phone-place.png" alt="The page for an inland capital: its realm, population, nearest neighbour and local goods, its realm's name, title, tongue and colour, and a rumor rolled from the map kept in its notes" width="250">
+  <img src="docs/phone-place.png" alt="The page for an inland capital: its realm, where its roads go, its population, nearest neighbour and local goods, its realm's name, title, tongue and colour, and a rumor rolled from the map kept in its notes" width="250">
 </p>
 
 ## How it plays
@@ -52,7 +52,7 @@ and sea stop them. Every town has a page for its story.
 - **Two looks.** Terrain is shaded relief; Atlas is parchment with drawn mountains and trees. A world file opens in
   the look it was saved in.
 
-  <img src="docs/desktop.png" alt="The Atlas look on a laptop: the starting continent on parchment, with drawn mountains and forests, five realms outlined in colour and named rivers, beside the page for the capital Ninten" width="640">
+  <img src="docs/desktop.png" alt="The Atlas look on a laptop: the starting continent on parchment, with drawn mountains and forests, five realms outlined in colour, the roads between their towns and named rivers, beside the page for the capital Ninten" width="640">
 
 - **Your worlds.** Every world you generate, start from blank ocean or open from a file is kept in the list at the top
   of the World tab, with a picture of it and when it last changed, to open, duplicate or delete. A new world never

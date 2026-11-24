@@ -1379,11 +1379,11 @@ await oldCtx.close();
   await pg.goto(base);
   const changed = [];
   for (const [seed, shape, h, m, names] of [
-    [20417, 'continent', '8b20efbd125e', '5a1b133e1280', '6153123942ca'],
-    [96298, 'continent', '736cd99437ab', '0b2596e96d31', '4e12959bdaf1'],
-    [950281, 'inland', '7ff144f0176e', '1afc775afd2b', 'c0865d20871a'],
-    [857490, 'twin', '6c377492048c', 'e7bb04ba7404', '93f0439a59e7'],
-    [645278, 'inland', '358737c747f0', '049431645c33', 'e315af110263'],
+    [20417, 'continent', '8b20efbd125e', '5a1b133e1280', 'd516eccd7a72'],
+    [96298, 'continent', '736cd99437ab', '0b2596e96d31', 'd9bc4747fc0c'],
+    [950281, 'inland', '7ff144f0176e', '1afc775afd2b', '588c0bcf7307'],
+    [857490, 'twin', '6c377492048c', 'e7bb04ba7404', 'f90dfd838c2d'],
+    [645278, 'inland', '358737c747f0', '049431645c33', '5769a4dc5adc'],
   ]) {
     const f = await pg.evaluate(([seed, shape]) => { window.terra.newWorld(seed, shape); return window.terra.fingerprint(); }, [seed, shape]);
     if (f.h !== h || f.m !== m || f.names !== names) changed.push(`${seed} ${shape}: h ${f.h}, m ${f.m}, names ${f.names}`);
@@ -1429,6 +1429,25 @@ await oldCtx.close();
   await pg.waitForFunction(() => window.terra.state().seed === 20417);
   const again = await pg.evaluate(() => window.terra.borderStats().owners);
   ok(other[1] === o.places.length && other[0] !== first && again === first, `the same land and towns under another seed draw other borders, and under its own seed the same ones (${first}, ${other[0]}, ${again})`);
+  await c.close();
+}
+
+// Realms whose land meets get colours that stay apart for colour-blind viewers: never Red beside Olive or Rose, nor
+// Blue, Purple and Indigo beside each other, nor the other pairs a simulation of colour blindness makes look alike.
+// Colours were picked without looking at the neighbours (on 20417 the Blue realm bordered the Indigo and the Purple).
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const alike = new Set([['Purple', 'Indigo'], ['Red', 'Olive'], ['Blue', 'Purple'], ['Olive', 'Orange'], ['Ochre', 'Orange'], ['Teal', 'Rose'], ['Blue', 'Indigo'], ['Ochre', 'Olive'], ['Blue', 'Teal'], ['Red', 'Rose']].flatMap(([a, b]) => [a + b, b + a]));
+  const bad = [], pairs = [];
+  for (const [seed, shape] of [[20417, 'continent'], [11, 'continent'], [222, 'continent'], [3333, 'continent'], [15939, 'twin'], [950281, 'inland'], [8020, 'archipelago'], [53527, 'continent']]) {
+    const rs = await pg.evaluate(([seed, shape]) => { window.terra.newWorld(seed, shape); return window.terra.realms(); }, [seed, shape]);
+    const colours = rs.map((r) => r.color);
+    if (new Set(colours).size !== colours.length) bad.push(`${seed}: two realms share a colour (${colours.join(', ')})`);
+    rs.forEach((r, k) => r.neighbours.forEach((j) => { if (j < k) return; pairs.push(1); if (alike.has(r.color + rs[j].color)) bad.push(`${seed}: ${r.name} (${r.color}) beside ${rs[j].name} (${rs[j].color})`); }));
+  }
+  ok(bad.length === 0 && pairs.length > 20, `neighbouring realms never get colours that look alike to colour-blind viewers (${pairs.length} borders in 8 worlds)` + (bad.length ? ': ' + bad.join('; ') : ''));
   await c.close();
 }
 

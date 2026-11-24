@@ -758,6 +758,43 @@ function fertility(i) {
 }
 function rollPop(kind, i, rng) { const r = POP[kind]; if (!r) return 0; return roundSig(r[0] * Math.pow(r[1] / r[0], rng()) * fertility(i), 2); }
 // A realm's name is one no other realm has, or had (a capital made a town keeps its realm for later).
+// Pairs of realm colours that look alike to someone with colour blindness: less than 10 apart (CIEDE2000) once
+// simulated for protanopia, deuteranopia or tritanopia at full strength, with the matrices of Machado, Oliveira and
+// Fernandes, 'A Physiologically-based Model for Simulation of Color Vision Deficiency' (IEEE TVCG, 2009), table 1.
+const CLASH = new Set([['Purple', 'Indigo'], ['Red', 'Olive'], ['Blue', 'Purple'], ['Olive', 'Orange'], ['Ochre', 'Orange'], ['Teal', 'Rose'], ['Blue', 'Indigo'], ['Ochre', 'Olive'], ['Blue', 'Teal'], ['Red', 'Rose']]
+  .flatMap(([a, b]) => { const x = REALM_COLORS[REALM_COLOR_NAMES.indexOf(a)], y = REALM_COLORS[REALM_COLOR_NAMES.indexOf(b)]; return [x + y, y + x]; }));
+// The realms whose land meets, as a list of neighbours for each realm (three or more cells of border on land).
+function realmNeighbours() {
+  const n = D.realms.length, c = new Map(), o = D.owner, h = world.h, sea = world.sea;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x, a = o[i]; if (a < 0 || h[i] < sea) continue;
+    for (const j of [x < W - 1 ? i + 1 : -1, y < H - 1 ? i + W : -1]) { if (j < 0 || h[j] < sea) continue; const b = o[j]; if (b >= 0 && b !== a) { const k = Math.min(a, b) * n + Math.max(a, b); c.set(k, (c.get(k) || 0) + 1); } }
+  }
+  const nb = D.realms.map(() => []);
+  for (const [k, v] of c) if (v >= 3) { const a = Math.floor(k / n), b = k % n; nb[a].push(b); nb[b].push(a); }
+  return nb;
+}
+// Once the realms are placed, give each a colour no other realm has that doesn't look like a neighbour's (see CLASH).
+// The realms in keep hold the colours they have. Where no such set of colours exists, the one with the fewest pairs
+// alike.
+function colourRealms(rng, keep = new Set()) {
+  const rs = D.realms, nb = realmNeighbours(), col = rs.map(r => keep.has(r.place.id) ? r.color : null);
+  const order = rs.map((r, k) => k).filter(k => col[k] === null).sort((a, b) => nb[b].length - nb[a].length);
+  const prefs = order.map(() => shuffle(REALM_COLORS.slice(), rng));
+  let best = null, bestBad = Infinity, tries = 0;
+  const go = (d, bad) => {
+    if (bad >= bestBad || ++tries > 20000) return;
+    if (d === order.length) { best = col.slice(); bestBad = bad; return; }
+    const k = order[d];
+    for (const c of prefs[d]) {
+      if (col.includes(c) && order.length + keep.size <= REALM_COLORS.length) continue;
+      col[k] = c; go(d + 1, bad + nb[k].filter(j => col[j] && CLASH.has(c + col[j])).length); col[k] = null;
+      if (bestBad === 0) return;
+    }
+  };
+  go(0, 0);
+  if (best) rs.forEach((r, k) => { r.place.realm.color = best[k]; });
+}
 function newRealm(tongue, rng) {
   const used = new Set(world.places.map(p => (p.realm || p.oldRealm || {}).color).filter(Boolean));
   const free = REALM_COLORS.filter(c => !used.has(c)), taken = new Set();
@@ -886,6 +923,7 @@ function populate(seed) {
   }
   settleIslands(rng);
   territories();
+  colourRealms(rng);
   // No city outgrows its capital: each is held under four-fifths of the people of the capital whose realm it is in.
   for (const p of world.places) {
     if (p.kind !== 'city') continue;
@@ -3710,6 +3748,8 @@ window.terra = {
     }
     t.owners = (hs >>> 0).toString(16); return t;
   },
+  // Each realm: its name, the name of its colour, and the realms whose land meets its own, by their place in this list.
+  realms: () => { const nb = realmNeighbours(); return D.realms.map((r, k) => ({ name: r.name, color: REALM_COLOR_NAMES[REALM_COLORS.indexOf(r.color)], neighbours: nb[k] })); },
   // The open world as a world file has it.
   worldText: () => serialize(new Date().toISOString(), true),
   riverNear: (x, y, r = 1.5) => {

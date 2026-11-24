@@ -4162,7 +4162,7 @@ function foundedSay(kept = new Set()) {
 }
 function bindWorldTab() {
   $('#wShape').innerHTML = Object.entries(SHAPES).filter(([, v]) => !v.blank).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
-  const generate = s => { const from = addWorld(() => newWorld(s, $('#wShape').value, { noUndo: true }), `Generate world ${s}`); if (from === null) return; syncWorldTab(); markDirty(); toast(`Generated world ${s}.${keptIn(from)}`, { label: 'Undo', fn: undo }); };
+  const generate = s => afterSaying(`Generating world ${s}…`, () => { const from = addWorld(() => newWorld(s, $('#wShape').value, { noUndo: true }), `Generate world ${s}`); if (from === null) return; syncWorldTab(); markDirty(); toast(`Generated world ${s}.${keptIn(from)}`, { label: 'Undo', fn: undo }); });
   $('#wGen').onclick = () => generate(clamp(parseInt($('#wSeed').value, 10) || 1, 1, 999999));
   // Enter in Seed generates it, as the button does; on a touch screen the keyboard goes, so the map and Undo show.
   $('#wSeed').addEventListener('keydown', e => { if (e.key !== 'Enter' || e.isComposing) return; e.preventDefault(); $('#wGen').click(); if (TOUCH) e.target.blur(); });
@@ -4214,11 +4214,13 @@ function bindWorldTab() {
           : 'That file is not a Terra Incognita world.');
         return;
       }
-      const from = addWorld(() => { applyWorld(parsed); world.filedAt = typeof parsed.o.savedAt === 'string' && !isNaN(Date.parse(parsed.o.savedAt)) ? parsed.o.savedAt : new Date().toISOString(); }, `Open ${String(parsed.o.name || 'Untitled world')}`); if (from === null) return;
-      // In the look it was saved in; a file from before files kept one opens in the look on screen.
-      const look = STYLES.includes(parsed.o.style) && parsed.o.style !== ui.style ? parsed.o.style : null;
-      if (look) { ui.style = look; savePrefs(); }
-      ui.selected = null; dropDraft(); recomputeAll(); fitView(); syncWorldTab(); markDirty(); toast(`Opened ${world.name}${look ? `, in ${look === 'atlas' ? 'Atlas' : 'Terrain'} as it was saved` : ''}.${keptIn(from)}`, { label: 'Undo', fn: undo });
+      afterSaying(`Opening ${String(parsed.o.name || 'Untitled world')}…`, () => {
+        const from = addWorld(() => { applyWorld(parsed); world.filedAt = typeof parsed.o.savedAt === 'string' && !isNaN(Date.parse(parsed.o.savedAt)) ? parsed.o.savedAt : new Date().toISOString(); }, `Open ${String(parsed.o.name || 'Untitled world')}`); if (from === null) return;
+        // In the look it was saved in; a file from before files kept one opens in the look on screen.
+        const look = STYLES.includes(parsed.o.style) && parsed.o.style !== ui.style ? parsed.o.style : null;
+        if (look) { ui.style = look; savePrefs(); }
+        ui.selected = null; dropDraft(); recomputeAll(); fitView(); syncWorldTab(); markDirty(); toast(`Opened ${world.name}${look ? `, in ${look === 'atlas' ? 'Atlas' : 'Terrain'} as it was saved` : ''}.${keptIn(from)}`, { label: 'Undo', fn: undo });
+      });
     };
     rd.readAsText(file); e.target.value = '';
   };
@@ -4246,6 +4248,17 @@ function say(msg) { const el = $('#say'); el.textContent = ''; cancelAnimationFr
 let toastTimer = 0, toastActs = false, toastWaits = false;
 // A toast can offer an action, or a choice of several. A toast's Undo (or Redo) belongs to the step it was shown for: it
 // does nothing once another step is on top. One shown for Infinity waits to be answered, and no other toast replaces it.
+// Work that takes seconds on a slow phone (growing or opening a world) says what it is doing first, and lets the
+// screen show that before it starts, so the page never seems to freeze with no sign of life. A second tap meanwhile is
+// let go. If the work ends without a word of its own, the message goes.
+let busyWith = 0;
+function afterSaying(text, fn) {
+  if (busyWith) return; busyWith++;
+  toast(text, null, 60000); const shown = !toastWaits && $('#toast').firstChild; // not over a question waiting for its answer
+  requestAnimationFrame(() => setTimeout(() => {
+    try { fn(); } finally { busyWith--; if (shown && $('#toast').firstChild === shown) hideToast(); }
+  }, 0));
+}
 function toast(msg, action, ms) {
   const waits = ms === Infinity; if (toastWaits && !waits) return;
   const el = $('#toast'), acts = !action ? [] : Array.isArray(action) ? action : [action];
@@ -4344,8 +4357,10 @@ function init() {
   $('#btnNew').onclick = () => $('#newMenu').hidden ? openNewMenu() : closeNewMenu();
   $('#mnRandom').onclick = () => {
     closeNewMenu(); const s = 1 + Math.floor(Math.random() * 999998), shape = world.shape && world.shape !== 'blank' ? world.shape : 'continent';
-    const from = addWorld(() => newWorld(s, shape, { noUndo: true }), `Generate world ${s}`); if (from === null) return;
-    syncWorldTab(); markDirty(); toast(`Generated world ${s}.${keptIn(from)}`, { label: 'Undo', fn: undo });
+    afterSaying(`Generating world ${s}…`, () => {
+      const from = addWorld(() => newWorld(s, shape, { noUndo: true }), `Generate world ${s}`); if (from === null) return;
+      syncWorldTab(); markDirty(); toast(`Generated world ${s}.${keptIn(from)}`, { label: 'Undo', fn: undo });
+    });
   };
   $('#mnBlank').onclick = () => { closeNewMenu(); startBlank(); };
   document.addEventListener('pointerdown', e => { const m = $('#newMenu'), b = $('#btnNew'); if (!m.hidden && !m.contains(e.target) && !b.contains(e.target)) closeNewMenu(); });
@@ -4412,6 +4427,8 @@ if ('serviceWorker' in navigator && !inFrame && location.protocol.startsWith('ht
 window.terra = {
   newWorld: (seed, shape = 'continent') => { newWorld(seed, shape); syncWorldTab(); fitView(); },
   startBlank, setStyle, setTool, fitView, select, centerOn,
+  // Whether a world is still being grown or opened after its message went up.
+  busy: () => busyWith > 0,
   // The view: its scale against the whole map's (1 when it shows the whole map), and the part of the map in sight, in
   // map cells [left, top, right, bottom]; and whether an eased move is still under way.
   view: () => ({ zoom: view.s / view.s0, sees: [-view.ox / view.s, -view.oy / view.s, (view.cw - view.ox) / view.s, (view.ch - view.oy) / view.s], moving: !!glide }),

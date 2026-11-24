@@ -108,6 +108,14 @@ ok(await S(() => document.fonts.check('16px "IM Fell English"') && document.font
 // The first visit opens on a finished world.
 let st = await state();
 ok(st.realms >= 2 && st.places >= 20 && st.rivers > 200 && st.labels >= 2, `the starting world has realms, towns, rivers and labels (${st.realms} realms, ${st.places} places)`);
+// Growing a world takes seconds on a slow phone, so Generate says so first and lets the screen show it before the work:
+// the page froze with no sign of life.
+const growing = await S(() => { document.getElementById('wSeed').value = '48213'; document.getElementById('wGen').click(); return [document.querySelector('#toast span').textContent, window.terra.state().seed]; });
+await page.waitForFunction(() => !window.terra.busy());
+const grown = await S(() => [document.querySelector('#toast span').textContent, window.terra.state().seed]);
+ok(growing[0] === 'Generating world 48213…' && growing[1] === 20417 && grown[1] === 48213 && grown[0].startsWith('Generated world 48213.'), `Generate says "${growing[0]}" before it grows the world, then "${grown[0].split('.')[0]}."`);
+await S(() => document.getElementById('btnUndo').click());
+await page.waitForFunction(() => window.terra.state().seed === 20417);
 ok(await page.locator('#pane-inspect .welcome').isVisible(), 'the gazetteer greets you');
 const names = (await S(() => window.terra.places())).map((p) => p.name);
 ok(new Set(names).size === names.length, 'no two places share a name');
@@ -692,7 +700,7 @@ ok(rangeOk.envoys > 10 && rangeOk.tolls > 10 && !rangeOk.repeats && !rangeOk.bad
 {
   await desk.click('#tab-world');
   const before = await desk.evaluate(() => window.terra.state());
-  await desk.click('#wDice');
+  await desk.click('#wDice'); await desk.waitForFunction(() => !window.terra.busy());
   const rolled = await desk.evaluate(() => [window.terra.state(), document.getElementById('wSeed').value, document.getElementById('toast').textContent]);
   await desk.click('#toast button:has-text("Undo")');
   const back = await desk.evaluate(() => window.terra.state());
@@ -718,11 +726,11 @@ ok(rangeOk.envoys > 10 && rangeOk.tolls > 10 && !rangeOk.repeats && !rangeOk.bad
   await pg.click('#tab-world');
   const shapes = await pg.evaluate(() => [...document.querySelectorAll('#wShape option')].map((o) => o.textContent));
   await pg.selectOption('#wShape', 'archipelago');
-  await pg.click('#wDice');
+  await pg.click('#wDice'); await pg.waitForFunction(() => !window.terra.busy());
   await pg.click('#wBlank');
   await pg.click('#tab-world');
   const shown = await pg.inputValue('#wShape');
-  await pg.click('#wDice');
+  await pg.click('#wDice'); await pg.waitForFunction(() => !window.terra.busy());
   const st = await pg.evaluate(() => window.terra.state());
   ok(!shapes.includes('Blank ocean') && shown === 'archipelago' && st.shape === 'archipelago' && st.land > 10000, `after Start from blank ocean, the World tab shows the shape generated last, and Random seed grows land in it (${shapes.join(', ')}; ${st.shape}, ${st.land} land cells)`);
   await c.close();
@@ -837,7 +845,7 @@ ok(otherBox && cameBack[0] === rolledRumor && !cameBack[1], 'an unkept rumor wai
     `a sea's page and the world's welcome page keep notes ("${seaStep}", "${worldStep}"), the Codex finds them (${bySea.length} for pirates, ${byWorld.length} for sundering), the world file keeps them, and Found new realms keeps the sea's name and notes ("${foundSaid}", ${twice} other names for that water)`);
 }
 await desk.click('#btnNew');
-await desk.click('#mnRandom');
+await desk.click('#mnRandom'); await desk.waitForFunction(() => !window.terra.busy());
 await desk.waitForTimeout(300);
 ok(await desk.evaluate((id) => { window.terra.select({ type: 'place', id }); return document.getElementById('draftBox').hidden; }, firstCap.id), 'an unkept rumor stays behind in the old world');
 
@@ -873,7 +881,7 @@ ok(onZoom && await desk.evaluate(() => {
 // The toast's Undo stays readable in the dark theme that Claude's viewer can stamp on the page.
 await desk.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
 await desk.click('#btnNew');
-await desk.click('#mnRandom');
+await desk.click('#mnRandom'); await desk.waitForFunction(() => !window.terra.busy());
 const undoContrast = await desk.evaluate(() => {
   const lum = (c) => c.match(/\d+(\.\d+)?/g).slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }).reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
   const a = lum(getComputedStyle(document.querySelector('#toast button')).color), b = lum(getComputedStyle(document.getElementById('toast')).backgroundColor);
@@ -3717,7 +3725,7 @@ await oldCtx.close();
   await pg.fill('#worldName', 'Kept world');
   await pg.waitForTimeout(1200);
   await pg.click('#tab-world');
-  await pg.click('#wDice');
+  await pg.click('#wDice'); await pg.waitForFunction(() => !window.terra.busy());
   const made = await pg.evaluate(() => [window.terra.state(), document.querySelector('#toast span').textContent]);
   w = await worlds();
   ok(w.length === 2 && w.some((x) => x.name === 'Kept world' && !x.open) && w.find((x) => x.open).name === made[0].name && made[1].endsWith('Kept world is kept in Your worlds.'), `Random seed adds ${made[0].name} to Your worlds, and Kept world stays there ("${made[1]}")`);
@@ -3766,7 +3774,7 @@ await oldCtx.close();
   // Two tabs: B adds a world while A stays on its own, and each saves its own world without asking about the other.
   const B = watch(await c.newPage());
   await B.goto(base); await B.waitForTimeout(600);
-  await B.click('#tab-world'); await B.click('#wDice'); await B.waitForTimeout(300);
+  await B.click('#tab-world'); await B.click('#wDice'); await B.waitForFunction(() => !window.terra.busy()); await B.waitForTimeout(300);
   const rename = (p, n) => p.evaluate((n) => { const el = document.getElementById('worldName'); el.dispatchEvent(new Event('focus')); el.value = n; el.dispatchEvent(new Event('input')); }, n);
   const said = (p) => p.evaluate(() => document.getElementById('toast').hidden ? '' : document.querySelector('#toast span').textContent);
   await rename(pg, 'Renamed in tab A'); await pg.waitForTimeout(1300);
@@ -3783,7 +3791,7 @@ await oldCtx.close();
   await np.goto(base); await np.waitForTimeout(600);
   await np.click('#tab-world');
   const was = await np.evaluate(() => window.terra.state().name);
-  await np.click('#wDice');
+  await np.click('#wDice'); await np.waitForFunction(() => !window.terra.busy());
   const off = await np.evaluate(() => [window.terra.worlds().length, document.getElementById('wWorldsNote').textContent, document.querySelector('#toast span').textContent]);
   await np.click('#btnUndo');
   ok(off[0] === 1 && off[1].startsWith('This browser can\'t keep a second world') && !off[2].includes('Your worlds') && (await np.evaluate(() => window.terra.state().name)) === was, `without the larger store, Random seed replaces the world and Undo brings it back ("${off[1]}")`);
@@ -3798,7 +3806,7 @@ await oldCtx.close();
   const pg = watch(await c.newPage());
   await pg.goto(base); await pg.waitForTimeout(600);
   await pg.click('#tab-world');
-  await pg.click('#wDice'); await pg.click('#tab-world');
+  await pg.click('#wDice'); await pg.waitForFunction(() => !window.terra.busy()); await pg.click('#tab-world');
   await pg.fill('#worldName', 'Full store'); await pg.waitForTimeout(400);
   await pg.evaluate(() => { IDBObjectStore.prototype.put = function () { this.transaction.abort(); }; });
   await pg.click('#worldList [data-wopen]');
@@ -3827,7 +3835,7 @@ await oldCtx.close();
   const first = await pg.evaluate(() => [window.terra.state(), window.terra.worlds().length, location.hash, document.querySelector('#toast span')?.textContent]);
   ok(first[0].seed === 4242 && first[0].shape === 'archipelago' && first[1] === 1 && first[2] === '' && first[3].startsWith('Grew world 4242 from a seed link'), `a seed link on a first visit grows its world in place of the starting one ("${first[3]}")`);
   await pg.click('#tab-world');
-  await pg.click('#wDice');
+  await pg.click('#wDice'); await pg.waitForFunction(() => !window.terra.busy());
   await pg.click('#wLink');
   await pg.waitForTimeout(200);
   const copied = await pg.evaluate(() => navigator.clipboard.readText());
@@ -4136,7 +4144,7 @@ await oldCtx.close();
   // Each Shape grows its own kind of world, with land and realms on it.
   const shapes = [];
   for (const shape of await pg.evaluate(() => [...document.querySelectorAll('#wShape option')].map((o) => o.value))) {
-    await pg.selectOption('#wShape', shape); await pg.fill('#wSeed', '20417'); await pg.click('#wGen'); await pg.waitForTimeout(200);
+    await pg.selectOption('#wShape', shape); await pg.fill('#wSeed', '20417'); await pg.click('#wGen'); await pg.waitForFunction(() => !window.terra.busy()); await pg.waitForTimeout(200);
     const s = await pg.evaluate(() => window.terra.state());
     shapes.push([shape, s.shape, s.land, s.places, s.realms]);
   }

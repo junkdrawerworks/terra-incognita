@@ -977,7 +977,9 @@ function settleIslands(rng) {
 }
 // keep: places that stay as they are, with their names and notes (a capital among them keeps its realm); the new
 // capitals and towns are founded around them.
-function populate(seed, keep = []) {
+// keepLabels: labels with notes in them, which stay as they are; a name the world would have given the same water,
+// region or range near them is left off.
+function populate(seed, keep = [], keepLabels = []) {
   const rng = mulberry32(seed * 7 + 13);
   world.places = keep.slice(); world.labels = [];
   const kept = new Set(keep.map(p => p.id)), keptCaps = keep.filter(p => p.kind === 'capital' && p.realm);
@@ -1043,6 +1045,16 @@ function populate(seed, keep = []) {
     p.name = freshName(() => makeName(p.tongue, own));
   }
   autoLabels(rng);
+  if (keepLabels.length) {
+    const lakeOf = l => { const i = cellAt(l.x, l.y); return D.lake[i] ? lakeCells(i) : null; };
+    const same = (k, g) => {
+      if (k.kind !== g.kind) return false;
+      const lk = k.kind === 'sea' && lakeOf(k); if (lk) return lk.has(cellAt(g.x, g.y));
+      if (k.kind === 'sea') { const b = D.body[cellAt(k.x, k.y)]; return b >= 0 && b === D.body[cellAt(g.x, g.y)] && Math.hypot(k.x - g.x, k.y - g.y) < 80; }
+      return Math.hypot(k.x - g.x, k.y - g.y) < 60;
+    };
+    world.labels = keepLabels.concat(world.labels.filter(g => !keepLabels.some(k => same(k, g))));
+  }
 }
 // Where a generated name can go: wholly on the map, and clear of the compass in the top-right corner and of the scale
 // bar in the bottom-left, which on a laptop reaches about 180 cells along and 33 up (it is sized in pixels, so it
@@ -1171,7 +1183,7 @@ function newWorld(seed, shape, opts = {}) {
   if (world && !opts.noUndo) pushUndo({ h: true, m: true, meta: true, world: true }, shape === 'blank' ? 'Start from blank ocean' : `Generate world ${seed}`);
   const t = generateTerrain(seed, shape);
   if (!world) world = { h: t.h, m: t.m }; else { world.h.set(t.h); world.m.set(t.m); }
-  Object.assign(world, { seed, shape, name: '', sea: 0.5, places: [], labels: [], springs: [], rivers: [], roads: [], nextId: 1, editedAt: null, filedAt: null });
+  Object.assign(world, { seed, shape, name: '', notes: '', sea: 0.5, places: [], labels: [], springs: [], rivers: [], roads: [], nextId: 1, editedAt: null, filedAt: null });
   forgetRivers(); computeTN(); hydrology(); fillPits(); snapToSave(world.h); snapToSave(world.m); hydrology(); computeClimate(); buildRivers();
   populate(seed);
   const rng = mulberry32(seed + 404);
@@ -1190,7 +1202,7 @@ function takeSnap(parts) {
   if (parts.world) s.world = true;
   if (parts.h) s.h = world.h.slice();
   if (parts.m) s.m = world.m.slice();
-  if (parts.meta) s.meta = JSON.stringify({ name: world.name, seed: world.seed, shape: world.shape, sea: world.sea, places: world.places, labels: world.labels, springs: world.springs || [], rivers: world.rivers || [], roads: world.roads || [], nextId: world.nextId });
+  if (parts.meta) s.meta = JSON.stringify({ name: world.name, notes: world.notes || '', seed: world.seed, shape: world.shape, sea: world.sea, places: world.places, labels: world.labels, springs: world.springs || [], rivers: world.rivers || [], roads: world.roads || [], nextId: world.nextId });
   return s;
 }
 // Typing in the world's name is one Undo step per run of typing: a step from anything else, an Undo or a Redo ends the
@@ -1208,7 +1220,7 @@ function applySnap(s) {
   if (s.h) world.h.set(s.h);
   if (s.m) world.m.set(s.m);
   if (s.meta) {
-    const o = JSON.parse(s.meta); if (!o.springs) o.springs = []; if (!o.rivers) o.rivers = []; if (!o.roads) o.roads = [];
+    const o = JSON.parse(s.meta); if (typeof o.notes !== 'string') o.notes = ''; if (!o.springs) o.springs = []; if (!o.rivers) o.rivers = []; if (!o.roads) o.roads = [];
     // Notes are part of the step too: writing in a place's notes is a step of its own (see bindPlace), so the notes
     // come back as they were when it was taken.
     const seedChanged = o.seed !== world.seed; Object.assign(world, o); if (seedChanged) computeTN();
@@ -1286,7 +1298,7 @@ function unpackF(str, whole) { const b = unb64(str); if (whole && b.length !== N
 // A world file also says which look it was saved in (Terrain or Atlas), and opening it switches to that look, so it
 // opens on another device as it was made. The autosave doesn't: there your own choice of look stays.
 function serialize(savedAt = new Date().toISOString(), forFile = false) {
-  return JSON.stringify({ format: 'terra-incognita', version: 1, ...(forFile ? {} : { id: worldId }), name: world.name, seed: world.seed, shape: world.shape, sea: world.sea, W, H, h: packF(world.h), m: packF(world.m), places: world.places, labels: world.labels, springs: world.springs || [], rivers: world.rivers || [], roads: world.roads || [], nextId: world.nextId, editedAt: world.editedAt || null, filedAt: world.filedAt || null, ...(forFile ? { style: ui.style } : {}), savedAt });
+  return JSON.stringify({ format: 'terra-incognita', version: 1, ...(forFile ? {} : { id: worldId }), name: world.name, notes: world.notes || '', seed: world.seed, shape: world.shape, sea: world.sea, W, H, h: packF(world.h), m: packF(world.m), places: world.places, labels: world.labels, springs: world.springs || [], rivers: world.rivers || [], roads: world.roads || [], nextId: world.nextId, editedAt: world.editedAt || null, filedAt: world.filedAt || null, ...(forFile ? { style: ui.style } : {}), savedAt });
 }
 // A world file must be whole: one cut short would open as a black map and then be autosaved over the world you had.
 // One saved by a newer version isn't opened at all, since saving it again here would lose whatever is new in it.
@@ -1302,7 +1314,7 @@ function applyWorld({ o, h, m }) {
   const placed = q => q && typeof q.x === 'number' && typeof q.y === 'number' && isFinite(q.x) && isFinite(q.y);
   if (!world) world = { h, m }; else { world.h.set(h); world.m.set(m); }
   const stamp = v => typeof v === 'string' && !isNaN(Date.parse(v)) ? v : null;
-  Object.assign(world, { editedAt: stamp(o.editedAt), filedAt: stamp(o.filedAt), name: String(o.name || 'Untitled world'), seed: o.seed | 0, shape: SHAPES[o.shape] ? o.shape : 'continent', sea: clamp(+o.sea || 0.5, 0.4, 0.6), places: Array.isArray(o.places) ? o.places.filter(placed) : [], labels: Array.isArray(o.labels) ? o.labels.filter(placed) : [], nextId: o.nextId | 0 || 1,
+  Object.assign(world, { editedAt: stamp(o.editedAt), filedAt: stamp(o.filedAt), name: String(o.name || 'Untitled world'), notes: typeof o.notes === 'string' ? o.notes : '', seed: o.seed | 0, shape: SHAPES[o.shape] ? o.shape : 'continent', sea: clamp(+o.sea || 0.5, 0.4, 0.6), places: Array.isArray(o.places) ? o.places.filter(placed) : [], labels: Array.isArray(o.labels) ? o.labels.filter(placed) : [], nextId: o.nextId | 0 || 1,
     // The roads drawn by hand: each a list of points on the map, at least two; a file from before there were any has none.
     roads: Array.isArray(o.roads) ? o.roads.filter(r => r && Array.isArray(r.pts) && r.pts.length >= 4 && r.pts.length <= 20000 && r.pts.every(v => typeof v === 'number' && isFinite(v))).slice(0, 2000).map(r => ({ pts: r.pts.slice(0, r.pts.length & ~1).map((v, k) => clamp(v, 0, k % 2 ? H : W)) })) : [],
     springs: Array.isArray(o.springs) ? o.springs.filter(sp => sp && isFinite(sp.x) && isFinite(sp.y)).map(sp => ({ x: clamp(+sp.x, 0, W), y: clamp(+sp.y, 0, H), flow: clamp(+sp.flow || 0, 0, 500) })) : [],
@@ -1329,7 +1341,7 @@ function applyWorld({ o, h, m }) {
     if (p.kind === 'capital' || !or || typeof or !== 'object') delete p.oldRealm;
     else p.oldRealm = { name: String(or.name || 'Nameless'), title: String(or.title || TONGUES[p.tongue].titles[0]), color: /^#[0-9a-f]{6}$/i.test(or.color) ? or.color : REALM_COLORS[0] };
   }
-  for (const l of world.labels) { l.text = String(l.text == null ? '' : l.text); if (!['region', 'sea', 'range'].includes(l.kind)) l.kind = 'region'; l.size = clamp(+l.size || 5, 3, 16); l.angle = clamp(+l.angle || 0, -60, 60); }
+  for (const l of world.labels) { l.text = String(l.text == null ? '' : l.text); if (l.lore != null && String(l.lore).trim()) l.lore = String(l.lore); else delete l.lore; if (!['region', 'sea', 'range'].includes(l.kind)) l.kind = 'region'; l.size = clamp(+l.size || 5, 3, 16); l.angle = clamp(+l.angle || 0, -60, 60); }
   computeTN();
 }
 // Save 0.9 s after the last change, and at least every 5 s while changes keep coming (typing a long note).
@@ -3227,7 +3239,7 @@ function removeSel(sel) {
   if (ui.selected && ui.selected.type === sel.type && ui.selected.id === sel.id) ui.selected = null;
   dropOrphanDraft();
   const endedSay = ended ? ` ${display} ${plural ? 'are' : 'is'} no longer a realm. ${whereTheyWent(held, true)}`.trimEnd() : '';
-  toast(`Removed ${sel.type === 'place' ? o.name : 'the label'}.${endedSay}`, { label: 'Undo', fn: undo }, ended ? 10000 : 0);
+  toast(`Removed ${sel.type === 'place' ? o.name : (o.lore || '').trim() ? 'the label and its notes' : 'the label'}.${endedSay}`, { label: 'Undo', fn: undo }, ended ? 10000 : 0);
   requestDraw(); renderInspector(); refreshCodex(); markDirty(); refocus('#tab-inspect');
 }
 
@@ -3478,7 +3490,14 @@ function select(sel) {
 }
 function renderInspector() {
   const pane = $('#pane-inspect'); const sel = ui.selected; const o = findSel(sel);
-  if (!sel || !o) { pane.innerHTML = welcomeHTML(); bindGotos(pane); return; }
+  if (!sel || !o) {
+    // Drawn again while its notes are being written (the world renamed in another tab, say), the page keeps the box
+    // focused, with the caret where it was.
+    const ae = document.activeElement, caret = ae && ae.id === 'wNotes' ? [ae.selectionStart, ae.selectionEnd, ae.scrollTop] : null;
+    pane.innerHTML = welcomeHTML(); bindWelcome(); bindGotos(pane);
+    if (caret) { const ta = $('#wNotes'); ta.focus({ preventScroll: true }); ta.setSelectionRange(caret[0], caret[1]); ta.scrollTop = caret[2]; }
+    return;
+  }
   if (sel.type === 'place') { pane.innerHTML = placeHTML(o); bindPlace(o); }
   else if (sel.type === 'label') { pane.innerHTML = labelHTML(o); bindLabel(o); }
   else { pane.innerHTML = locHTML(o); bindLoc(o); }
@@ -3553,6 +3572,18 @@ let mapLabelSaid = '';
 function syncMapLabel() { const t = mapLabel(); if (t !== mapLabelSaid) canvas.setAttribute('aria-label', mapLabelSaid = t); }
 // The welcome's last tip, on keeping the world, where files can be saved.
 const keepTip = () => savingOff ? '' : '<li>The World tab keeps it: <b>Save map image</b> makes a picture to show someone, and <b>Save world file</b> a copy that lasts.</li>';
+// The world's own notes, on the welcome page: what holds for the whole of it rather than one place.
+const worldNotesHTML = () => `<div class="section"><h3><label for="wNotes">Notes on this world</label></h3>
+      <textarea id="wNotes" placeholder="Its ages and its gods, the wars everyone remembers, what every traveler knows.">${esc(world.notes || '')}</textarea></div>`;
+// Typing in them is one Undo step for each visit to the page, as a place's notes are.
+function bindWelcome() {
+  const ta = $('#wNotes'); if (!ta) return;
+  let step = null;
+  ta.addEventListener('input', () => {
+    if (!step || undoStack[undoStack.length - 1] !== step) { pushUndo({ meta: true }, 'Notes on this world'); step = undoStack[undoStack.length - 1]; }
+    world.notes = ta.value; touched(); markDirty();
+  });
+}
 function welcomeHTML() {
   const { settl, lms, land } = tally();
   const cap = world.places.find(p => p.kind === 'capital');
@@ -3563,7 +3594,7 @@ function welcomeHTML() {
       <li>With ${toolLink('sketch', 'Sketch')} and <b>Land</b> picked, draw a loop on the sea. Land rises inside it, with hills and a natural coast.</li>
       <li>Choose <b>Sea</b> to carve bays, straits and inland seas, <b>Mountain range</b> to draw a ridge line, or <b>River</b> to run water from a source to the coast. Other rivers and lakes form on their own.</li>
       <li>When the land looks right, <b>Found new realms</b> in the World tab fills it with towns, borders and names.</li>${keepTip()}
-    </ul></div>${JD_FOOT}`;
+    </ul>${worldNotesHTML()}</div>${JD_FOOT}`;
   // A generated world says what this is, in the README's words; one drawn by hand says so instead.
   const made = world.shape !== 'blank';
   const lede = made && world.places.length ? `<p class="lede">A world that doesn't exist, made for you from seed <span class="mono">${world.seed}</span>. Read about any town, or sketch your own coastlines, ranges and rivers.</p>` : '';
@@ -3580,8 +3611,8 @@ function welcomeHTML() {
       ${world.places.length ? `<li>${TAP} any place or patch of ground to read about it${cap ? `, or start with <button class="link" data-goto="${cap.id}">${esc(cap.name)}</button>` : ''}. The <b>Codex</b> lists every place by realm, with a search.</li>` : `<li>${REALMS_LINK} fills this land with towns, borders and names. Do it before you found your own: it replaces every place you haven't written notes on.</li>`}
       <li>Use ${toolLink('sketch', 'Sketch')} to draw new coastlines, carve bays, add a mountain range or run a river. ${toolLink('raise', 'Raise')} and ${toolLink('lower', 'Lower')} paint the details. Rivers, lakes and borders follow the terrain.</li>
       <li>${capitalTip}</li>
-      <li>Every place has a page for notes. ${CL ? 'Roll a rumor, or ask Claude to draft a history from the geography.' : 'Roll a rumor for a story to start from.'}</li>${keepTip()}
-    </ul>
+      <li>Every place has a page for notes, and so does every name on the map. ${CL ? 'Roll a rumor, or ask Claude to draft a history from the geography.' : 'Roll a rumor for a story to start from.'}</li>${keepTip()}
+    </ul>${worldNotesHTML()}
   </div>${JD_FOOT}`;
 }
 function placeHTML(p) {
@@ -3757,6 +3788,8 @@ function whereTheyWent(held, other) {
   if (!k) return `${its} now ${n === 1 ? 'lies' : 'lie'} unclaimed.`;
   return `Of its ${n} ${what}, ${k} now ${k === 1 ? 'belongs' : 'belong'} to ${list} and ${free} ${free === 1 ? 'lies' : 'lie'} unclaimed.`;
 }
+// What a label's notes box asks, by the kind of thing it names.
+const LABEL_ASKS = { sea: 'Who sails these waters? What lies beneath them?', region: 'Who lives here? What is it known for?', range: 'Which passes cross it? What lives up there?' };
 function labelHTML(l) {
   return `<div><p class="eyebrow">Map label${SHOW_ON_MAP}</p>
       <label class="sr" for="lText">Label text</label><input id="lText" class="name-input" value="${esc(l.text)}" autocomplete="off" spellcheck="false"></div>
@@ -3764,22 +3797,31 @@ function labelHTML(l) {
     <div class="field"><label for="lSize">Size</label><input type="range" id="lSize" min="3" max="16" step="0.2" value="${l.size}"></div>
     <div class="field"><label for="lAngle">Angle</label><input type="range" id="lAngle" min="-60" max="60" step="1" value="${l.angle || 0}"></div>
     <p class="note">Drag the label on the map with the select tool to move it.</p>
+    <div class="section"><h3><label for="lLore">Notes and lore</label></h3>
+      <textarea id="lLore" placeholder="${LABEL_ASKS[l.kind] || LABEL_ASKS.region}">${esc(l.lore || '')}</textarea>
+    </div>
     <button class="link danger" id="lDelete">Remove this label</button>`;
 }
 function bindLabel(l) {
-  let pushed = false, kept = null, step = null; const once = () => { if (!pushed) { kept = stepRoom(); pushUndo({ meta: true }, `Change ${l.text.trim() || 'a label'}`); step = undoStack[undoStack.length - 1]; pushed = true; } };
-  const was = { text: l.text, kind: l.kind, size: l.size, angle: l.angle };
+  // One step for each visit to the page, as on a place's, named by its first edit.
+  const named = l.text.trim() || 'a label';
+  let pushed = false, kept = null, step = null; const once = (what = `Change ${named}`) => {
+    if (!pushed || undoStack[undoStack.length - 1] !== step) { kept = stepRoom(); pushUndo({ meta: true }, what); step = undoStack[undoStack.length - 1]; pushed = true; }
+    else if (step.name !== what && step.name !== `Changes to ${named}`) nameStep(`Changes to ${named}`);
+  };
+  const was = { text: l.text, kind: l.kind, size: l.size, angle: l.angle, lore: l.lore || '' };
   $('#lText').addEventListener('input', e => { once(); l.text = e.target.value; requestDraw(); markDirty(); });
   // Text cleared away gets the text back, as a place's name cleared away becomes Nameless: a label with no text can't
   // be seen, but is still there to click and to save. With nothing else changed on the page, its Undo step goes too.
   $('#lText').addEventListener('change', e => {
     if (l.text.trim() || !was.text.trim()) return;
     l.text = e.target.value = was.text; requestDraw(); markDirty();
-    if (pushed && undoStack[undoStack.length - 1] === step && l.kind === was.kind && l.size === was.size && l.angle === was.angle) { takeBackStep(kept); pushed = false; }
+    if (pushed && undoStack[undoStack.length - 1] === step && l.kind === was.kind && l.size === was.size && l.angle === was.angle && (l.lore || '') === was.lore) { takeBackStep(kept); pushed = false; }
   });
   $('#lKind').onchange = e => { once(); l.kind = e.target.value; requestDraw(); markDirty(); };
   $('#lSize').addEventListener('input', e => { once(); l.size = +e.target.value; requestDraw(); markDirty(); });
   $('#lAngle').addEventListener('input', e => { once(); l.angle = +e.target.value; requestDraw(); markDirty(); });
+  $('#lLore').addEventListener('input', e => { once(`Notes on ${named}`); l.lore = e.target.value; touched(); markDirty(); });
   $('#lDelete').onclick = () => removeSel({ type: 'label', id: l.id });
 }
 // The sea label that names the water at a spot, if there is one: the stretch of sea's, or the lake's.
@@ -3846,14 +3888,19 @@ function renderCodex() {
     : `<p class="note">No land yet, so no places. ${toolLink('sketch', 'Sketch')} a coast first.</p>`;
   // The names on the map itself: seas and lakes, regions and ranges, A to Z.
   const sortKey = l => l.text.replace(/^The /, '').toLowerCase();
-  const labels = world.labels.filter(l => l.text.trim() && match(l.text)).sort((a, b) => sortKey(a) < sortKey(b) ? -1 : sortKey(a) > sortKey(b) ? 1 : 0);
+  const labels = world.labels.filter(l => l.text.trim() && (match(l.text) || match(l.lore || ''))).sort((a, b) => sortKey(a) < sortKey(b) ? -1 : sortKey(a) > sortKey(b) ? 1 : 0);
   if (labels.length) {
-    h += `<h3 class="group-h">Seas, lands and ranges</h3><div class="clist">` + labels.map(l => { const k = LABEL_KINDS[l.kind] || LABEL_KINDS.region; return `<button class="crow" data-label="${l.id}"><span class="ic"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="${k.d}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg></span><span class="nm">${esc(l.text)}</span><span class="meta">${k.label}</span></button>`; }).join('') + `</div>`;
+    h += `<h3 class="group-h">Seas, lands and ranges</h3><div class="clist">` + labels.map(l => { const k = LABEL_KINDS[l.kind] || LABEL_KINDS.region; const byNotes = q && !match(l.text) ? excerpt(l.lore || '', q) : '', nm = `<span class="nm">${esc(l.text)}${(l.lore || '').trim() ? NOTED : ''}</span>`;
+      return `<button class="crow" data-label="${l.id}"><span class="ic"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="${k.d}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg></span>${byNotes ? `<span class="crow-text">${nm}<span class="meta excerpt">${esc(byNotes)}</span></span>` : nm}<span class="meta">${k.label}</span></button>`; }).join('') + `</div>`;
   }
+  // The world's own notes, when the words are in them.
+  const wn = q ? excerpt(world.notes || '', q) : '';
+  if (wn) h += `<h3 class="group-h">This world</h3><div class="clist"><button class="crow" data-world="1"><span class="ic">${svgIcon('<circle cx="10" cy="10" r="7"/><path d="M3 10h14M10 3c2.2 2 3.2 4.4 3.2 7s-1 5-3.2 7c-2.2-2-3.2-4.4-3.2-7s1-5 3.2-7z"/>', 15)}</span><span class="crow-text"><span class="nm">${esc(world.name.trim() || 'Untitled world')}${NOTED}</span><span class="meta excerpt">${esc(wn)}</span></span><span class="meta">Notes on this world</span></button></div>`;
   if (!h) h = `<p class="note">Nothing by that name or in your notes yet.</p>`;
   $('#codexList').innerHTML = h;
   $('#codexList').querySelectorAll('.crow[data-id]').forEach(b => b.onclick = () => { const p = world.places.find(x => x.id === +b.dataset.id); if (p) { select({ type: 'place', id: p.id }); centerOn(p.x, p.y); refocus('#pTitle'); } });
   bindToolLinks($('#codexList'), '#codexList .crow');
+  const wb = $('#codexList .crow[data-world]'); if (wb) wb.onclick = () => { select(null); showTab('inspect'); refocus('#wNotes'); };
   $('#codexList').querySelectorAll('.crow[data-label]').forEach(b => b.onclick = () => { const l = world.labels.find(x => x.id === +b.dataset.label); if (l) { select({ type: 'label', id: l.id }); centerOn(l.x, l.y); refocus('#lText'); } });
 }
 
@@ -3931,7 +3978,7 @@ async function saveWorldFile() {
 // since when: a browser can clear what a site keeps, the autosave included, and the file is the copy that lasts.
 function syncFileNote() {
   const el = $('#wFileNote'); if (!el || !world) return;
-  const f = world.filedAt, due = !savingOff && (f ? !!world.editedAt && world.editedAt > f : !!world.editedAt || world.places.some(p => p.lore.trim()));
+  const f = world.filedAt, due = !savingOff && (f ? !!world.editedAt && world.editedAt > f : !!world.editedAt || world.places.some(p => p.lore.trim()) || world.labels.some(l => (l.lore || '').trim()) || !!(world.notes || '').trim());
   el.hidden = !due; if (due) el.textContent = f ? `Not saved to a file since ${whenSaid(f)}.` : 'Not saved to a file yet.';
 }
 // Run from the home screen, it asks the browser to keep what it stores rather than clear it after a while unused.
@@ -3973,10 +4020,11 @@ window.addEventListener('afterprint', () => { const cv = $('#printMap'); cv.widt
 // stays up longer when notes did.
 function populateRealms() {
   if (!landShare()) { toast('New realms need dry land. Sketch some first.'); return; }
-  const kept = world.places.filter(p => p.lore.trim()), names = kept.map(p => p.name);
-  pushUndo({ meta: true }, 'Found new realms'); populate(1 + Math.floor(Math.random() * 999998), kept); ui.selected = null; recomputePolitics(); refreshPanels(); requestDraw(); markDirty();
+  const kept = world.places.filter(p => p.lore.trim()), names = kept.map(p => p.name), keptLabels = world.labels.filter(l => (l.lore || '').trim());
+  pushUndo({ meta: true }, 'Found new realms'); populate(1 + Math.floor(Math.random() * 999998), kept, keptLabels); ui.selected = null; recomputePolitics(); refreshPanels(); requestDraw(); markDirty();
   const stay = names.length === 1 ? ` ${names[0]} and its notes stay.` : names.length === 2 ? ` ${names[0]} and ${names[1]} and their notes stay.` : names.length ? ` ${names.length} places with notes stay, ${names[0]} and ${names[1]} among them.` : '';
-  toast(foundedSay(new Set(kept.map(p => p.id))) + stay, { label: 'Undo', fn: undo });
+  const lt = l => l.text.trim() || 'a label', stayL = keptLabels.length === 1 ? ` The label ${lt(keptLabels[0])} keeps its notes.` : keptLabels.length ? ` ${keptLabels.length} labels with notes stay.` : '';
+  toast(foundedSay(new Set(kept.map(p => p.id))) + stay + stayL, { label: 'Undo', fn: undo });
 }
 // The realms just founded, by name: 'Founded the Republic of Tiassium and the Commonwealth of Lenma, with 18
 // settlements.', or with four or more, how many and the largest. Realms and settlements that were kept aren't counted.
@@ -4014,12 +4062,12 @@ function bindWorldTab() {
   // Clear, like Found new realms, takes places that may have notes in them, so its toast names what went, and stays up
   // longer when notes did.
   $('#wClear').onclick = () => {
-    const np = world.places.length, nl = world.labels.length, noted = world.places.filter(p => p.lore.trim()).length;
+    const np = world.places.length, nl = world.labels.length, noted = world.places.filter(p => p.lore.trim()).length + world.labels.filter(l => (l.lore || '').trim()).length;
     if (!np && !nl) { toast('There are no places or labels to clear.'); return; }
     if (noted) keepAside(currentText(), { id: worldId, name: world.name, why: 'clear', at: new Date().toISOString() });
     pushUndo({ meta: true }, 'Clear places and labels'); world.places = []; world.labels = []; ui.selected = null; recomputePolitics(); refreshPanels(); requestDraw(); markDirty();
     const count = (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`;
-    toast(`Cleared ${[np && count(np, 'place'), nl && count(nl, 'label')].filter(Boolean).join(' and ')}${noted ? `, and the notes on ${noted === np ? (np === 1 ? 'it' : 'all of them') : `${noted} of them`}` : ''}.`, { label: 'Undo', fn: undo }, noted ? 10000 : 0);
+    toast(`Cleared ${[np && count(np, 'place'), nl && count(nl, 'label')].filter(Boolean).join(' and ')}${noted ? `, and the notes on ${noted === np + nl ? (np + nl === 1 ? 'it' : 'all of them') : `${noted} of them`}` : ''}.`, { label: 'Undo', fn: undo }, noted ? 10000 : 0);
   };
   for (const k of ['realms', 'rivers', 'roads', 'labels', 'names', 'grid']) $('#ly' + k[0].toUpperCase() + k.slice(1)).onchange = e => { ui.layers[k] = e.target.checked; requestDraw(); savePrefs(); };
   $('#wSaveFile').onclick = saveWorldFile;

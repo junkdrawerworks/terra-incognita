@@ -713,6 +713,35 @@ ok(otherBox && cameBack[0] === rolledRumor && !cameBack[1], 'an unkept rumor wai
     && back.pop === town.pop && back.kind === 'town',
     `a town's population can be typed in (~${rolled[0]} to ${typed[0]}), a change of kind and the world file keep it, an empty box puts it back, its realm counts it (${realmWas} to ${realmNow}), and Undo ("${popStep}") takes it back`);
 }
+// A sea, a region or a range has a notes box on its page, and the world has one on its welcome page. The Codex finds
+// words in them, the world file keeps them, and Found new realms keeps a label with notes, without naming its water a
+// second time.
+{
+  const sea = (await desk.evaluate(() => window.terra.labels())).find((l) => l.kind === 'sea');
+  await desk.evaluate((id) => window.terra.select({ type: 'label', id }), sea.id);
+  await desk.fill('#lLore', 'Salt pirates winter in its coves.');
+  const seaStep = await desk.getAttribute('#btnUndo', 'aria-label');
+  await desk.evaluate(() => window.terra.select(null));
+  await desk.fill('#wNotes', 'The Sundering came in the year of two moons.');
+  const worldStep = await desk.getAttribute('#btnUndo', 'aria-label');
+  const search = async (q) => { await desk.click('#tab-codex'); await desk.fill('#codexQ', q); return desk.evaluate(() => [...document.querySelectorAll('#codexList .crow')].map((b) => [b.dataset.label ? 'label' : b.dataset.world ? 'world' : 'place', b.textContent])); };
+  const bySea = await search('pirates'), byWorld = await search('sundering');
+  await desk.click('#codexList .crow[data-world]');
+  const opened = await desk.evaluate(() => [document.getElementById('pane-inspect').hidden, document.activeElement.id]);
+  await desk.evaluate(() => { document.getElementById('codexQ').value = ''; });
+  const filed = JSON.parse(await desk.evaluate(() => window.terra.worldText()));
+  const filedSea = filed.labels.find((l) => l.id === sea.id);
+  await desk.click('#tab-world'); await desk.click('#wPopulate');
+  const foundSaid = await desk.textContent('#toast span'), after = await desk.evaluate(() => window.terra.labels());
+  const keptSea = after.find((l) => l.id === sea.id), keptLore = JSON.parse(await desk.evaluate(() => window.terra.worldText())).labels.find((l) => l.id === sea.id);
+  const twice = await desk.evaluate((k) => window.terra.labels().filter((l) => l.kind === 'sea' && l.id !== k.id && window.terra.water(l.x, l.y) && window.terra.water(k.x, k.y) && !window.terra.water(k.x, k.y).lake && Math.hypot(l.x - k.x, l.y - k.y) < 80 && JSON.stringify(window.terra.water(l.x, l.y)) === JSON.stringify(window.terra.water(k.x, k.y))).length, sea);
+  await desk.click('#btnUndo');
+  ok(seaStep === `Undo: Notes on ${sea.text}` && worldStep === 'Undo: Notes on this world'
+    && bySea.length === 1 && bySea[0][0] === 'label' && bySea[0][1].includes('Salt pirates winter') && byWorld.length === 1 && byWorld[0][0] === 'world' && byWorld[0][1].includes('two moons')
+    && !opened[0] && opened[1] === 'wNotes' && filedSea.lore === 'Salt pirates winter in its coves.' && filed.notes === 'The Sundering came in the year of two moons.'
+    && keptSea && keptSea.text === sea.text && keptLore.lore === filedSea.lore && foundSaid.includes(`The label ${sea.text} keeps its notes.`) && twice === 0,
+    `a sea's page and the world's welcome page keep notes ("${seaStep}", "${worldStep}"), the Codex finds them (${bySea.length} for pirates, ${byWorld.length} for sundering), the world file keeps them, and Found new realms keeps the sea's name and notes ("${foundSaid}", ${twice} other names for that water)`);
+}
 await desk.click('#btnNew');
 await desk.click('#mnRandom');
 await desk.waitForTimeout(300);

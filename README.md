@@ -46,9 +46,10 @@ and sea stop them. Every town has a page for its story.
   distances in leagues of 4.8 km, its river: which way it flows, how far on it reaches the sea and how much land it
   drains, and the road it is on. A settlement's population is a guess from its land until you type in your own, which
   stays through a change of kind and counts in its realm's total. Keep notes for your lore, or roll a rumor built from
-  the map around it. From the keyboard, Tab to the map, pan it with the arrow keys and press Enter to read the spot in
-  the middle. The Codex lists every place and every sea, region and range named on the map, and finds words in your
-  notes.
+  the map around it. A sea, a region or a range named on the map has a page for notes too, and the world has its own
+  on the welcome page. From the keyboard, Tab to the map, pan it with the arrow keys and press Enter to read the spot
+  in the middle. The Codex lists every place and every sea, region and range named on the map, and finds words in all
+  your notes.
 - **Keyboard.** Every tool has a letter (V, P, R…), [ and ] size the brush, F shows the whole map, and Ctrl S saves
   the world file; the World tab lists them.
 - **Two looks.** Terrain is shaded relief; Atlas is parchment with drawn mountains and trees. A world file opens in
@@ -60,7 +61,7 @@ and sea stop them. Every town has a page for its story.
 - **Your worlds.** Every world you generate, start from blank ocean or open from a file is kept in the list at the top
   of the World tab, with a picture of it and when it last changed, to open, duplicate or delete. A new world never
   replaces the one you had, and Undo goes back to it. The last world you deleted, or a world as it was before *Clear
-  places and labels* took places with notes in them, waits under the list to be brought back.
+  places and labels* took places or labels with notes in them, waits under the list to be brought back.
 - **Seed links.** *Copy seed link* in the World tab copies a link such as
   `https://terra-incognita.junkdrawer.works/#seed=20417&shape=continent`. Opening it grows that world from its seed and
   shape and adds it to Your worlds. Edits and notes don't go with it; for those, send the world file.

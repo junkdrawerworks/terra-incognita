@@ -29,7 +29,7 @@ import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
@@ -427,6 +427,15 @@ const mf = JSON.parse(appManifest.data);
 ok(mf.name === 'Terra Incognita' && mf.short_name === 'Terra' && new URL(mf.id, appManifest.url).href === new URL(mf.start_url, appManifest.url).href && appManifest.errors.length === 0
   && await S(() => document.querySelector('meta[name="apple-mobile-web-app-title"]').content) === 'Terra',
   `the home-screen name is Terra, with a fixed id (${mf.id})` + (appManifest.errors.length ? ': ' + JSON.stringify(appManifest.errors) : ''));
+// Chrome on a phone shows its larger install window, with pictures, once the manifest has a screenshot for a narrow
+// screen (developer.chrome.com/blog/richer-pwa-installation). Each is a picture of the app at its real size, with words
+// for it, within what Chrome takes: 320 to 3,840 px a side, the long side no more than 2.3 times the short, and the
+// same shape for each screen.
+const shots = (mf.screenshots || []).map((sh) => { const png = readFileSync(join(root, sh.src)); return { ...sh, real: `${png.readUInt32BE(16)}x${png.readUInt32BE(20)}` }; });
+const shapes = new Map(); for (const sh of shots) { const [w, h] = sh.real.split('x').map(Number); (shapes.get(sh.form_factor) || shapes.set(sh.form_factor, new Set()).get(sh.form_factor)).add((w / h).toFixed(3)); }
+ok(shots.some((sh) => sh.form_factor === 'narrow') && shots.some((sh) => sh.form_factor === 'wide') && shots.every((sh) => sh.sizes === sh.real && sh.type === 'image/png' && sh.label && sh.real.split('x').every((v) => v >= 320 && v <= 3840)
+  && Math.max(...sh.real.split('x')) <= 2.3 * Math.min(...sh.real.split('x'))) && [...shapes.values()].every((s) => s.size === 1),
+  `the manifest shows the app installing with pictures, for a phone and a laptop (${shots.map((sh) => `${sh.form_factor} ${sh.real}`).join(', ')})`);
 await page.reload(); await page.waitForTimeout(500);
 await ctx.setOffline(true);
 await page.reload();

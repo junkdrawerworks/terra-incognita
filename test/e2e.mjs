@@ -420,6 +420,13 @@ ok(missing.length === 0, 'sw.js keeps every file the page loads' + (missing.leng
 
 // It loads with the network off.
 await S(() => navigator.serviceWorker.ready);
+// Under the icon on a home screen it is Terra (iPhones read their own tag), and it is one installed app by a fixed id
+// rather than by wherever its start page is.
+const appManifest = await cdp.send('Page.getAppManifest');
+const mf = JSON.parse(appManifest.data);
+ok(mf.name === 'Terra Incognita' && mf.short_name === 'Terra' && new URL(mf.id, appManifest.url).href === new URL(mf.start_url, appManifest.url).href && appManifest.errors.length === 0
+  && await S(() => document.querySelector('meta[name="apple-mobile-web-app-title"]').content) === 'Terra',
+  `the home-screen name is Terra, with a fixed id (${mf.id})` + (appManifest.errors.length ? ': ' + JSON.stringify(appManifest.errors) : ''));
 await page.reload(); await page.waitForTimeout(500);
 await ctx.setOffline(true);
 await page.reload();

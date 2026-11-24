@@ -1,6 +1,7 @@
 {
   "name": "Terra Incognita",
-  "short_name": "Terra Incognita",
+  "short_name": "Terra",
+  "id": "./",
   "description": "Sketch a world. Rivers, realms and borders follow the land.",
   "start_url": "./",
   "scope": "./",

@@ -1052,6 +1052,34 @@ ok(covered.length === 0, 'sea names stay clear of the scale bar' + (covered.leng
   await c.close();
 }
 
+// A river that reaches the sea ends at the coast: it ended at the middle of the first cell of sea, a stub about 25 px
+// long past the coastline when zoomed in close. Its end is now where the ground between its last two cells, read
+// straight across, comes down to the sea, give or take a tenth of a cell.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const r = await pg.evaluate(() => {
+    const ends = window.terra.riverEnds(), off = [];
+    for (const e of ends) {
+      // The cell the end is in and its neighbours: the coast lies between a land cell and a sea cell beside it.
+      let best = Infinity;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const lx = Math.floor(e.x) + dx + 0.5, ly = Math.floor(e.y) + dy + 0.5, a = window.terra.cell(lx, ly); if (a.h < 0) continue;
+        for (let sy = -1; sy <= 1; sy++) for (let sx = -1; sx <= 1; sx++) {
+          if (!sx && !sy) continue; const b = window.terra.cell(lx + sx, ly + sy); if (b.h >= 0) continue;
+          const t = a.h / (a.h - b.h), cx = lx + sx * t, cy = ly + sy * t; best = Math.min(best, Math.hypot(e.x - cx, e.y - cy));
+        }
+      }
+      off.push(best);
+    }
+    off.sort((a, b) => a - b);
+    return { n: ends.length, worst: off[off.length - 1], median: off[Math.floor(off.length / 2)] };
+  });
+  ok(r.n > 20 && r.worst < 0.2, `rivers end at the coast, not out in the sea (${r.n} rivers; the furthest from the coast ${r.worst.toFixed(2)} cells, half within ${r.median.toFixed(2)})`);
+  await c.close();
+}
+
 // The map prints no latitudes or longitudes, on the map, on a place's page or under the pointer: the climate runs from
 // ice sheet to jungle over 3,000 km, and the numbers put a frozen north at 55°N, where Denmark is.
 {

@@ -464,7 +464,7 @@ function buildRivers() {
   for (let i = 0; i < N; i++) if (h[i] >= sea && !lake[i] && acc[i] > RIVER_T) isR[i] = 1;
   for (let i = 0; i < N; i++) if (isR[i]) { const d = down[i]; if (d >= 0) hasUp[d] = 1; }
   const paths = Array.from({ length: 8 }, () => new Path2D());
-  const mouths = [];
+  const mouths = [], ends = [];
   for (let i = 0; i < N; i++) {
     if (!isR[i] || hasUp[i]) continue;
     let cur = i; const cells = [];
@@ -482,9 +482,18 @@ function buildRivers() {
       else if (b !== rb) { smoothLine(paths[rb], run); run = [cxOf(cells[j]), cyOf(cells[j])]; rb = b; }
       run.push(cxOf(cells[j + 1]), cyOf(cells[j + 1]));
     }
+    // A river that reaches the sea ends where its last step crosses the coast (a hair past it, under the coast's line),
+    // not out at the middle of the first cell of sea.
+    const sea1 = cells[cells.length - 1], shore = cells[cells.length - 2];
+    if (run.length >= 4 && cells.length >= 2 && h[sea1] < sea && h[shore] >= sea) {
+      const t = Math.min(1, (h[shore] - sea) / (h[shore] - h[sea1]) + 0.08);
+      run[run.length - 2] = (shore % W) + 0.5 + ((sea1 % W) - (shore % W)) * t;
+      run[run.length - 1] = ((shore / W) | 0) + 0.5 + (((sea1 / W) | 0) - ((shore / W) | 0)) * t;
+      ends.push(run[run.length - 2], run[run.length - 1]);
+    }
     if (run.length >= 4) smoothLine(paths[rb], run);
   }
-  D.riverPaths = paths;
+  D.riverPaths = paths; D.riverEnds = ends;
   nameRivers();
   mouths.sort((a, b) => acc[b] - acc[a]); D.riverMouths = mouths;
   labelRivers();
@@ -3657,6 +3666,8 @@ window.terra = {
   rivers: () => world.rivers.map(r => ({ ...r, own: !!r.own })),
   // The name of the river a spot is on, as its page has it, or null.
   riverAt: (x, y) => { const f = facts(x, y, null); return f.river ? f.river.full : null; },
+  // Where each river that reaches the sea ends as drawn, in map cells.
+  riverEnds: () => { const e = []; for (let k = 0; k < D.riverEnds.length; k += 2) e.push({ x: D.riverEnds[k], y: D.riverEnds[k + 1] }); return e; },
   // Each lake's shore as drawn, a list of [x, y, x, y, …] in map cells, after it is smoothed.
   lakeShores: () => D.lakeShores.map(a => Array.from(a)),
   // The rivers named on the map, as drawn at full size: their names, and where each sits.

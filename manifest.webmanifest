@@ -17,7 +17,7 @@
   "screenshots": [
     { "src": "docs/phone-world.png", "sizes": "780x1688", "type": "image/png", "form_factor": "narrow", "label": "A generated continent in shaded relief, with realms outlined in colour, roads between their towns, named rivers, and capitals marked with stars" },
     { "src": "docs/phone-sketch.png", "sizes": "780x1688", "type": "image/png", "form_factor": "narrow", "label": "A hand-drawn island with snowy ranges and named rivers, and a second island being sketched as a loop in the sea beside it" },
-    { "src": "docs/phone-place.png", "sizes": "780x1688", "type": "image/png", "form_factor": "narrow", "label": "The page for a capital: its population, nearest neighbour and goods, a button to measure from it, its realm's name, title, tongue and colour, and a rumor kept in its notes" },
+    { "src": "docs/phone-place.png", "sizes": "780x1688", "type": "image/png", "form_factor": "narrow", "label": "A capital's page under the map, which stays at the top of the screen with the capital ringed on it: its realm's tongue and colour, and a rumor kept in its notes" },
     { "src": "docs/desktop.png", "sizes": "1280x800", "type": "image/png", "form_factor": "wide", "label": "The Atlas look on a laptop: a continent on parchment with drawn mountains and forests, realms outlined in colour, beside the page for a capital" }
   ]
 }

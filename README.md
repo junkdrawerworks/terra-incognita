@@ -20,7 +20,8 @@ and sea stop them. Every town has a page for its story.
 - **Sketch.** *Land*: draw a loop and land rises inside it, with hills and a coast as smooth or jagged as you like.
   *Sea*: a loop floods, for bays, straits and inland seas. *Mountain range*: draw the ridge line; a valley it blocks
   drains through a gorge at the lowest pass instead of becoming a lake. *River*: draw from the source toward the sea,
-  and a valley forms so the water follows your line; the map names every river you draw.
+  and a valley forms so the water follows your line; the map names every river you draw, and Erase on the ring where
+  one starts takes it away again (its valley stays).
 - **Brushes for the details.** Raise, Lower and Smooth reshape the ground; Wetter and Drier move the rain, and the
   forests, grassland and deserts move with it.
 - **Water finds its way.** Every patch of ground drains downhill to the sea. Where enough rain gathers there's a river,

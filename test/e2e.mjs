@@ -14,7 +14,8 @@
 // that a newer version wrote, kept aside and given back by Download the old save. Five seeds that must keep growing the
 // same worlds, and a world file from an earlier build that must keep opening. Rivers that keep their names through an
 // edit, an Undo and a reload, never two of one name, and a drawn river named in its toast; a place's River line, which
-// says where its river goes and links to its mouth; a river renamed from it; and a drawn river named on the map. Then nothing lost and nothing undone by
+// says where its river goes and links to its mouth; a river renamed from it; and a drawn river named on the map, and
+// taken away by Erase where it starts. Then nothing lost and nothing undone by
 // surprise: a pinch that paints nothing (one finger off the map too), a drag a pinch cuts short (and a wobble it
 // doesn't keep), a town dragged into the sea, a page left mid-stroke, an autosave mid-stroke, Undo mid-stroke, a
 // toast's Undo, Undo naming the places it takes (and the rumor rolled for one), Found new realms and Clear naming the
@@ -1429,7 +1430,7 @@ await oldCtx.close();
   await pg.keyboard.press('r'); const raise = await said();
   await pg.keyboard.press(']'); const brush = await said();
   const keys = await pg.evaluate(() => [...document.querySelectorAll('#tools .tool')].map((t) => t.getAttribute('aria-keyshortcuts')).join(''));
-  ok(before === 1 && erase === 'Remove places and labels picked' && nothing === shown && raise === 'Raise land picked' && /^Brush \d+$/.test(brush) && keys === 'VPRLSWDCMTE',
+  ok(before === 1 && erase === 'Remove places, labels and drawn rivers picked' && nothing === shown && raise === 'Raise land picked' && /^Brush \d+$/.test(brush) && keys === 'VPRLSWDCMTE',
     `one live region is on the page before any toast, and reads the toasts, a tool picked by its key and the brush size (${before} before any toast; "${erase}", "${nothing}", "${raise}", "${brush}", keys ${keys})`);
   await c.close();
 }
@@ -1779,6 +1780,18 @@ await oldCtx.close();
   await drag([[228.5, 60.5], [233.5, 60.5], [239.5, 60.5]], 8, pg);
   const drawn = await E(() => [window.terra.riverAt(231.5, 60.5), window.terra.riverLabels().map((l) => l.name)]);
   ok(drawn[0] && drawn[1].length === 5 && drawn[1][4] === drawn[0], `a river drawn by hand is named on the map, as well as the four biggest (${drawn[0]}; labels ${drawn[1].join(', ')})`);
+  // Erase takes it away from where it starts, which shows as a ring. Its source used to stay in the world for good, and
+  // only an Undo straight after drawing it took the river away. Its valley stays.
+  const valley = await E(() => window.terra.cell(233.5, 60.5).h);
+  await pg.keyboard.press('e');
+  const hint = await pg.textContent('#toolOpts .hint');
+  const b = await pg.locator('#map').boundingBox(), src = await E(() => window.terra.toScreen(228.5, 60.5));
+  await pg.mouse.click(b.x + src.x + 6, b.y + src.y + 4); await pg.waitForTimeout(300);
+  const gone = await E(() => [window.terra.state().springs, window.terra.riverLabels().length, window.terra.cell(233.5, 60.5).h]), took = await pg.textContent('#toast span');
+  ok(/where a river you drew starts/.test(hint) && gone[0] === 0 && gone[1] === 4 && gone[2] === valley && took === `Took away the source of the ${drawn[0].replace(/^The /, '')}. Its valley stays, and rain finds its own way down it.`,
+    `Erase on where a drawn river starts takes it away and leaves its valley ("${took}")`);
+  await pg.click('#btnUndo'); await pg.waitForTimeout(300);
+  ok(await E(() => window.terra.state().springs) === 1, 'and Undo brings it back');
   await c.close();
 }
 

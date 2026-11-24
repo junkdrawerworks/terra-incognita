@@ -1396,6 +1396,7 @@ function drawMap(c, k, vw, vh, v, opt) {
   }
   if (L.labels) drawUserLabels(c, v, atlas, HALO, opt);
   drawPlaces(c, v, vw, vh, atlas, INK, HALO, opt, small);
+  if (!opt.export && ui.tool === 'erase') drawSources(c, v);
   if (!opt.export) drawSelection(c, v, atlas);
   if (!opt.export && sketchDraft) drawSketch(c, v);
   c.restore();
@@ -1535,6 +1536,28 @@ function findSel(sel) {
   if (sel.type === 'place') return world.places.find(p => p.id === sel.id) || null;
   if (sel.type === 'label') return world.labels.find(l => l.id === sel.id) || null;
   return sel;
+}
+// With Erase picked, where each river you drew starts is marked with a ring, as the line's start is while drawing it.
+function drawSources(c, v) {
+  for (const sp of world.springs || []) {
+    if (world.h[cellAt(sp.x, sp.y)] < world.sea) continue;
+    c.beginPath(); c.arc(v.ox + sp.x * v.s, v.oy + sp.y * v.s, 5, 0, Math.PI * 2); c.fillStyle = '#fff'; c.fill(); c.lineWidth = 2; c.strokeStyle = '#1d5f88'; c.stroke();
+  }
+}
+// The source of a drawn river under a tap or click with Erase: the nearest within a fingertip (16 px), or 3 cells
+// when the map is zoomed in far enough for that to be more.
+function sourceAt(sx, sy) {
+  let best = null, bd = Math.max(16, 3 * view.s) ** 2;
+  for (const sp of world.springs || []) { if (world.h[cellAt(sp.x, sp.y)] < world.sea) continue; const d = (view.ox + sp.x * view.s - sx) ** 2 + (view.oy + sp.y * view.s - sy) ** 2; if (d < bd) { bd = d; best = sp; } }
+  return best;
+}
+// A drawn river taken away: its source goes, and its valley stays, so rain that gathers there finds its own way.
+function removeSource(sp) {
+  const was = drawnRiver(cellAt(sp.x, sp.y));
+  pushUndo({ meta: true });
+  world.springs = world.springs.filter(q => q !== sp);
+  recomputeAll(); markDirty();
+  toast(`Took away the source of ${was}. Its valley stays, and rain finds its own way down it.`, { label: 'Undo', fn: undo });
 }
 function drawSelection(c, v, atlas) {
   const sel = ui.selected; if (!sel) return; const o = findSel(sel); if (!o) return;
@@ -1678,7 +1701,7 @@ const TOOLS = [
   { id: 'raise', key: 'r', label: 'Raise land' }, { id: 'lower', key: 'l', label: 'Lower land' }, { id: 'smooth', key: 's', label: 'Smooth terrain' },
   { id: 'rain', key: 'w', label: 'Make wetter' }, { id: 'drought', key: 'd', label: 'Make drier' }, 0,
   { id: 'settle', key: 'c', label: 'Found a settlement' }, { id: 'landmark', key: 'm', label: 'Mark a landmark' }, { id: 'label', key: 't', label: 'Add a map label' }, 0,
-  { id: 'erase', key: 'e', label: 'Remove places and labels' },
+  { id: 'erase', key: 'e', label: 'Remove places, labels and drawn rivers' },
 ];
 const BRUSH_TOOLS = new Set(['raise', 'lower', 'smooth', 'rain', 'drought']);
 const svgIcon = (inner, sz = 20) => `<svg width="${sz}" height="${sz}" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
@@ -1725,7 +1748,7 @@ function renderToolOpts() {
     else if (sk.mode === 'range') h += `<label class="opt" for="optWidth">Width <input type="range" id="optWidth" min="3" max="24" value="${sk.width}"><output id="optWidthOut">${acrossKm(sk.width)}</output></label>`;
     else h += `<label class="opt" for="optRough">Coast <input type="range" id="optRough" min="0" max="10" value="${sk.rough}"><output id="optRoughOut" style="min-width:6.5ch">${ROUGH_WORD[sk.rough]}</output></label>`;
     if (sk.mode === 'land' || sk.mode === 'range') h += `<span class="opt">Height ${chipGroup('Height', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], sk.height, 'skh')}</span>`;
-    h += `<span class="hint">${sk.mode === 'land' ? `Draw a loop. Land rises inside it, to about ${LAND_TOP[sk.height] || LAND_TOP.medium} m.` : sk.mode === 'sea' ? 'Draw a loop to flood it: bays, straits, inland seas.' : sk.mode === 'river' ? 'Draw from the source toward the sea. A valley forms so the water follows your line, and it gathers tributaries as rain drains into the valley.' : `Draw along the ridge line. Peaks rise to about ${RANGE_TOP[sk.height] || RANGE_TOP.medium} m. A valley they block drains through a gorge at the lowest pass.`}${TWO_FINGERS}</span>`;
+    h += `<span class="hint">${sk.mode === 'land' ? `Draw a loop. Land rises inside it, to about ${LAND_TOP[sk.height] || LAND_TOP.medium} m.` : sk.mode === 'sea' ? 'Draw a loop to flood it: bays, straits, inland seas.' : sk.mode === 'river' ? `Draw from the source toward the sea. A valley forms so the water follows your line, and it gathers tributaries as rain drains into the valley. To take one away, ${TOUCH ? 'tap' : 'click'} where it starts with Erase.` : `Draw along the ridge line. Peaks rise to about ${RANGE_TOP[sk.height] || RANGE_TOP.medium} m. A valley they block drains through a gorge at the lowest pass.`}${TWO_FINGERS}</span>`;
   } else if (t === 'settle') {
     h += chipGroup('Settlement size', [['capital', 'Capital'], ['city', 'City'], ['town', 'Town'], ['village', 'Village']], ui.settleKind, 'settle') + `<span class="hint">${ui.settleKind === 'capital' ? 'A capital founds a new realm.' : `${TAP} dry land to found it.`}</span>`;
   } else if (t === 'landmark') {
@@ -1733,7 +1756,7 @@ function renderToolOpts() {
   } else if (t === 'label') {
     h += chipGroup('Label style', [['region', 'Region'], ['sea', 'Sea'], ['range', 'Mountains']], ui.labelKind, 'label') + `<label class="sr" for="optLabelText">Label text</label><input class="txt" id="optLabelText" placeholder="Text (blank for a name)" value="${esc(ui.labelText)}"><span class="hint">${TAP} the map to place it.</span>`;
   } else if (t === 'erase') {
-    h += `<span class="hint">${TAP} a place or label to remove it. Undo brings it back.</span>`;
+    h += `<span class="hint">${TAP} a place or label to remove it, or the ring where a river you drew starts. Undo brings it back.</span>`;
   } else {
     h += firstHint ? `<span class="hint">${TAP} a town to read its page, or ${TOUCH ? 'tap' : 'pick'} the pencil to sketch your own land.</span>` : `<span class="hint">${TOUCH ? 'Drag to pan. Pinch to zoom. Tap a place or any spot to read about it.' : 'Drag to pan. Scroll or pinch to zoom. Click a place or any spot to read about it.'}</span>`;
   }
@@ -2433,8 +2456,9 @@ function handleClick(sx, sy) {
   const t = ui.tool;
   if (t === 'select') { select(inside ? { type: 'loc', x: w.x, y: w.y } : null); return; }
   if (t === 'erase') {
-    const hit = hitTest(sx, sy); if (!hit) { toast(`Nothing to remove there. ${TAP} a place or a label.`); return; }
-    removeSel(hit); return;
+    const hit = hitTest(sx, sy); if (hit) { removeSel(hit); return; }
+    const sp = sourceAt(sx, sy); if (sp) { removeSource(sp); return; }
+    toast(`Nothing to remove there. ${TAP} a place, a label or where a river you drew starts.`); return;
   }
   if (!inside) return;
   if (t === 'settle' || t === 'landmark') {

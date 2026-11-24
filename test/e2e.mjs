@@ -2163,6 +2163,70 @@ await oldCtx.close();
   await c.close();
 }
 
+// Save map image puts the world's name in a title panel in the top-left corner and a key to what is on the map in the
+// bottom-right, with the place names kept clear of both; the README pictures and the link picture stay without them.
+// On a phone that can share files it opens the share sheet with the picture instead of only saving to Downloads.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 }, acceptDownloads: true });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => document.fonts.ready);
+  await pg.evaluate(() => window.terra.newWorld(20417, 'continent'));
+  await pg.click('#tab-world');
+  const [dl] = await Promise.all([pg.waitForEvent('download'), pg.click('#wSavePng')]);
+  const img = await pg.evaluate(() => ({ f: window.terra.furniture('image'), names: window.terra.nameSpots('image').names, name: window.terra.state().name }));
+  const hit = (a, b) => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
+  const under = img.names.filter((n) => hit(n.box, img.f.title.box) || hit(n.box, img.f.key.box)).map((n) => n.name);
+  ok(dl.suggestedFilename().endsWith('.png') && img.f.title.text === img.name && img.f.title.box[0] < 100 && img.f.title.box[1] < 100 && img.f.key.box[2] > 1880 && img.f.key.box[3] > 1160,
+    `the saved map image has the world's name in its top-left corner ("${img.f.title.text}") and a key in its bottom-right (${img.f.key.rows.join(', ')})`);
+  ok(img.f.key.rows.join() === 'Capital,City,Town,Village,Ruin,Tower,Temple,Cave,Battlefield,Monument,River,Road,Realm\'s border' && !under.length, `the key lists what this map has, and no place name prints under the title or the key (${under.join(', ') || 'none'})`);
+  await pg.evaluate(() => window.terra.startBlank());
+  await pg.evaluate(() => window.terra.mapImage(4, true, { title: true }));
+  const blank = await pg.evaluate(() => window.terra.furniture('image'));
+  await pg.evaluate(() => window.terra.mapImage(2, false));
+  const plain = await pg.evaluate(() => window.terra.furniture('image'));
+  ok(blank.key.rows.length === 0 && blank.title.text === 'Untitled world' && plain.title === null, `blank ocean's image has its title and no key, and the picture the README and link preview use has neither`);
+  await c.close();
+
+  // A phone that can share files: Save map image hands the share sheet the picture, named for the world. Cancelling
+  // it saves nothing; a phone that refuses this long after the tap offers Share again from a toast; a laptop downloads.
+  const shareCtx = async (touch) => {
+    const sc = await browser.newContext({ viewport: touch ? { width: 390, height: 844 } : { width: 1280, height: 800 }, hasTouch: touch, isMobile: touch, acceptDownloads: true });
+    await sc.addInitScript(() => {
+      window.__shared = []; window.__answer = 'ok';
+      navigator.canShare = (d) => !!(d && d.files && d.files.length);
+      navigator.share = (d) => { window.__shared.push({ name: d.files[0].name, type: d.files[0].type, size: d.files[0].size, title: d.title }); const a = window.__answer; window.__answer = 'ok'; return a === 'ok' ? Promise.resolve() : Promise.reject(new DOMException('no', a)); };
+    });
+    const sp = watch(await sc.newPage()); await sp.goto(base);
+    await sp.waitForFunction(() => window.terra && window.terra.state().places > 0);
+    await sp.click('#tab-world');
+    return { sc, sp };
+  };
+  const { sc, sp } = await shareCtx(true);
+  let downloads = 0; sp.on('download', () => downloads++);
+  await sp.click('#wSavePng');
+  await sp.waitForFunction(() => window.__shared.length === 1);
+  const first = await sp.evaluate(() => ({ s: window.__shared[0], name: window.terra.state().name }));
+  await sp.evaluate(() => { window.__answer = 'AbortError'; });
+  await sp.click('#wSavePng');
+  await sp.waitForFunction(() => window.__shared.length === 2);
+  await sp.evaluate(() => { window.__answer = 'NotAllowedError'; });
+  await sp.click('#wSavePng');
+  await sp.waitForFunction(() => window.__shared.length === 3);
+  await sp.waitForSelector('#toast:not([hidden]) button');
+  const toastText = await sp.textContent('#toast');
+  await sp.click('#toast button');
+  await sp.waitForFunction(() => window.__shared.length === 4);
+  await sp.waitForTimeout(300);
+  ok(first.s.type === 'image/png' && first.s.size > 100000 && first.s.name === first.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '.png' && first.s.title === first.name && downloads === 0 && /ready/.test(toastText),
+    `on a phone that shares files, Save map image opens the share sheet with ${first.s.name} (${Math.round(first.s.size / 1024)} kB); cancelled it saves nothing, and refused it offers Share from a toast ("${toastText.replace('Share', '').trim()}")`);
+  await sc.close();
+  const lap = await shareCtx(false);
+  const [lapDl] = await Promise.all([lap.sp.waitForEvent('download'), lap.sp.click('#wSavePng')]);
+  ok(lapDl.suggestedFilename().endsWith('.png') && (await lap.sp.evaluate(() => window.__shared.length)) === 0, 'on a laptop Save map image downloads the picture, as before');
+  await lap.sc.close();
+}
+
 // A place name's spot is worked out from its width in the map's own lettering: the page draws the map before its fonts
 // arrive, and widths measured then, in the fallback font, were kept, so names were placed for words of another size.
 {

@@ -1756,12 +1756,15 @@ function drawMap(c, k, vw, vh, v, opt) {
     c.letterSpacing = '0px';
   }
   if (L.labels) drawUserLabels(c, v, atlas, HALO, opt);
+  const panels = opt.title ? imagePanels(c, X0, Y0, MW, MH, u, atlas) : null;
   const avoid = [[sb.X - 6 * u, sb.top, sb.right, sb.bottom], [cp.X - cp.R, cp.Y - cp.R * 1.7, cp.X + cp.R, cp.Y + cp.R]];
+  if (panels) avoid.push(panels.title.box, panels.key.box);
   if (!opt.export && v.zoomBox) avoid.push(v.zoomBox);
   drawPlaces(c, v, vw, vh, atlas, INK, HALO, { ...opt, riverSize, avoid }, small);
   if (!opt.export && ui.tool === 'erase') drawSources(c, v);
   if (!opt.export) drawSelection(c, v, atlas);
   if (!opt.export && sketchDraft) drawSketch(c, v);
+  if (panels) drawPanels(c, panels, u, atlas, INK, HALO);
   c.restore();
 
   // neatline
@@ -1774,7 +1777,8 @@ function drawMap(c, k, vw, vh, v, opt) {
   if (!opt.export && mapKeys && document.activeElement === canvas) drawMiddle(c, vw, vh);
   drawCompass(c, cp.X, cp.Y, cp.R, INK, HALO);
   drawScale(c, sb, INK, HALO);
-  furniture[opt.export ? 'image' : 'screen'] = { size: [vw, vh], compass: cp.R, scale: [sb.X - 6 * u, sb.top, sb.right, sb.bottom], scaleText: 10.5 * u, leagues: sb.lg, km: sb.km };
+  furniture[opt.export ? 'image' : 'screen'] = { size: [vw, vh], compass: cp.R, scale: [sb.X - 6 * u, sb.top, sb.right, sb.bottom], scaleText: 10.5 * u, leagues: sb.lg, km: sb.km,
+    title: panels && { text: panels.title.text, box: panels.title.box }, key: panels && { rows: panels.key.rows.map(r => r.label), box: panels.key.box } };
 }
 // On a small map, trees, reeds and dunes would sit closer than they are wide and run into a solid mat (on a phone's
 // whole map they were 1.9 px apart, 3 px across), so only a share of them is drawn, enough to keep them about 5 px
@@ -1921,6 +1925,29 @@ const furniture = { screen: null, image: null };
 // map's edge. A town's, village's or landmark's name with no clear spot is left off until the map is zoomed in far
 // enough to give it one, and so is a city's that would print over another name; a capital's, and the selected
 // place's, always shows, in the spot where it covers least.
+// A place's symbol at X, Y, sc times its size on the whole map, a capital's star filled with its realm's colour; it
+// gives back how far the symbol reaches from its middle.
+function drawSymbol(c, kind, sub, X, Y, sc, color, INK, iconHalo) {
+  c.lineJoin = 'round';
+  if (kind === 'capital') {
+    starPath(c, X, Y, 7 * sc, 3 * sc); c.lineWidth = 3.4; c.strokeStyle = iconHalo; c.stroke();
+    c.fillStyle = color; c.fill(); c.lineWidth = 1.2; c.strokeStyle = INK; c.stroke(); return 7 * sc;
+  }
+  if (kind === 'city') {
+    c.beginPath(); c.arc(X, Y, 4.6 * sc, 0, Math.PI * 2); c.fillStyle = iconHalo; c.fill(); c.lineWidth = 1.7; c.strokeStyle = INK; c.stroke();
+    c.beginPath(); c.arc(X, Y, 1.8 * sc, 0, Math.PI * 2); c.fillStyle = INK; c.fill(); return 4.6 * sc;
+  }
+  if (kind === 'town' || kind === 'village') {
+    const r = (kind === 'town' ? 3.4 : 2.3) * sc;
+    c.beginPath(); c.arc(X, Y, r, 0, Math.PI * 2); c.fillStyle = INK; c.fill(); c.lineWidth = kind === 'town' ? 1.5 : 1.2; c.strokeStyle = iconHalo; c.stroke(); return r;
+  }
+  const lm = LM_PATHS[sub] || LM_PATHS.ruin;
+  c.save(); c.translate(X, Y); c.scale(sc * 1.05, sc * 1.05);
+  c.lineWidth = lm.fill ? 3 : 4.2; c.strokeStyle = iconHalo; c.lineCap = 'round'; c.stroke(lm.p);
+  if (lm.fill) { c.fillStyle = INK; c.fill(lm.p); if (lm.ip) { c.fillStyle = iconHalo; c.fill(lm.ip); } }
+  else { c.lineWidth = 1.7; c.strokeStyle = INK; c.stroke(lm.p); }
+  c.restore(); return 6 * sc;
+}
 function drawPlaces(c, v, vw, vh, atlas, INK, HALO, opt, small = 1) {
   const s = v.s, zr = s / v.s0, sc = clamp(Math.pow(zr, 0.22), 1, 1.35) * small;
   selName = null;
@@ -1931,26 +1958,7 @@ function drawPlaces(c, v, vw, vh, atlas, INK, HALO, opt, small = 1) {
   for (const p of list) {
     const X = v.ox + p.x * s, Y = v.oy + p.y * s;
     if (X < -60 || Y < -30 || X > vw + 200 || Y > vh + 30) continue;
-    let rr = 4;
-    c.lineJoin = 'round';
-    if (p.kind === 'capital') {
-      starPath(c, X, Y, 7 * sc, 3 * sc); c.lineWidth = 3.4; c.strokeStyle = iconHalo; c.stroke();
-      c.fillStyle = p.realm ? p.realm.color : '#999'; c.fill(); c.lineWidth = 1.2; c.strokeStyle = INK; c.stroke(); rr = 7 * sc;
-    } else if (p.kind === 'city') {
-      c.beginPath(); c.arc(X, Y, 4.6 * sc, 0, Math.PI * 2); c.fillStyle = iconHalo; c.fill(); c.lineWidth = 1.7; c.strokeStyle = INK; c.stroke();
-      c.beginPath(); c.arc(X, Y, 1.8 * sc, 0, Math.PI * 2); c.fillStyle = INK; c.fill(); rr = 4.6 * sc;
-    } else if (p.kind === 'town') {
-      c.beginPath(); c.arc(X, Y, 3.4 * sc, 0, Math.PI * 2); c.fillStyle = INK; c.fill(); c.lineWidth = 1.5; c.strokeStyle = iconHalo; c.stroke(); rr = 3.4 * sc;
-    } else if (p.kind === 'village') {
-      c.beginPath(); c.arc(X, Y, 2.3 * sc, 0, Math.PI * 2); c.fillStyle = INK; c.fill(); c.lineWidth = 1.2; c.strokeStyle = iconHalo; c.stroke(); rr = 2.3 * sc;
-    } else {
-      const lm = LM_PATHS[p.sub] || LM_PATHS.ruin;
-      c.save(); c.translate(X, Y); c.scale(sc * 1.05, sc * 1.05);
-      c.lineWidth = lm.fill ? 3 : 4.2; c.strokeStyle = iconHalo; c.lineCap = 'round'; c.stroke(lm.p);
-      if (lm.fill) { c.fillStyle = INK; c.fill(lm.p); if (lm.ip) { c.fillStyle = iconHalo; c.fill(lm.ip); } }
-      else { c.lineWidth = 1.7; c.strokeStyle = INK; c.stroke(lm.p); }
-      c.restore(); rr = 6 * sc;
-    }
+    const rr = drawSymbol(c, p.kind, p.sub, X, Y, sc, p.realm ? p.realm.color : '#999', INK, iconHalo);
     marks.push({ p, X, Y, rr });
   }
   const placed = [];
@@ -2124,6 +2132,57 @@ function drawScale(c, sb, ink, halo) {
   c.textAlign = 'center'; c.fillText(`${lg} leagues`, X + len, Y - 5 * u);
   c.font = `${9.5 * u}px ${F_MONO}`; c.textBaseline = 'top'; c.fillText(sb.km, X + len, Y + 4 * u);
   c.restore();
+}
+// The saved image's title and key: the world's name in a panel in the top-left corner, in the map's display lettering,
+// and in the bottom-right corner a key to what is on this map: each kind of place it has, each kind of landmark, and a
+// river, a road and a realm's border where the map shows them. Place names keep clear of both.
+function imagePanels(c, X0, Y0, MW, MH, u, atlas) {
+  const pad = 9 * u, L = ui.layers;
+  let fs = 24 * u; c.font = `italic ${fs}px ${F_DISPLAY}`; c.letterSpacing = '0px';
+  const text = world.name || 'Untitled world'; let tw = textW(c, text);
+  if (tw > MW * 0.4) { fs *= MW * 0.4 / tw; tw = MW * 0.4; }
+  const tx = X0 + 12 * u, ty = Y0 + 12 * u, title = { text, fs, x: tx + pad, y: ty + pad + fs * 0.5, box: [tx, ty, tx + tw + pad * 2, ty + fs + pad * 2] };
+  const kinds = new Set(world.places.map(p => p.kind === 'landmark' ? 'lm:' + p.sub : p.kind)), rows = [];
+  for (const k of ['capital', 'city', 'town', 'village']) if (kinds.has(k)) rows.push({ kind: k, label: k[0].toUpperCase() + k.slice(1) });
+  for (const k of Object.keys(LANDMARKS)) if (kinds.has('lm:' + k)) rows.push({ kind: 'landmark', sub: k, label: LANDMARKS[k].label });
+  if (L.rivers && D.riverPaths.length && D.riverLabels.length) rows.push({ line: 'river', label: 'River' });
+  if (L.roads && (D.roads.length || world.roads.length)) rows.push({ line: 'road', label: 'Road' });
+  if (L.realms && D.realms.length) rows.push({ line: 'border', label: "Realm's border" });
+  const ks = 9 * u, rowH = 13.5 * u, per = Math.ceil(rows.length / 2) || 1, cols = rows.length > 5 ? 2 : 1;
+  c.font = `${ks}px ${F_DISPLAY}`;
+  const colW = 24 * u + Math.max(0, ...rows.map(r => textW(c, r.label)));
+  const kh = (cols === 2 ? per : rows.length) * rowH + pad * 1.4 + ks * 1.5, kw = colW * cols + pad * 2 + (cols - 1) * 8 * u;
+  const kx1 = X0 + MW - 12 * u, ky1 = Y0 + MH - 12 * u;
+  const key = { rows, ks, rowH, cols, per: cols === 2 ? per : rows.length, colW, box: [kx1 - kw, ky1 - kh, kx1, ky1] };
+  return rows.length ? { title, key } : { title, key: { ...key, box: [kx1, ky1, kx1, ky1] } };
+}
+function drawPanels(c, P, u, atlas, INK, HALO) {
+  const panel = b => {
+    c.fillStyle = atlas ? 'rgba(241,231,203,0.94)' : 'rgba(250,251,251,0.92)'; c.fillRect(b[0], b[1], b[2] - b[0], b[3] - b[1]);
+    c.strokeStyle = INK; c.lineWidth = u; c.strokeRect(b[0] + u / 2, b[1] + u / 2, b[2] - b[0] - u, b[3] - b[1] - u);
+    c.lineWidth = 0.5 * u; c.strokeRect(b[0] + 3 * u, b[1] + 3 * u, b[2] - b[0] - 6 * u, b[3] - b[1] - 6 * u);
+  };
+  const T = P.title; panel(T.box);
+  c.font = `italic ${T.fs}px ${F_DISPLAY}`; c.letterSpacing = '0px'; c.fillStyle = INK; c.textAlign = 'left'; c.textBaseline = 'middle';
+  c.fillText(T.text, T.x, T.y);
+  const K = P.key; if (!K.rows.length) return;
+  panel(K.box);
+  const pad = 9 * u, x0 = K.box[0] + pad, y0 = K.box[1] + pad * 0.7;
+  c.font = `${K.ks}px ${F_SC}`; c.letterSpacing = `${(K.ks * 0.14).toFixed(1)}px`; c.textBaseline = 'top'; c.fillStyle = INK;
+  c.fillText('Key', x0, y0); c.letterSpacing = '0px';
+  const iconHalo = atlas ? '#f1e7cb' : '#ffffff', colour = (D.realms[0] && D.realms[0].color) || REALM_COLORS[0];
+  K.rows.forEach((r, i) => {
+    const col = Math.floor(i / K.per), row = i % K.per, X = x0 + col * (K.colW + 8 * u), Y = y0 + K.ks * 1.5 + row * K.rowH + K.rowH / 2;
+    if (r.line) {
+      c.save(); c.translate(X, Y); c.lineCap = 'round'; c.beginPath(); c.moveTo(0, 2 * u); c.bezierCurveTo(5 * u, -4 * u, 10 * u, 4 * u, 17 * u, -2 * u);
+      if (r.line === 'river') { c.lineWidth = 1.6 * u; c.strokeStyle = atlas ? '#6c95a0' : '#3b7ba0'; c.stroke(); }
+      else if (r.line === 'road') { c.lineWidth = 2.6 * u; c.strokeStyle = 'rgba(246,236,214,0.6)'; c.stroke(); c.setLineDash([3.2 * u, 2.2 * u]); c.lineWidth = 1.1 * u; c.strokeStyle = atlas ? 'rgba(128,52,22,0.95)' : 'rgba(110,40,16,0.95)'; c.stroke(); }
+      else { c.lineWidth = 4.5 * u; c.strokeStyle = hexA(colour, 0.42); c.stroke(); c.setLineDash([4 * u, 3 * u]); c.lineWidth = 1.1 * u; c.strokeStyle = atlas ? 'rgba(70,52,30,.85)' : 'rgba(18,28,34,.72)'; c.stroke(); }
+      c.restore();
+    } else drawSymbol(c, r.kind, r.sub, X + 8.5 * u, Y, u * 0.85, colour, INK, iconHalo);
+    c.font = `${K.ks}px ${F_DISPLAY}`; c.fillStyle = INK; c.textAlign = 'left'; c.textBaseline = 'middle';
+    c.fillText(r.label, X + 24 * u, Y + 0.5 * u);
+  });
 }
 // The compass in the map's top-right corner: its middle and its radius. On the saved image it grows with the picture;
 // on screen it shrinks with a short map, down to half (a phone's whole map is about 170 px tall, and at full size the
@@ -3754,13 +3813,13 @@ async function saveFile(name, data, done) {
   try { await dl.save({ filename: name, data }); toast(done); return true; }
   catch (e) { const c = e && e.code; if (c === 'declined') return false; toast(c === 'rate_limited' ? 'A save is already waiting for your answer.' : 'The file could not be saved here.'); return false; }
 }
-// The whole map at S pixels per cell: what Save map image saves, with every name (or only capitals and cities). The
-// compass, scale bar and frame grow with S, at their screen size when S is 2. Large draws all of it at twice the
-// pixels (3,960 by 2,520 at S 4), for printing.
+// The whole map at S pixels per cell: what Save map image saves, with every name (or only capitals and cities), and
+// with o.title its title and key. The compass, scale bar and frame grow with S, at their screen size when S is 2.
+// o.large draws all of it at twice the pixels (3,960 by 2,520 at S 4), for printing.
 function renderMapImage(S = 4, allNames = true, o = {}) {
   const M = Math.round(S * 7.5), cw = W * S + M * 2, ch = H * S + M * 2, k = o.large ? 2 : 1;
   const cv = document.createElement('canvas'); cv.width = cw * k; cv.height = ch * k;
-  drawMap(cv.getContext('2d'), k, cw, ch, { s: S, ox: M, oy: M, s0: allNames ? S / 2 : S }, { plate: ui.style === 'atlas' ? '#E9DFC6' : '#DCE3E5', export: true, allNames, unit: S / 2 });
+  drawMap(cv.getContext('2d'), k, cw, ch, { s: S, ox: M, oy: M, s0: allNames ? S / 2 : S }, { plate: ui.style === 'atlas' ? '#E9DFC6' : '#DCE3E5', export: true, allNames, unit: S / 2, title: !!o.title });
   return cv;
 }
 async function saveWorldFile() {
@@ -3780,9 +3839,22 @@ function keepStorage() {
   const installed = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
   if (installed && navigator.storage && navigator.storage.persist) navigator.storage.persisted().then(p => p || navigator.storage.persist()).catch(() => { });
 }
+// Save map image: the whole map with its title and key. On a phone that can share files it opens the share sheet,
+// to send it to Messages or keep it in Photos; elsewhere it downloads. A share sheet the phone won't open this long
+// after the tap (making the picture takes a moment) is offered again from a toast.
 function savePng() {
-  const cv = renderMapImage(4, true, { large: ui.pngLarge });
-  cv.toBlob(blob => { if (blob) saveFile(slug() + '.png', blob, 'Map image saved.'); else toast('The image could not be made.'); }, 'image/png');
+  const cv = renderMapImage(4, true, { large: ui.pngLarge, title: true });
+  cv.toBlob(blob => {
+    if (!blob) { toast('The image could not be made.'); return; }
+    const name = slug() + '.png', file = !CL && TOUCH && typeof File === 'function' && navigator.canShare ? new File([blob], name, { type: 'image/png' }) : null;
+    if (!file || !navigator.canShare({ files: [file] })) { saveFile(name, blob, 'Map image saved.'); return; }
+    const share = () => navigator.share({ files: [file], title: world.name }).then(() => { }, e => {
+      if (e && e.name === 'AbortError') return;
+      if (e && e.name === 'NotAllowedError') toast('The map image is ready.', { label: 'Share', fn: share }, 10000);
+      else saveFile(name, blob, 'Map image saved.');
+    });
+    share();
+  }, 'image/png');
 }
 // Found new realms (the World tab's button, and the welcome's on land with no places yet): a fresh set of realms and
 // places grown from the terrain. It replaces places that may have notes in them, so the toast names what went, and
@@ -4071,6 +4143,8 @@ window.terra = {
   realmInks: () => ['terrain', 'atlas'].flatMap(st => REALM_COLORS.map(c => ({ style: st, color: c, ...realmInk(c, st === 'atlas') }))),
   // The brush's ring as last drawn, in CSS pixels on the map, or null when none shows.
   ring: () => ringShown && { ...ringShown },
+  // The whole map as a picture: S pixels a cell, with every name or only capitals' and cities', and with o.title its
+  // title and key, as Save map image makes it (o.large: twice the pixels).
   mapImage: (S = 2, allNames = true, o = {}) => renderMapImage(S, allNames, o).toDataURL('image/png'),
   // The place names the map last drew (where 'screen') or the last map image drew ('image'): each name, its place's id
   // and kind, which side of its symbol it went and its box [left, top, right, bottom] in pixels; and each symbol's box.

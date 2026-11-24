@@ -51,8 +51,8 @@ and sea stop them. Every town has a page for its story.
   named on the map has a page for notes too, and the world has its own on the welcome page. From the keyboard, Tab to
   the map, pan it with the arrow keys and press Enter to read the spot in the middle. The Codex lists every place and
   every sea, region and range named on the map, and finds words in all your notes.
-- **Keyboard.** Every tool has a letter (V, P, R…), [ and ] size the brush, F shows the whole map, and Ctrl S saves
-  the world file; the World tab lists them.
+- **Keyboard.** Every tool has a letter (V, P, R…), [ and ] size the brush, F shows the whole map (on a world that is
+  mostly sea, your land first, then the whole map), and Ctrl S saves the world file; the World tab lists them.
 - **Two looks.** Terrain is shaded relief; Atlas is parchment with drawn mountains and trees. A world file opens in
   the look it was saved in. The Map key in the World tab says what each symbol means, and in Terrain what each colour
   of land is.

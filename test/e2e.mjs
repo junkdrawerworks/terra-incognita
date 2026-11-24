@@ -271,6 +271,16 @@ ok(st.land > 15000, `a sketched loop becomes land (${st.land} cells)`);
 const firstLand = await page.textContent('#toast span');
 const firstLandSays = firstLand.match(/^Land rises from the sea: ([\d,]+) km², with (\d+) rivers\. Found new realms in the World tab fills it with towns\.$/);
 ok(firstLandSays && +firstLandSays[1].replace(/,/g, '') === st.land * 100 && +firstLandSays[2] > 1, `the first land out of the sea says how big it is and how many rivers it has ("${firstLand}")`);
+// The island is a tenth of the world, so the view frames it, eased there; the fit button then shows the whole map, and
+// on a second press the island again. (The view stayed on the whole ocean, the island a patch in it.)
+const settled = () => page.waitForFunction(() => !window.terra.view().moving);
+await settled();
+const framedView = await S(() => window.terra.view());
+const holds = (v) => v.sees[0] <= 118 && v.sees[1] <= 66 && v.sees[2] >= 355 && v.sees[3] >= 238;
+await page.click('#zFit'); await settled(); const wholeView = await S(() => window.terra.view());
+await page.click('#zFit'); await settled(); const againView = await S(() => window.terra.view());
+ok(framedView.zoom > 1.15 && holds(framedView) && Math.abs(wholeView.zoom - 1) < 1e-6 && Math.abs(againView.zoom - framedView.zoom) < 1e-6 && holds(againView),
+  `the first island on open sea is framed (${framedView.zoom.toFixed(2)} times the whole map), and the fit button shows the whole map, then the island again`);
 // With land and no places, the Codex offers Found new realms, or Found a settlement to found one yourself.
 await page.click('#tab-codex');
 const [landCodex, landLinks] = await codexEmpty();
@@ -1355,6 +1365,27 @@ for (const [width, height] of [[844, 390], [667, 375]]) {
   await pg.goto(base);
   const row = await pg.evaluate(() => { const t = ['#btnUndo', '#btnRedo', '.seg', '#btnNew'].map((q) => document.querySelector(q).getBoundingClientRect()); return { tops: new Set(t.map((b) => Math.round(b.top))).size, right: Math.max(...t.map((b) => b.right)), name: document.getElementById('btnNew').textContent.trim(), w: innerWidth }; });
   ok(row.tops === 1 && row.right <= row.w && row.name === 'New world', `at 320 px Undo, Redo, the look and New world share one row, New world still named for a screen reader`);
+  await c.close();
+}
+// Found new realms on a small island frames it too, at once where reduced motion is asked for; but not once you have
+// zoomed in yourself. A generated world, more land than sea, keeps the fit button to the whole map.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' }), pg = await c.newPage();
+  await pg.goto(base);
+  await pg.evaluate(() => window.terra.newWorld(20417, 'continent'));
+  await pg.click('#zFit'); const generated = await pg.evaluate(() => window.terra.view().zoom);
+  await pg.evaluate(() => { window.terra.startBlank(); window.terra.fitView(); });
+  await pg.click('#tab-world');
+  await drag([[200, 120], [260, 112], [280, 160], [240, 190], [196, 170], [200, 120]], 5, pg);
+  await pg.evaluate(() => window.terra.fitView());
+  await pg.click('#wPopulate');
+  const realmsView = await pg.evaluate(() => window.terra.view());
+  await pg.click('#zIn'); await pg.click('#zIn');
+  const mine = await pg.evaluate(() => window.terra.view());
+  await pg.click('#wPopulate');
+  const after = await pg.evaluate(() => window.terra.view());
+  ok(Math.abs(generated - 1) < 1e-6 && realmsView.zoom > 2 && !realmsView.moving && realmsView.sees[0] <= 196 && realmsView.sees[2] >= 280 && Math.abs(after.zoom - mine.zoom) < 1e-6 && after.sees[0] === mine.sees[0],
+    `Found new realms frames a small island (${realmsView.zoom.toFixed(2)} times the whole map, at once with reduced motion), not once you've zoomed in, and a generated world's fit button shows it whole`);
   await c.close();
 }
 
@@ -3024,9 +3055,10 @@ await oldCtx.close();
 
 // The first screen says what this is and what to try. The welcome opens with a line on what this world is, its tool
 // names pick those tools (and on a phone bring the map up), and its count leaves out what there's none of. A place's
-// page has Show on map, which on a phone brings the map back into view, centred on it.
+// page has Show on map, which on a phone brings the map back into view, centred on it. (On a phone under 700 px tall,
+// where the map isn't kept at the top of the screen.)
 {
-  const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const c = await browser.newContext({ viewport: { width: 375, height: 667 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const pg = watch(await c.newPage());
   await pg.goto(base);
   const hint = () => pg.textContent('#toolOpts .hint');
@@ -3046,7 +3078,7 @@ await oldCtx.close();
   await pg.click('#pane-inspect .tool-link[data-tool="sketch"]');
   await pg.waitForTimeout(900);
   const picked = await pg.evaluate(() => { const r = document.getElementById('mapwrap').getBoundingClientRect(); return { tool: document.querySelector('.tool[aria-pressed="true"]').dataset.tool, top: r.top, bottom: r.bottom }; });
-  ok(picked.tool === 'sketch' && picked.top >= -1 && picked.bottom <= 845, `its Sketch picks the sketch tool and brings the map into view (map ${Math.round(picked.top)} to ${Math.round(picked.bottom)} px down the screen)`);
+  ok(picked.tool === 'sketch' && picked.top >= -1 && picked.bottom <= 668, `its Sketch picks the sketch tool and brings the map into view (map ${Math.round(picked.top)} to ${Math.round(picked.bottom)} px down the screen)`);
   await pg.click('.tool[data-tool="select"]');
   const normal = await hint();
   ok(normal.startsWith('Drag to pan.'), 'and once a tool has been picked the Select hint is the usual one');
@@ -3063,7 +3095,7 @@ await oldCtx.close();
   await pg.click('#showOnMap');
   await pg.waitForTimeout(900);
   const shown = await pg.evaluate(() => { const r = document.getElementById('mapwrap').getBoundingClientRect(); const pl = window.terra.places(), name = document.getElementById('pName').value, p = pl.find((q) => q.name === name), s = window.terra.toScreen(p.x, p.y); return { top: r.top, bottom: r.bottom, dx: Math.abs(s.x - r.width / 2), dy: Math.abs(s.y - r.height / 2), cw: r.width, ch: r.height }; });
-  ok(shown.top >= -1 && shown.bottom <= 845 && shown.dx < shown.cw * 0.3 && shown.dy < shown.ch * 0.3, `Show on map brings the map into view, centred on the place (${Math.round(shown.dx)}, ${Math.round(shown.dy)} px off the middle)`);
+  ok(shown.top >= -1 && shown.bottom <= 668 && shown.dx < shown.cw * 0.3 && shown.dy < shown.ch * 0.3, `Show on map brings the map into view, centred on the place (${Math.round(shown.dx)}, ${Math.round(shown.dy)} px off the middle)`);
   // A count with no realms in it says so, and points at founding a capital.
   await pg.click('#tab-world');
   await pg.click('#wClear');

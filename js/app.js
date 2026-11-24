@@ -2344,8 +2344,51 @@ function fitMargins() {
 }
 function computeS0() { const m = fitMargins(); view.s0 = Math.max(0.2, Math.min((view.cw - m.l - m.r) / W, (view.ch - m.t - m.b) / H)); }
 function fitView() {
-  computeS0(); const m = fitMargins(); view.s = view.s0;
+  stopGlide(); computeS0(); const m = fitMargins(); view.s = view.s0;
   view.ox = m.l + (view.cw - m.l - m.r - W * view.s) / 2; view.oy = m.t + (view.ch - m.t - m.b - H * view.s) / 2; requestDraw();
+}
+// On a mostly-sea world (land under a third of it), the view can frame the land: its bounds with a margin, eased there
+// over a third of a second, or at once with reduced motion asked for. `framed` is the view it set, so a later framing
+// can tell whether the view is still where it put it.
+let framed = null, glide = 0;
+const MOSTLY_SEA = 1 / 3;
+function landFrame() {
+  let x0 = W, y0 = H, x1 = -1, y1 = -1, land = 0;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (world.h[y * W + x] >= world.sea) { land++; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (!land || land / N >= MOSTLY_SEA) return null;
+  const pad = Math.max(16, 0.16 * Math.max(x1 - x0, y1 - y0)), m = fitMargins();
+  x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(W, x1 + 1 + pad); y1 = Math.min(H, y1 + 1 + pad);
+  const s = clamp(Math.min((view.cw - m.l - m.r) / (x1 - x0), (view.ch - m.t - m.b) / (y1 - y0)), view.s0, view.s0 * 10);
+  const cx = m.l + (view.cw - m.l - m.r) / 2, cy = m.t + (view.ch - m.t - m.b) / 2;
+  const v = { s, ox: cx - (x0 + x1) / 2 * s, oy: cy - (y0 + y1) / 2 * s };
+  const keep = { ...view }; Object.assign(view, v); clampView(); const out = { s: view.s, ox: view.ox, oy: view.oy }; Object.assign(view, keep);
+  return out;
+}
+const isFramed = () => !!framed && Math.abs(view.s - framed.s) < 1e-6 && Math.abs(view.ox - framed.ox) < 0.5 && Math.abs(view.oy - framed.oy) < 0.5;
+const stopGlide = () => { if (glide) { cancelAnimationFrame(glide); glide = 0; } };
+function glideTo(to) {
+  stopGlide(); framed = to;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { Object.assign(view, to); requestDraw(); return; }
+  // The scale eases in proportion and the point in the middle of the view moves in a straight line, so nothing swings.
+  const from = { s: view.s, cx: (view.cw / 2 - view.ox) / view.s, cy: (view.ch / 2 - view.oy) / view.s }, tx = (view.cw / 2 - to.ox) / to.s, ty = (view.ch / 2 - to.oy) / to.s, t0 = performance.now();
+  const step = now => {
+    const t = clamp((now - t0) / 340, 0, 1), e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+    if (t >= 1) { glide = 0; Object.assign(view, to); draw(); return; }
+    view.s = from.s * Math.pow(to.s / from.s, e); view.ox = view.cw / 2 - lerp(from.cx, tx, e) * view.s; view.oy = view.ch / 2 - lerp(from.cy, ty, e) * view.s;
+    draw(); glide = requestAnimationFrame(step);
+  };
+  glide = requestAnimationFrame(step);
+}
+// After the first island and after Found new realms: frame the land, unless the view was moved in since (it is zoomed in
+// past the whole map, and not by an earlier framing).
+function frameLand() {
+  if (view.s > view.s0 * 1.001 && !isFramed()) return;
+  const to = landFrame(); if (to) glideTo(to);
+}
+// The fit button and F: on a mostly-sea world, the land first, then the whole map; on any other, the whole map.
+function fitOrFrame() {
+  const to = isFramed() ? null : landFrame();
+  if (to) glideTo(to); else { stopGlide(); framed = null; fitView(); }
 }
 function clampView() {
   const mw = W * view.s, mh = H * view.s, pad = 80;
@@ -2704,7 +2747,7 @@ function sketchLoop(pts, mode) {
     let land = 0; for (let i = 0; i < N; i++) if (h[i] >= sea) land++;
     const rivers = riverCount();
     toast(`Land rises from the sea: ${fmtInt(land * KM * KM)} km²${rivers ? `, with ${rivers === 1 ? 'a river' : `${rivers} rivers`}` : ''}. Found new realms in the World tab fills it with towns.`, { label: 'Undo', fn: undo }, 8000);
-    return;
+    frameLand(); return;
   }
   const wet = mode === 'sea' ? drowned(dry) : [];
   toast(mode === 'land' ? 'Land raised.' + (realmsBefore ? ' Rivers and borders have been redrawn.' : riversBefore || riverCount() ? ' Rivers have been redrawn.' : '') : wet.length ? `Flooded. The sea rose over ${someWet(wet)}.` : 'Flooded. The coast has been redrawn.', { label: 'Undo', fn: undo });
@@ -3122,6 +3165,8 @@ const offMapEnd = e => { if (offMap.delete(e.pointerId)) endPointer(e); };
 document.addEventListener('pointerup', offMapEnd, true);
 document.addEventListener('pointercancel', offMapEnd, true);
 canvas.addEventListener('contextmenu', e => e.preventDefault());
+// A finger or the wheel on the map stops an eased move to the land where it is.
+canvas.addEventListener('pointerdown', stopGlide, true); canvas.addEventListener('wheel', stopGlide, { capture: true, passive: true });
 canvas.addEventListener('pointerdown', e => {
   canvas.setPointerCapture(e.pointerId);
   if (mapKeys) { mapKeys = false; requestDraw(); }
@@ -4100,7 +4145,7 @@ window.addEventListener('afterprint', () => { const cv = $('#printMap'); cv.widt
 function populateRealms() {
   if (!landShare()) { toast('New realms need dry land. Sketch some first.'); return; }
   const kept = world.places.filter(p => p.lore.trim()), names = kept.map(p => p.name), keptLabels = world.labels.filter(l => (l.lore || '').trim());
-  pushUndo({ meta: true }, 'Found new realms'); populate(1 + Math.floor(Math.random() * 999998), kept, keptLabels); ui.selected = null; recomputePolitics(); refreshPanels(); requestDraw(); markDirty();
+  pushUndo({ meta: true }, 'Found new realms'); populate(1 + Math.floor(Math.random() * 999998), kept, keptLabels); ui.selected = null; recomputePolitics(); refreshPanels(); requestDraw(); markDirty(); frameLand();
   const stay = names.length === 1 ? ` ${names[0]} and its notes stay.` : names.length === 2 ? ` ${names[0]} and ${names[1]} and their notes stay.` : names.length ? ` ${names.length} places with notes stay, ${names[0]} and ${names[1]} among them.` : '';
   const lt = l => l.text.trim() || 'a label', stayL = keptLabels.length === 1 ? ` The label ${lt(keptLabels[0])} keeps its notes.` : keptLabels.length ? ` ${keptLabels.length} labels with notes stay.` : '';
   toast(foundedSay(new Set(kept.map(p => p.id))) + stay + stayL, { label: 'Undo', fn: undo });
@@ -4265,7 +4310,7 @@ window.addEventListener('keydown', e => {
     e.preventDefault(); removeSel(ui.selected); return;
   }
   if (e.key === '[' || e.key === ']') { ui.brush.size = clamp(ui.brush.size + (e.key === ']' ? 2 : -2), 2, 40); renderToolOpts(); requestDraw(); savePrefs(); say(`Brush ${ui.brush.size}`); return; }
-  if (e.key === 'f' || e.key === 'F') { fitView(); return; }
+  if (e.key === 'f' || e.key === 'F') { fitOrFrame(); return; }
   if (e.key === '+' || e.key === '=') { zoomAt(view.cw / 2, view.ch / 2, 1.3); return; }
   if (e.key === '-') { zoomAt(view.cw / 2, view.ch / 2, 1 / 1.3); return; }
   // A tool picked by its key says so, since nothing a screen reader reads moves.
@@ -4312,7 +4357,7 @@ function init() {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') leaving(); });
   window.addEventListener('pagehide', leaving);
   $('#styleTerrain').onclick = () => setStyle('terrain'); $('#styleAtlas').onclick = () => setStyle('atlas');
-  $('#zIn').onclick = () => zoomAt(view.cw / 2, view.ch / 2, 1.35); $('#zOut').onclick = () => zoomAt(view.cw / 2, view.ch / 2, 1 / 1.35); $('#zFit').onclick = fitView;
+  $('#zIn').onclick = () => zoomAt(view.cw / 2, view.ch / 2, 1.35); $('#zOut').onclick = () => zoomAt(view.cw / 2, view.ch / 2, 1 / 1.35); $('#zFit').onclick = fitOrFrame;
   for (const k of ['inspect', 'codex', 'world']) $('#tab-' + k).onclick = () => showTab(k);
   // The arrow keys move along the tabs and through the New world menu, as those roles promise a screen reader.
   $('.tabs').addEventListener('keydown', e => {
@@ -4367,6 +4412,9 @@ if ('serviceWorker' in navigator && !inFrame && location.protocol.startsWith('ht
 window.terra = {
   newWorld: (seed, shape = 'continent') => { newWorld(seed, shape); syncWorldTab(); fitView(); },
   startBlank, setStyle, setTool, fitView, select, centerOn,
+  // The view: its scale against the whole map's (1 when it shows the whole map), and the part of the map in sight, in
+  // map cells [left, top, right, bottom]; and whether an eased move is still under way.
+  view: () => ({ zoom: view.s / view.s0, sees: [-view.ox / view.s, -view.oy / view.s, (view.cw - view.ox) / view.s, (view.ch - view.oy) / view.s], moving: !!glide }),
   // Your worlds, as the list has them, the open one marked; and the open one put in the larger store now.
   worlds: () => readIndex().map(e => ({ id: e.id, name: e.name, places: e.places, thumb: !!e.thumb, open: e.id === worldId })),
   syncWorlds: () => syncStore(),

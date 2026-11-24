@@ -30,10 +30,11 @@ and sea stop them. Every town has a page for its story.
   rainfall in millimetres a year. Fourteen kinds of land, from ice sheet to jungle.
 - **Realms.** A capital claims the land around it until hills, deserts and sea make going further too costly, and its
   towns push the border out. Each realm has its own tongue, so towns founded inside it sound like they belong there.
-- **Places.** Tap any town or patch of ground to see its position, elevation, climate, river, nearest neighbour and
-  local goods, with distances in leagues of 4.8 km. Keep notes for your lore, or roll a rumor built from the map around
-  it. From the keyboard, Tab to the map, pan it with the arrow keys and press Enter to read the spot in the middle. The
-  Codex lists every place and every sea, region and range named on the map, and finds words in your notes.
+- **Places.** Tap any town or patch of ground to see its position, elevation, climate, nearest neighbour and local
+  goods, with distances in leagues of 4.8 km, and its river: which way it flows, how far on it reaches the sea and how
+  much land it drains. Keep notes for your lore, or roll a rumor built from the map around it. From the keyboard, Tab
+  to the map, pan it with the arrow keys and press Enter to read the spot in the middle. The Codex lists every place
+  and every sea, region and range named on the map, and finds words in your notes.
 - **Keyboard.** Every tool has a letter (V, P, R…), [ and ] size the brush, F shows the whole map, and Ctrl S saves
   the world file; the World tab lists them.
 - **Two looks.** Terrain is shaded relief; Atlas is parchment with drawn mountains and trees. A world file opens in

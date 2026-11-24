@@ -13,7 +13,8 @@
 // Back mid-sketch taken for a slip, a browser that won't keep the autosave, and saved worlds the page can't read or
 // that a newer version wrote, kept aside and given back by Download the old save. Five seeds that must keep growing the
 // same worlds, and a world file from an earlier build that must keep opening. Rivers that keep their names through an
-// edit, an Undo and a reload, never two of one name, and a drawn river named in its toast. Then nothing lost and nothing undone by
+// edit, an Undo and a reload, never two of one name, and a drawn river named in its toast; a place's River line, which
+// says where its river goes and links to its mouth. Then nothing lost and nothing undone by
 // surprise: a pinch that paints nothing (one finger off the map too), a drag a pinch cuts short (and a wobble it
 // doesn't keep), a town dragged into the sea, a page left mid-stroke, an autosave mid-stroke, Undo mid-stroke, a
 // toast's Undo, Undo naming the places it takes (and the rumor rolled for one), Found new realms and Clear naming the
@@ -1666,8 +1667,25 @@ await oldCtx.close();
   const farIn = await said([[226, 150], [190, 152], [west + 12.5, 150]]);
   // A river is named after its mouth: one drawn on this island often runs into a bigger river on its way down.
   const drew = '^Drew (a tributary of )?the (River )?\\S+\\.';
-  ok(new RegExp(drew + ' It flows downhill from the end of your line\\.$').test(uphill) && new RegExp(drew + '$').test(short) && new RegExp(drew + ' It ends inland, so it finds its own way on from there\\.$').test(farIn),
+  ok(new RegExp(drew + ' Water runs downhill, so it flows toward the sea end of your line\\.$').test(uphill) && new RegExp(drew + '$').test(short) && new RegExp(drew + ' It ends inland, so it finds its own way on from there\\.$').test(farIn),
     `a River line drawn uphill says the water flows from its end, one stopped 3 cells short of the coast reaches the sea, and one stopped 12 cells short ends inland, each naming the river ("${uphill}", "${short}", "${farIn}")`);
+  await c.close();
+}
+
+// A place on a river says where the river goes: which way it flows there, where it reaches the sea and how far on, and
+// how much land it drains. It used to say only 'Inland, on the Caelea'. The river's name shows its mouth.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const row = (k) => pg.evaluate((k) => { const dt = [...document.querySelectorAll('#pane-inspect dt')].find((d) => d.textContent === k); return dt ? dt.nextElementSibling.textContent : null; }, k);
+  await pg.evaluate(() => { window.terra.newWorld(20417, 'continent'); window.terra.select({ type: 'loc', x: 262.5, y: 134.5 }); });
+  const upstream = await row('River'), setting = await row('Setting');
+  const m = upstream && upstream.match(/^River Pameo flows (north|south|east|west|northeast|northwest|southeast|southwest) and reaches the sea, (\d+) leagues \(([\d,]+) km\) on\. It drains ([\d,]+) km²\.$/);
+  ok(m && +m[2] > 40 && Math.abs(+m[2] * 4.8 - +m[3].replace(/,/g, '')) < +m[3].replace(/,/g, '') * 0.1 && +m[4].replace(/,/g, '') > 100000 && !/River|Pameo/.test(setting), `a spot on a river says which way it flows, how far on it reaches the sea and what it drains, and its Setting leaves the river to that line ("${setting}"; "${upstream}")`);
+  await pg.click('#pane-inspect [data-mouth]'); await pg.waitForTimeout(200);
+  const mouth = await row('River'), sel = await pg.evaluate(() => document.querySelector('#pane-inspect .mono').textContent);
+  ok(/^River Pameo flows \w+ and reaches the sea here\. It drains/.test(mouth) && mouth.endsWith(`${m[4]} km².`), `its name opens the spot at its mouth ("${mouth}", ${sel})`);
   await c.close();
 }
 

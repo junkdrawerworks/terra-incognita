@@ -156,7 +156,7 @@ const ui = {
 };
 const D = {
   biome: new Uint8Array(N), temp: new Float32Array(N), tN: new Float32Array(N),
-  filled: new Float32Array(N), down: new Int32Array(N), acc: new Float32Array(N), order: new Int32Array(N), lake: new Uint8Array(N), lakeF: new Float32Array(N),
+  filled: new Float32Array(N), down: new Int32Array(N), acc: new Float32Array(N), area: new Float32Array(N), order: new Int32Array(N), lake: new Uint8Array(N), lakeF: new Float32Array(N),
   vis: new Uint8Array(N), isR: new Uint8Array(N), hasUp: new Uint8Array(N), mouth: new Int32Array(N), body: new Int32Array(N),
   owner: new Int16Array(N), cost: new Float64Array(N), ind: new Float32Array(N), tmp: new Float32Array(N), dist: new Int16Array(N), q: new Int32Array(N),
   realms: [], borders: [], coast: new Path2D(), contours: null, riverPaths: [], riverLabels: [], glyphs: [], riverNames: new Map(),
@@ -271,10 +271,11 @@ function hydrology() {
       vis[n] = 1; const f = h[n] > key + 1e-6 ? h[n] : key + 1e-6; filled[n] = f; down[n] = c; order[cnt++] = n; heap.push(f, n);
     }
   }
-  acc.fill(0);
-  for (let i = 0; i < N; i++) if (h[i] >= sea) acc[i] = 0.25 + world.m[i];
+  // acc is the water each cell carries; area, the cells of land that drain through it, itself included.
+  const area = D.area; acc.fill(0); area.fill(0);
+  for (let i = 0; i < N; i++) if (h[i] >= sea) { acc[i] = 0.25 + world.m[i]; area[i] = 1; }
   for (const sp of world.springs || []) { const i = cellAt(sp.x, sp.y); if (h[i] >= sea) acc[i] += sp.flow; }
-  for (let k = cnt - 1; k >= 0; k--) { const i = order[k], d = down[i]; if (d >= 0 && h[d] >= sea) acc[d] += acc[i]; }
+  for (let k = cnt - 1; k >= 0; k--) { const i = order[k], d = down[i]; if (d >= 0 && h[d] >= sea) { acc[d] += acc[i]; area[d] += area[i]; } }
   for (let i = 0; i < N; i++) { const l = (h[i] >= sea && filled[i] - h[i] > LAKE_MIN) ? 1 : 0; D.lake[i] = l; D.lakeF[i] = l; }
 }
 
@@ -2120,7 +2121,7 @@ function sketchRiver(raw) {
   let c = at(last), toSea = h[c] < sea;
   for (let k = 0; k < 6 && !toSea && D.down[c] >= 0; k++) { c = D.down[c]; toSea = h[c] < sea; }
   const inland = toSea ? '' : ' It ends inland, so it finds its own way on from there.', drew = `Drew ${drawnRiver(cellAt(pts[2 * first], pts[2 * first + 1]))}.`;
-  toast(leftOut ? drew + ' The line crossed the sea, so only its longest stretch of land became a river.' : reversed ? drew + ' It flows downhill from the end of your line.' + inland : drew + inland, { label: 'Undo', fn: undo });
+  toast(leftOut ? drew + ' The line crossed the sea, so only its longest stretch of land became a river.' : reversed ? drew + ` Water runs downhill, so it flows toward the ${toSea ? 'sea' : 'lower'} end of your line.` + inland : drew + inland, { label: 'Undo', fn: undo });
 }
 // What a drawn river is called, from its source: 'the River Bahar', or where it runs into a bigger river on its way to
 // the sea, 'a tributary of the River Bahar' (a river is named after its mouth, its tributaries too).
@@ -2535,7 +2536,7 @@ function facts(x, y, self) {
   f.owner = D.owner[i]; f.realm = f.owner >= 0 ? D.realms[f.owner] : null;
   f.coastal = !water && nearWater(i, 2);
   f.river = null;
-  if (!water) { let best = -1, ba = RIVER_T; const cx = i % W, cy = (i / W) | 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const nx = cx + dx, ny = cy + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; const j = ny * W + nx; if (D.isR[j] && D.acc[j] > ba) { ba = D.acc[j]; best = j; } } if (best >= 0) f.river = riverName(mouthOf(best)); }
+  if (!water) { let best = -1, ba = RIVER_T; const cx = i % W, cy = (i / W) | 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const nx = cx + dx, ny = cy + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; const j = ny * W + nx; if (D.isR[j] && D.acc[j] > ba) { ba = D.acc[j]; best = j; } } if (best >= 0) { f.river = riverName(mouthOf(best)); f.riverAt = best; } }
   let nb = null, nd = Infinity; for (const p of world.places) { if (p === self) continue; const d = Math.hypot(p.x - x, p.y - y); if (d < nd) { nd = d; nb = p; } }
   f.near = nb ? { p: nb, leagues: Math.max(1, Math.round(nd * KM / LEAGUE)), km: roundSig(nd * KM, 2), dir: compass(x - nb.x, y - nb.y) } : null;
   const seaName = f.coastal && nearestSeaLabel(x, y, bodiesNear(i, 2)); f.sea = seaName ? seaInText(seaName) : null;
@@ -2552,6 +2553,28 @@ function facts(x, y, self) {
   }
   return f;
 }
+// Where a river goes from one of its cells, as its line on a page has it: 'flows southeast through Lake Vool and reaches
+// the sea at the Gulf of Lainho, 40 leagues (192 km) on. It drains 12,000 km².' The way it flows is taken a few cells
+// on, the distance is along its bed to its mouth, and what it drains is all the land upstream of its mouth.
+function riverWay(c) {
+  const h = world.h, sea = world.sea; let cur = c, dist = 0, lake = -1, end = 'edge', ahead = c;
+  for (let g = 0; g < 5000; g++) {
+    const d = D.down[cur]; if (d < 0) break;
+    if (g < 3) ahead = d;
+    if (h[d] < sea) { end = 'sea'; break; }
+    dist += Math.hypot(d % W - cur % W, ((d / W) | 0) - ((cur / W) | 0));
+    if (D.lake[d] && lake < 0) lake = d;
+    cur = d;
+  }
+  const lg = Math.round(dist * KM / LEAGUE), on = lg ? `, ${lg} league${lg === 1 ? '' : 's'} (${fmtInt(roundSig(dist * KM, 2))} km) on` : '';
+  const flows = ahead !== c ? `flows ${compass(ahead % W - c % W, ((ahead / W) | 0) - ((c / W) | 0))} ` : '';
+  let lakeName = 'a lake';
+  if (lake >= 0) { const cells = lakeCells(lake), l = world.labels.find(l => l.kind === 'sea' && cells.has(cellAt(l.x, l.y))); if (l) lakeName = seaInText(l.text); }
+  const seaName = end === 'sea' && nearestSeaLabel(cur % W + 0.5, ((cur / W) | 0) + 0.5, new Set([D.body[D.down[cur]]]));
+  const ends = end === 'sea' ? (lg ? `reaches the sea${seaName ? ` at ${seaInText(seaName)}` : ''}${on}` : `reaches the sea here${seaName ? `, at ${seaInText(seaName)}` : ''}`)
+    : lg ? `runs off the edge of the map${on}` : 'runs off the edge of the map here';
+  return `${flows}${lake >= 0 ? `through ${lakeName} and ` : flows ? 'and ' : ''}${ends}. It drains ${fmtInt(roundSig(D.area[cur] * KM * KM, 2))} km².`;
+}
 function factsHTML(f, p) {
   const rows = [];
   rows.push(['Position', `<span class="mono">${fmtPos(f.x, f.y)}</span>`]);
@@ -2564,9 +2587,10 @@ function factsHTML(f, p) {
     rows.push(['Land', esc(f.biome)]);
     const bits = [f.coastal ? `On the coast of ${esc(f.sea || 'the sea')}` : f.lakeside ? (f.lakeName ? `On the shore of ${esc(f.lakeName)}` : 'On a lake shore') : 'Inland'];
     if (f.coastal && f.lakeside) bits.push(`by ${f.lakeName ? esc(f.lakeName) : 'a lake'}`);
-    if (f.river) bits.push(`on ${esc(f.river.on)}`);
     rows.push(['Setting', bits.join(', ')]);
   }
+  // The river's name goes to its mouth.
+  if (f.river) { const m = mouthOf(f.riverAt); rows.push(['River', `<button class="link" data-mouth="${m}">${esc(f.river.full)}</button> ${esc(riverWay(f.riverAt))}`]); }
   // The realm's name goes to its capital's page, where it is renamed and recoloured; on the capital itself it is text.
   const rname = f.realm && `<span data-realm="${f.realm.place.id}">${esc(f.realm.display)}</span>`;
   rows.push([f.water || f.lake ? 'Waters of' : 'Realm', f.realm ? `<span class="swatch" style="background:${f.realm.color}"></span> ${p === f.realm.place ? rname : `<button class="link" data-goto="${f.realm.place.id}">${rname}</button>`}` : (f.water || f.lake ? 'No realm' : 'Unclaimed')]);
@@ -2650,7 +2674,7 @@ function buildPrompt(p) {
   L.push(`Terrain: ${f.biome}, ${fmtInt(Math.max(0, f.E))} m above sea level, mean temperature ${Math.round(f.temp)} °C, ${fmtInt(f.precip)} mm of rain a year.`);
   if (f.coastal) L.push(`It sits on the coast of ${f.sea || 'the sea'}.`);
   if (f.lakeside) L.push(`It sits on the shore of ${f.lakeName || 'a lake'}.`);
-  if (f.river) L.push(`It sits on ${f.river.on}.`);
+  if (f.river) L.push(`It sits on ${f.river.on}, which ${riverWay(f.riverAt).replace('. It drains', ', and drains')}`);
   if (f.goods.length) L.push(`Local goods: ${f.goods.join(', ')}.`);
   if (c.nearby.length) { L.push('Nearby:'); for (const n of c.nearby) L.push(`- ${n.q.name} (${kindLabel(n.q).toLowerCase()}), ${leagues(n.d)} ${compass(n.q.x - p.x, n.q.y - p.y)}`); }
   if (D.realms.length) L.push(`Realms of this world: ${D.realms.map(r => r.display).join('; ')}.`);
@@ -2696,6 +2720,8 @@ function renderInspector() {
 function bindGotos(pane) {
   pane.querySelectorAll('[data-goto]').forEach(b => b.onclick = () => { const p = world.places.find(q => q.id === +b.dataset.goto); if (p) { select({ type: 'place', id: p.id }); centerOn(p.x, p.y); refocus('#pTitle'); } });
   bindToolLinks(pane, '#pane-inspect [data-goto]');
+  // A river's name shows its mouth, and that spot's page.
+  pane.querySelectorAll('[data-mouth]').forEach(b => b.onclick = () => { const m = +b.dataset.mouth, x = m % W + 0.5, y = ((m / W) | 0) + 0.5; select({ type: 'loc', x, y }); centerOn(x, y); mapIntoView(); refocus('#showOnMap'); });
   // Show on map centres the map on what this page is about, and on a phone, where the map can be scrolled away above
   // the page, brings it into view.
   const show = $('#showOnMap', pane); if (show) show.onclick = () => { const o = findSel(ui.selected); if (o) { centerOn(o.x, o.y); mapIntoView(); } };

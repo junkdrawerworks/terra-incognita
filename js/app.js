@@ -877,9 +877,12 @@ function settleIslands(rng) {
     }
   }
 }
-function populate(seed) {
+// keep: places that stay as they are, with their names and notes (a capital among them keeps its realm); the new
+// capitals and towns are founded around them.
+function populate(seed, keep = []) {
   const rng = mulberry32(seed * 7 + 13);
-  world.places = []; world.labels = [];
+  world.places = keep.slice(); world.labels = [];
+  const kept = new Set(keep.map(p => p.id)), keptCaps = keep.filter(p => p.kind === 'capital' && p.realm);
   const h = world.h, sea = world.sea;
   let land = 0; for (let i = 0; i < N; i++) if (h[i] >= sea) land++;
   // Places go on ground at least 3 m above the sea (DRY_M), so the first few steps up of the sea slider don't drown
@@ -897,11 +900,12 @@ function populate(seed) {
   cands.sort((a, b) => b.s - a.s);
   // One realm for about every 15,000 cells of land, up to five, then one more or one fewer as the seed has it.
   const nRealms = clamp(clamp(Math.round(land / 15000) + 1, 2, 5) + Math.floor(mulberry32(seed * 13 + 5)() * 3) - 1, 2, 6);
-  const tongues = shuffle(TONGUE_IDS.slice(), rng);
+  // The new realms take tongues the kept ones don't have, while there are any.
+  const keptTongues = new Set(keptCaps.map(p => p.tongue)), tongues = shuffle(TONGUE_IDS.filter(t => !keptTongues.has(t)), rng).concat([...keptTongues]);
   const far = (c, list, d) => list.every(p => (p.x - c.x) ** 2 + (p.y - c.y) ** 2 >= d * d);
-  const caps = [];
-  for (const minD of [85, 65, 45]) { for (const c of cands) { if (caps.length >= nRealms) break; if (far(c, caps, minD)) caps.push(c); } if (caps.length >= nRealms) break; }
-  caps.forEach((c, k) => world.places.push(makePlace('capital', c.x, c.y, rng, { tongue: tongues[k % tongues.length] })));
+  const caps = keptCaps.map(p => ({ x: p.x, y: p.y }));
+  for (const minD of [85, 65, 45]) { for (const c of cands) { if (caps.length >= nRealms) break; if (far(c, caps, minD) && far(c, keep, 8)) caps.push(c); } if (caps.length >= nRealms) break; }
+  caps.slice(keptCaps.length).forEach((c, k) => world.places.push(makePlace('capital', c.x, c.y, rng, { tongue: tongues[k % tongues.length] })));
   territories();
   for (const r of D.realms) {
     for (const [kind, count, minD] of [['city', 1, 24], ['town', 3, 15], ['village', 4, 9]]) {
@@ -923,10 +927,10 @@ function populate(seed) {
   }
   settleIslands(rng);
   territories();
-  colourRealms(rng);
+  colourRealms(rng, new Set(keptCaps.map(p => p.id)));
   // No city outgrows its capital: each is held under four-fifths of the people of the capital whose realm it is in.
   for (const p of world.places) {
-    if (p.kind !== 'city') continue;
+    if (p.kind !== 'city' || kept.has(p.id)) continue;
     const o = D.owner[cellAt(p.x, p.y)], cap = o >= 0 && D.realms[o] ? D.realms[o].place.pop : 0;
     if (cap && p.pop >= cap * 0.8) p.pop = floorSig(cap * 0.8 - 1, 2);
   }
@@ -934,7 +938,7 @@ function populate(seed) {
   // a neighbour's towns took) takes the realm's tongue and a name in it, so towns sound like the realm they are in.
   // Each draws from its own numbers, so no other name in the world changes.
   for (const p of world.places) {
-    if (p.kind === 'capital' || p.kind === 'landmark') continue;
+    if (p.kind === 'capital' || p.kind === 'landmark' || kept.has(p.id)) continue;
     const o = D.owner[cellAt(p.x, p.y)], r = o >= 0 ? D.realms[o] : null;
     if (!r || r.tongue === p.tongue) continue;
     p.tongue = r.tongue; const own = mulberry32(hash3(seed, p.id, 61));
@@ -1472,7 +1476,7 @@ async function deleteWorld(id) {
 function readAside() { try { const a = JSON.parse(localStorage.getItem(ASIDE_KEY) || 'null'); return a && typeof a.id === 'string' ? a : null; } catch (e) { return null; } }
 function keepAside(text, meta) { inStore('readwrite', st => { st.put(text, ASIDE_ID); }).then(() => { try { localStorage.setItem(ASIDE_KEY, JSON.stringify(meta)); } catch (e) { } renderWorlds(); }, () => { }); }
 function forgetAside() { try { localStorage.removeItem(ASIDE_KEY); } catch (e) { } inStore('readwrite', st => { st.delete(ASIDE_ID); }).catch(() => { }); renderWorlds(); }
-const ASIDE_WHY = { clear: 'Clear places and labels', realms: 'Found new realms' }, ASIDE_NAME = { clear: 'before Clear', realms: 'before new realms' };
+const ASIDE_WHY = { clear: 'Clear places and labels' }, ASIDE_NAME = { clear: 'before Clear' };
 // It goes into Your worlds and opens, and the world that was open stays in the list.
 async function bringBack() {
   const a = readAside(); if (!a || switching) return;
@@ -3161,7 +3165,7 @@ function welcomeHTML() {
   return `<div class="welcome">${head}${lede}
     <p>${stats}${origin}</p>
     <ul class="tips">
-      ${world.places.length ? `<li>${TAP} any place or patch of ground to read about it${cap ? `, or start with <button class="link" data-goto="${cap.id}">${esc(cap.name)}</button>` : ''}. The <b>Codex</b> lists every place by realm, with a search.</li>` : `<li>${REALMS_LINK} fills this land with towns, borders and names. Do it before you found your own: it replaces every place.</li>`}
+      ${world.places.length ? `<li>${TAP} any place or patch of ground to read about it${cap ? `, or start with <button class="link" data-goto="${cap.id}">${esc(cap.name)}</button>` : ''}. The <b>Codex</b> lists every place by realm, with a search.</li>` : `<li>${REALMS_LINK} fills this land with towns, borders and names. Do it before you found your own: it replaces every place you haven't written notes on.</li>`}
       <li>Use ${toolLink('sketch', 'Sketch')} to draw new coastlines, carve bays, add a mountain range or run a river. ${toolLink('raise', 'Raise')} and ${toolLink('lower', 'Lower')} paint the details. Rivers, lakes and borders follow the terrain.</li>
       <li>${capitalTip}</li>
       <li>Every place has a page for notes. ${CL ? 'Roll a rumor, or ask Claude to draft a history from the geography.' : 'Roll a rumor for a story to start from.'}</li>${keepTip()}
@@ -3484,18 +3488,17 @@ function savePng() {
 // stays up longer when notes did.
 function populateRealms() {
   if (!landShare()) { toast('New realms need dry land. Sketch some first.'); return; }
-  const noted = world.places.filter(p => p.lore.trim()).map(p => p.name);
-  if (noted.length) keepAside(currentText(), { id: worldId, name: world.name, why: 'realms', at: new Date().toISOString() });
-  pushUndo({ meta: true }); populate(1 + Math.floor(Math.random() * 999998)); ui.selected = null; recomputePolitics(); refreshPanels(); requestDraw(); markDirty();
-  const lost = noted.length === 1 ? ` ${noted[0]} and its notes were replaced.` : noted.length === 2 ? ` ${noted[0]} and ${noted[1]} and their notes were replaced.` : noted.length ? ` ${noted.length} places with notes were replaced, ${noted[0]} and ${noted[1]} among them.` : '';
-  toast(foundedSay() + lost, { label: 'Undo', fn: undo }, noted.length ? 10000 : 0);
+  const kept = world.places.filter(p => p.lore.trim()), names = kept.map(p => p.name);
+  pushUndo({ meta: true }); populate(1 + Math.floor(Math.random() * 999998), kept); ui.selected = null; recomputePolitics(); refreshPanels(); requestDraw(); markDirty();
+  const stay = names.length === 1 ? ` ${names[0]} and its notes stay.` : names.length === 2 ? ` ${names[0]} and ${names[1]} and their notes stay.` : names.length ? ` ${names.length} places with notes stay, ${names[0]} and ${names[1]} among them.` : '';
+  toast(foundedSay(new Set(kept.map(p => p.id))) + stay, { label: 'Undo', fn: undo });
 }
 // The realms just founded, by name: 'Founded the Republic of Tiassium and the Commonwealth of Lenma, with 18
-// settlements.', or with four or more, how many and the largest.
-function foundedSay() {
-  const rs = D.realms.slice().sort((a, b) => b.area - a.area), n = world.places.filter(p => p.kind !== 'landmark').length;
+// settlements.', or with four or more, how many and the largest. Realms and settlements that were kept aren't counted.
+function foundedSay(kept = new Set()) {
+  const rs = D.realms.filter(r => !kept.has(r.place.id)).sort((a, b) => b.area - a.area), n = world.places.filter(p => p.kind !== 'landmark' && !kept.has(p.id)).length;
   const towns = `${n} settlement${n === 1 ? '' : 's'}`;
-  if (!rs.length) return `Founded ${towns}, with no realm among them.`;
+  if (!rs.length) return `Founded ${towns}, with no ${D.realms.length ? 'new ' : ''}realm among them.`;
   const names = rs.map(realmMid);
   const which = rs.length >= 4 ? `${rs.length} realms, ${names[0]} the largest` : names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
   return `Founded ${which}, with ${towns}.`;

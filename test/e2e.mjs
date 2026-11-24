@@ -3005,7 +3005,9 @@ await oldCtx.close();
   await c.close();
 }
 
-// Found new realms and Clear places and labels say which notes they replaced, and the World tab says they will.
+// Found new realms keeps every place with notes where it is, with its name, kind and notes (a capital its realm), grows
+// the new realms around them, and says so; it used to replace them. Clear places and labels says which notes it
+// replaced, and the World tab says what each does.
 {
   const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const pg = watch(await c.newPage());
@@ -3013,12 +3015,23 @@ await oldCtx.close();
   const write = (id, text) => pg.evaluate(([id, text]) => { window.terra.select({ type: 'place', id }); const ta = document.getElementById('pLore'); ta.value = text; ta.dispatchEvent(new Event('input')); }, [id, text]);
   const said = () => pg.textContent('#toast span');
   const ps = await pg.evaluate(() => window.terra.places()), st = await pg.evaluate(() => window.terra.state());
+  const keptCap = ps.find((p) => p.kind === 'capital'), realmOf = () => pg.evaluate((id) => { window.terra.select({ type: 'place', id }); return [document.getElementById('rName').value, document.getElementById('rTitle').value, document.querySelector('[data-color][aria-pressed=true]').dataset.color]; }, keptCap.id);
+  const capRealm = await realmOf();
   await write(ps[3].id, 'A town with a story.');
+  await write(keptCap.id, 'The old capital.');
   await pg.click('#tab-world');
   const notes = await pg.locator('#pane-world .note').allTextContents();
-  ok(notes.some((t) => t.startsWith('Found new realms replaces every place and label, with their notes')) && notes.some((t) => t.startsWith('Clear places and labels')), 'the World tab says Found new realms and Clear replace notes too');
+  ok(notes.some((t) => t.startsWith('Found new realms replaces the places and labels with a fresh set grown from the terrain. Places you have written notes on stay')) && notes.some((t) => t.startsWith('Clear places and labels')), 'the World tab says Found new realms keeps places with notes, and Clear replaces them');
   await pg.click('#wPopulate');
   const founded = await said();
+  const now = await pg.evaluate(() => window.terra.places());
+  const same = (a) => { const b = now.find((q) => q.id === a.id); return b && b.name === a.name && b.kind === a.kind && b.x === a.x && b.y === a.y; };
+  const keptLore = await pg.evaluate((ids) => ids.map((id) => { window.terra.select({ type: 'place', id }); return document.getElementById('pLore').value; }), [ps[3].id, keptCap.id]);
+  const others = ps.filter((p) => p.id !== ps[3].id && p.id !== keptCap.id && now.some((q) => q.id === p.id));
+  const capAfter = await realmOf(), keptRealms = [ps[3], keptCap].filter((p) => p.kind === 'capital').map((p) => p.id === keptCap.id ? `the ${capRealm[1]} of ${capRealm[0]}` : null).filter(Boolean);
+  if (ps[3].kind === 'capital') keptRealms.push(await pg.evaluate((id) => { window.terra.select({ type: 'place', id }); return `the ${document.getElementById('rTitle').value} of ${document.getElementById('rName').value}`; }, ps[3].id));
+  ok(same(ps[3]) && same(keptCap) && keptLore[0] === 'A town with a story.' && keptLore[1] === 'The old capital.' && JSON.stringify(capAfter) === JSON.stringify(capRealm) && others.length === 0 && now.length > 10 && now.filter((p) => p.kind === 'capital').length >= 2,
+    `Found new realms keeps the places with notes where they were, the capital ruling ${capRealm[1]} of ${capRealm[0]} still, and founds the rest anew (${now.length} places)`);
   // It names the realms it founded as the Codex names them ('the Republic of Tiassium' mid-sentence), the largest by
   // the Codex's areas first, and how many settlements they have. It used to say only 'New realms founded.'
   const codexRealms = await pg.evaluate(() => {
@@ -3026,10 +3039,10 @@ await oldCtx.close();
     const rows = [...document.querySelector('#codexList .clist').querySelectorAll('.crow')].map((r) => [r.querySelector('.nm').textContent.replace(/^The /, 'the '), +r.querySelector('.meta.mono').textContent.replace(/\D/g, '')]);
     document.getElementById('tab-world').click();
     return rows.sort((a, b) => b[1] - a[1]).map((r) => r[0]);
-  });
-  const towns = (await pg.evaluate(() => window.terra.places())).filter((p) => p.kind !== 'landmark').length;
+  }).then((rs) => rs.filter((r) => !keptRealms.includes(r)));
+  const towns = (await pg.evaluate(() => window.terra.places())).filter((p) => p.kind !== 'landmark' && p.id !== ps[3].id && p.id !== keptCap.id).length;
   const realmsSaid = codexRealms.length >= 4 ? `${codexRealms.length} realms, ${codexRealms[0]} the largest` : codexRealms.length === 1 ? codexRealms[0] : codexRealms.slice(0, -1).join(', ') + ' and ' + codexRealms.at(-1);
-  ok(codexRealms.length >= 1 && founded === `Founded ${realmsSaid}, with ${towns} settlements. ${ps[3].name} and its notes were replaced.`, `Found new realms names the realms it founded and the place with notes it replaced ("${founded}")`);
+  ok(codexRealms.length >= 1 && founded === `Founded ${realmsSaid}, with ${towns} settlements. ${ps.filter((p) => p === ps[3] || p === keptCap).map((p) => p.name).join(' and ')} and their notes stay.`, `Found new realms names the realms it founded and the places with notes it kept ("${founded}")`);
   await pg.click('#toast button');
   for (const p of ps.slice(0, 3)) await write(p.id, 'Notes.');
   await pg.click('#tab-world');
@@ -3038,7 +3051,7 @@ await oldCtx.close();
   ok(cleared === `Cleared ${st.places} places and ${st.labels} labels, and the notes on 4 of them.`, `Clear says how many places and labels went, and how many had notes ("${cleared}")`);
   // On a world with land and no places yet, the welcome says to found new realms before founding your own.
   await pg.click('#tab-inspect');
-  ok((await pg.textContent('#pane-inspect .tips li')).includes('Do it before you found your own: it replaces every place.'), 'the welcome says to found new realms before founding your own');
+  ok((await pg.textContent('#pane-inspect .tips li')).includes('Do it before you found your own: it replaces every place you haven\'t written notes on.'), 'the welcome says to found new realms before founding your own');
   await c.close();
 }
 

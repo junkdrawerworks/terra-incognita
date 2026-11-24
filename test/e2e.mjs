@@ -126,15 +126,30 @@ for (const t of ['raise', 'lower', 'smooth']) { await page.click(`.tool[data-too
 await page.click('.tool[data-tool="select"]');
 ok(brushHints[0].startsWith('Builds the ground up under the brush. Hold and drag.') && brushHints[1].startsWith('Wears it down. Hold and drag.') && brushHints[2].startsWith('Softens peaks and fills dips. Hold and drag.'), `Raise, Lower and Smooth each say what they do (${brushHints.map((h) => '"' + h.split('.')[0] + '"').join(', ')})`);
 
-// The whole map on a phone: the scale bar keeps to its corner, and the zoom buttons stay off the map's east edge. They
-// used to cover the starting world's eastern capital, and the scale bar took half the map's width.
+// The whole map on a phone: the scale bar keeps to its corner, and the zoom buttons stay off the map. They used to cover
+// the starting world's eastern capital, and the scale bar took half the map's width. They are a row under the map's
+// corner, so the whole map takes the frame's width (it took 274 of 342 px, beside a column of them).
 const fitted = await S(() => {
   window.terra.fitView();
   const { scale } = window.terra.boxes(), a = window.terra.toScreen(0, 0), b = window.terra.toScreen(480, 300);
   const wrap = document.getElementById('mapwrap').getBoundingClientRect(), zoom = document.querySelector('.zoom').getBoundingClientRect();
-  return { share: (scale[2] - scale[0]) / (b.x - a.x), mapRight: wrap.left + b.x, zoomLeft: zoom.left };
+  return { share: (scale[2] - scale[0]) / (b.x - a.x), mapBottom: wrap.top + b.y, zoomTop: zoom.top, fill: (b.x - a.x) / wrap.width, w: Math.round(b.x - a.x), h: Math.round(b.y - a.y) };
 });
-ok(fitted.share < 0.4 && fitted.mapRight <= fitted.zoomLeft + 0.5, `on a phone the scale bar takes ${Math.round(fitted.share * 100)}% of the map's width, and the zoom buttons stay off the map`);
+ok(fitted.share < 0.4 && fitted.mapBottom <= fitted.zoomTop + 0.5, `on a phone the scale bar takes ${Math.round(fitted.share * 100)}% of the map's width, and the zoom buttons stay off the map`);
+ok(fitted.fill >= 0.9, `on a phone the whole map fills the frame's width (${fitted.w} x ${fitted.h} px, ${Math.round(fitted.fill * 100)}% of the frame)`);
+// And the toolbar wraps a group at a time: no tool sits on a row away from the rest of its group, here or on narrower
+// phones. (Drier sat alone on the second row at 390 px, and Erase alone on a third at 320.)
+const toolRows = async (pg) => pg.evaluate(() => {
+  const rowOf = (b) => Math.round(b.getBoundingClientRect().top);
+  const groups = [...document.querySelectorAll('#tools .tool-group')].map((g) => [...g.querySelectorAll('.tool')].map(rowOf));
+  return { split: groups.filter((g) => new Set(g).size > 1).length, rows: new Set(groups.flat()).size };
+});
+const wrapped = [await toolRows(page)];
+for (const w of [360, 320]) {
+  const c = await browser.newContext({ viewport: { width: w, height: 700 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }), p = await c.newPage();
+  await p.goto(base); wrapped.push(await toolRows(p)); await c.close();
+}
+ok(wrapped.every((r) => r.split === 0 && r.rows === 2), `on a phone each group of tools keeps to one row, in two rows at 390, 360 and 320 px (${wrapped.map((r) => r.rows).join(', ')})`);
 // Zoomed in, it keeps to about a third of the screen: it was sized by the whole map's width, and covered over half of
 // it. (A little over a third when the shortest step that fits under its own length is twice the one before.)
 const zoomShares = [];

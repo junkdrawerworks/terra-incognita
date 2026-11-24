@@ -79,6 +79,7 @@ button{touch-action:manipulation} /* a quick second tap on Undo doesn't zoom the
 .tool:hover{background:var(--panel-2);color:var(--ink)}
 .tool[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-strong)}
 .tool-sep{height:1px;background:var(--line);margin:4px 3px;flex:none}
+.tool-group{display:flex;flex-direction:column;gap:3px}
 
 .stage{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
 .toolopts{display:flex;align-items:center;gap:8px 16px;flex-wrap:wrap;padding:7px 12px;border-bottom:1px solid var(--line);min-height:46px;font-size:13px;color:var(--muted)}
@@ -232,13 +233,21 @@ kbd{font:11px var(--f-mono);border:1px solid var(--line-strong);border-bottom-wi
   html,body{height:auto}
   .app{height:auto;min-height:100%}
   .body{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto auto}
-  .tools{flex-direction:row;flex-wrap:wrap;align-self:stretch}
-  .tool-sep{width:1px;height:auto;margin:3px 4px}
-  .stage{height:auto}
+  /* The tools wrap a group at a time: a group goes on to the next row whole, and only one wider than a row breaks. The
+     space between groups marks them, since a line between them would be left hanging where a row ends. */
+  .tools{flex-direction:row;flex-wrap:wrap;align-self:stretch;gap:3px 8px}
+  .tool-group{flex-direction:row;flex-wrap:wrap;gap:2px}
+  .tool-sep{display:none}
+  .stage{height:auto;container-type:inline-size}
   /* A tool's options sit under the map here, so switching tools never moves the map. The map keeps the zoom
      buttons' shadow to itself rather than letting it fall on them. */
   .toolopts{order:1;border-bottom:0;border-top:1px solid var(--line)}
-  .mapwrap{flex:none;aspect-ratio:480/336;min-height:250px;max-height:calc(100vh - 24px);max-height:calc(100svh - 24px);overflow:hidden}
+  /* The zoom buttons are a row under the map's bottom-right corner, and the frame is as tall as the whole map at its
+     full width plus that row (12 px above the map, the row's height and 14 px below it), so the map fills the frame's
+     width. (--zh is the row's height.) */
+  .mapwrap{flex:none;--zh:34px;aspect-ratio:480/336;height:calc((100cqw - 24px) * .625 + 26px + var(--zh));min-height:200px;max-height:calc(100vh - 24px);max-height:calc(100svh - 24px);overflow:hidden}
+  .zoom{flex-direction:row}
+  .zoom button+button{border-top:0;border-left:1px solid var(--line)}
   .panel{min-height:460px}
   .top-actions{margin-left:0}
   .brand-name{font-size:21px}
@@ -272,6 +281,7 @@ kbd{font:11px var(--f-mono);border:1px solid var(--line-strong);border-bottom-wi
   .pop-field input{height:28px;padding:0}
   .search{height:44px}
   .tool,.zoom button,.icon-btn{width:44px;height:44px}
+  .mapwrap{--zh:46px}
   .btn,.seg{height:44px}
   .btn.sm{height:40px}
   .chip{height:38px;padding:0 14px}
@@ -291,6 +301,11 @@ kbd{font:11px var(--f-mono);border:1px solid var(--line-strong);border-bottom-wi
 @media (pointer: coarse) and (max-width:520px){
   #btnUndo,#btnRedo{width:44px}
 }
+/* Where Select and the six tools that shape the land can't share a row, the land's tools take the first row and Select
+   leads the second, before the places and Erase, so no tool is left alone on a row. On the smallest phones the tools are
+   40 px wide so the land's six still fit across (a finger's 44 px tall). */
+@media (max-width:389px){ .tools>.tool-group:nth-child(3){order:-1} }
+@media (pointer: coarse) and (max-width:359px){ .tool{width:40px} }
 /* With reduced motion asked for, a toast just appears and goes. Fading out, it stays visible until its fade ends. */
 @media (prefers-reduced-motion: no-preference){
   .toast{transition:opacity .2s,transform .2s,visibility 0s .2s}

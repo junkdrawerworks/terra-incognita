@@ -1276,7 +1276,7 @@ function holdToSay(b, st) {
   let timer = 0, held = false;
   b.addEventListener('pointerdown', e => { held = false; clearTimeout(timer); if (e.pointerType === 'touch' && !b.disabled && st.length) timer = setTimeout(() => { held = true; toast(b.getAttribute('aria-label')); }, 500); });
   for (const t of ['pointerup', 'pointercancel']) b.addEventListener(t, () => clearTimeout(timer));
-  b.addEventListener('click', e => { if (held) { held = false; e.stopImmediatePropagation(); } }, true);
+  b.addEventListener('click', e => { if (held) { held = false; if (e.detail) e.stopImmediatePropagation(); } }, true); // a key's press (detail 0) always counts
   b.addEventListener('contextmenu', e => e.preventDefault());
 }
 const UNDO_KEY = MAC ? '⌘Z' : 'Ctrl+Z', REDO_KEY = MAC ? '⇧⌘Z' : 'Ctrl+Shift+Z';

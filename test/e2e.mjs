@@ -263,10 +263,20 @@ const heldUndo = await S(async () => {
   const b = document.getElementById('btnUndo'), n = window.terra.state().undo;
   b.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true, isPrimary: true }));
   await new Promise((r) => setTimeout(r, 700));
-  b.dispatchEvent(new PointerEvent('pointerup', { pointerType: 'touch', bubbles: true, isPrimary: true })); b.click();
+  b.dispatchEvent(new PointerEvent('pointerup', { pointerType: 'touch', bubbles: true, isPrimary: true })); b.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
   return [document.querySelector('#toast span').textContent, window.terra.state().undo === n];
 });
 ok(heldUndo[0] === 'Undo: Sketch sea' && heldUndo[1], `holding Undo on a phone says what it would undo, and doesn't undo it ("${heldUndo[0]}", kept ${heldUndo[1]})`);
+// A hold let go of off the button leaves no tap waiting to be swallowed: a key's press on Undo after it still undoes.
+const keyAfterHold = await S(async () => {
+  const b = document.getElementById('btnUndo'), n = window.terra.state().undo;
+  b.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true, isPrimary: true }));
+  await new Promise((r) => setTimeout(r, 700));
+  b.dispatchEvent(new PointerEvent('pointercancel', { pointerType: 'touch', bubbles: true, isPrimary: true })); b.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+  return n - window.terra.state().undo;
+});
+await page.click('#btnRedo');
+ok(keyAfterHold === 1 && (await state()).land === bitten.land, `a key's press on Undo after a hold let go of elsewhere still undoes (${keyAfterHold} step)`);
 
 // A mountain range, without a lake in the valleys it blocks.
 await page.click('.chip[data-v="range"]');

@@ -3009,6 +3009,24 @@ await oldCtx.close();
   await m.close();
 }
 
+// A brush stroke traces the coast again at most every 120 ms while it moves, not on every frame (which took most of each
+// frame on a slow phone), and once more when it lets go, so the coast at rest is the same.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } }), pg = await c.newPage();
+  await pg.goto(base);
+  await pg.click('.tool[data-tool="raise"]');
+  const b = await pg.locator('#map').boundingBox(), a = await pg.evaluate(() => window.terra.toScreen(200, 150));
+  const t0 = await pg.evaluate(() => [window.terra.coastTraces(), performance.now()]);
+  await pg.mouse.move(b.x + a.x, b.y + a.y); await pg.mouse.down();
+  for (let k = 1; k <= 30; k++) { await pg.mouse.move(b.x + a.x + k * 3, b.y + a.y + k); await pg.waitForTimeout(20); }
+  const t1 = await pg.evaluate(() => [window.terra.coastTraces(), performance.now()]);
+  await pg.mouse.up(); await pg.waitForTimeout(300);
+  const t2 = await pg.evaluate(() => window.terra.coastTraces());
+  const held = t1[1] - t0[1], traced = t1[0] - t0[0];
+  ok(traced <= held / 120 + 2 && t2 > t1[0], `a brush stroke of ${Math.round(held)} ms traced the coast ${traced} times while it moved, and again when it let go`);
+  await c.close();
+}
+
 // A touch screen says Tap, tells you two fingers move the map, and leaves out the keyboard shortcuts; a mouse says Click
 // and lists them, with ⌘ on a Mac. A Land loop's hint says how high it rises.
 {

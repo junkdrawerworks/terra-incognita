@@ -430,7 +430,9 @@ function smoothLine(path, pts) {
   for (let j = 1; j < n - 1; j++) { const x = pts[j * 2], y = pts[j * 2 + 1], nx = pts[j * 2 + 2], ny = pts[j * 2 + 3]; path.quadraticCurveTo(x, y, (x + nx) / 2, (y + ny) / 2); }
   path.lineTo(pts[(n - 1) * 2], pts[(n - 1) * 2 + 1]);
 }
+let coastTraces = 0; // how many times the coast has been traced, for the test of a brush stroke
 function buildCoast() {
+  coastTraces++;
   // Lake shores are traced from the grid of lake cells, so they are smoothed as they are chained; the sea's coast comes
   // from the heights, which are smooth already.
   const p = new Path2D(); pathFromContour(world.h, world.sea, p); D.lakeShores = []; chainPath(D.lakeF, 0.5, null, 3, p, D.lakeShores); D.coast = p;
@@ -2559,8 +2561,14 @@ function strokeFrame() {
   stroke.lx = stroke.x; stroke.ly = stroke.y;
   const sb = stroke.box; sb[0] = Math.min(sb[0], bx0); sb[1] = Math.min(sb[1], by0); sb[2] = Math.max(sb[2], bx1); sb[3] = Math.max(sb[3], by1);
   computeClimate(bx0 - 2, by0 - 2, bx1 + 2, by1 + 2); renderBase(bx0 - 2, by0 - 2, bx1 + 2, by1 + 2);
-  if (stroke.tool !== 'rain' && stroke.tool !== 'drought') { buildCoast(); buildContours(); }
-  buildGlyphs();
+  // The coast, the Atlas's contours and its symbols are traced over the whole map, so while the brush moves they are
+  // traced again at most every 120 ms (on a slow phone every frame went on it); letting go traces them for good.
+  const now = performance.now();
+  if (now - (stroke.traced || 0) >= 120) {
+    stroke.traced = now;
+    if (stroke.tool !== 'rain' && stroke.tool !== 'drought') { buildCoast(); buildContours(); }
+    buildGlyphs();
+  }
   requestDraw(); updateStatus();
   requestAnimationFrame(strokeFrame);
 }
@@ -4427,6 +4435,8 @@ if ('serviceWorker' in navigator && !inFrame && location.protocol.startsWith('ht
 window.terra = {
   newWorld: (seed, shape = 'continent') => { newWorld(seed, shape); syncWorldTab(); fitView(); },
   startBlank, setStyle, setTool, fitView, select, centerOn,
+  // How many times the coast has been traced since the page opened.
+  coastTraces: () => coastTraces,
   // Whether a world is still being grown or opened after its message went up.
   busy: () => busyWith > 0,
   // The view: its scale against the whole map's (1 when it shows the whole map), and the part of the map in sight, in

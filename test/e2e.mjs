@@ -2065,10 +2065,11 @@ await oldCtx.close();
     if (k) await pg.click('#zIn');
     await pg.waitForTimeout(80);
     const spots = await pg.evaluate(() => window.terra.nameSpots()), map = await pg.evaluate(() => { const a = window.terra.toScreen(0, 0), b = window.terra.toScreen(480, 300); return [Math.max(a.x, 0), Math.max(a.y, 0), Math.min(b.x, document.getElementById('map').clientWidth), Math.min(b.y, document.getElementById('map').clientHeight)]; });
-    const off = spots.names.filter((n) => n.kind !== 'capital' && (n.box[0] < map[0] || n.box[1] < map[1] || n.box[2] > map[2] || n.box[3] > map[3])).map((n) => n.name);
+    const scale = await pg.evaluate(() => window.terra.boxes().scale), under = (b) => b[0] < scale[2] && b[2] > scale[0] && b[1] < scale[3] && b[3] > scale[1];
+    const off = spots.names.filter((n) => n.kind !== 'capital' && (n.box[0] < map[0] || n.box[1] < map[1] || n.box[2] > map[2] || n.box[3] > map[3] || under(n.box))).map((n) => n.name);
     looks.push({ k, clash: clash(spots), off, dropped: spots.marks.filter((m) => m.kind === 'village' && m.box[0] > map[0] && m.box[2] < map[2] && m.box[1] > map[1] && m.box[3] < map[3] && !spots.names.some((n) => n.id === m.id)).map((m) => m.id), sides: new Set(spots.names.map((n) => n.side)).size });
   }
-  ok(looks.every((l) => !l.clash.length && !l.off.length), `on a phone, from the whole map to six steps in, no place name prints over another name or another place's symbol, or runs off the map (${looks.map((l) => [...l.clash, ...l.off].join(', ') || 'clear').join('; ')})`);
+  ok(looks.every((l) => !l.clash.length && !l.off.length), `on a phone, from the whole map to six steps in, no place name prints over another name or another place's symbol, runs off the map or goes under the scale bar (${looks.map((l) => [...l.clash, ...l.off].join(', ') || 'clear').join('; ')})`);
   // A village left off three steps in has its name again closer in, centred on it.
   const left = looks[3].dropped, back = [];
   for (const id of left) {

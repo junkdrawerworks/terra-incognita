@@ -3128,6 +3128,60 @@ await oldCtx.close();
   await c.close();
 }
 
+// In Atlas, the coast's shaded bands (most of each frame on a slow phone) are drawn from one picture of them while the
+// map is panned, zoomed or painted, and drawn afresh once it is still, so the map at rest is exactly as before. A brush
+// far inland leaves the coast, and so the picture, as they were; one that moves the coast makes the picture again.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } }), pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => window.terra.setStyle('atlas'));
+  await pg.waitForTimeout(300);
+  const canvasNow = () => pg.evaluate(() => document.getElementById('map').toDataURL());
+  const b = await pg.locator('#map').boundingBox(), mid = await pg.evaluate(() => window.terra.toScreen(240, 150));
+  const p0 = await pg.evaluate(() => window.terra.bands().pictures);
+  // A pan of 12 moves and back, held still before letting go.
+  await pg.mouse.move(b.x + mid.x, b.y + mid.y); await pg.mouse.down();
+  const during = [];
+  for (let k = 1; k <= 24; k++) { await pg.mouse.move(b.x + mid.x + (k <= 12 ? k : 24 - k) * 6, b.y + mid.y); await pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); during.push(await pg.evaluate(() => window.terra.bands().fromPicture)); }
+  const p1 = await pg.evaluate(() => window.terra.bands().pictures);
+  await pg.mouse.up(); await pg.mouse.move(b.x - 40, b.y + 40); await pg.waitForTimeout(400);
+  const after = await pg.evaluate(() => window.terra.bands()), rest1 = await canvasNow();
+  // The same view drawn from scratch, with nothing moving.
+  await pg.evaluate(() => { window.terra.setStyle('terrain'); window.terra.setStyle('atlas'); });
+  await pg.waitForTimeout(300);
+  const rest0 = await canvasNow();
+  ok(during.every(Boolean) && p1 - p0 === 1 && !after.fromPicture && rest1 === rest0, `in Atlas a pan draws the coast's bands from one picture (${p1 - p0} made over 24 moves), and the map once still is drawn exactly as it is drawn from scratch`);
+  // Zoom with the wheel: from the picture while it turns, afresh once it stops.
+  await pg.mouse.move(b.x + mid.x, b.y + mid.y);
+  const wheel = [];
+  for (let k = 0; k < 4; k++) { await pg.mouse.wheel(0, -60); await pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); wheel.push(await pg.evaluate(() => window.terra.bands().fromPicture)); }
+  await pg.waitForTimeout(500);
+  ok(wheel.every(Boolean) && !(await pg.evaluate(() => window.terra.bands().fromPicture)), 'zooming with the wheel draws the bands from the picture, and afresh once it stops');
+  // Raise far inland, then at the coast.
+  await pg.evaluate(() => window.terra.fitView());
+  await pg.click('.tool[data-tool="raise"]');
+  const spots = await pg.evaluate(() => {
+    let inland = null, coast = null;
+    for (let y = 30; y < 270 && !(inland && coast); y += 3) for (let x = 30; x < 450; x += 3) {
+      let land = 0, sea = 0; for (let dy = -14; dy <= 14; dy += 2) for (let dx = -14; dx <= 14; dx += 2) { if (window.terra.cell(x + dx, y + dy).h >= 0) land++; else sea++; }
+      if (!inland && sea === 0 && !window.terra.cell(x, y).lake) inland = window.terra.toScreen(x, y);
+      if (!coast && window.terra.cell(x, y).h < 0 && window.terra.cell(x + 3, y).h >= 0) coast = window.terra.toScreen(x, y);
+    }
+    return { inland, coast };
+  });
+  const brush = async (at) => {
+    const q0 = await pg.evaluate(() => window.terra.bands().pictures);
+    await pg.mouse.move(b.x + at.x, b.y + at.y); await pg.mouse.down();
+    for (let k = 1; k <= 20; k++) { await pg.mouse.move(b.x + at.x + (k % 2) * 3, b.y + at.y + 1); await pg.waitForTimeout(25); }
+    const q1 = await pg.evaluate(() => window.terra.bands().pictures);
+    await pg.mouse.up(); await pg.waitForTimeout(400);
+    return q1 - q0;
+  };
+  const inlandMade = await brush(spots.inland), coastMade = await brush(spots.coast);
+  ok(spots.inland && spots.coast && inlandMade === 1 && coastMade >= 2 && !(await pg.evaluate(() => window.terra.bands().fromPicture)), `Raise far inland keeps one picture of the bands for the stroke (${inlandMade}); Raise at the coast makes it again as the coast moves (${coastMade})`);
+  await c.close();
+}
+
 // A line being sketched is drawn over a still copy of the map, not with the whole map drawn again at every move; the
 // line shows as it grows, and the map is drawn whole again once it is done.
 {

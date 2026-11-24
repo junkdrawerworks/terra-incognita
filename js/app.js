@@ -460,11 +460,30 @@ function smoothLine(path, pts) {
   path.lineTo(pts[(n - 1) * 2], pts[(n - 1) * 2 + 1]);
 }
 let coastTraces = 0; // how many times the coast has been traced, for the test of a brush stroke
+// The heights, sea level and lakes the coast was last traced from: a change that leaves all of them as they were where
+// the coast runs (Raise far inland) leaves the coast as it is, so the Atlas keeps its picture of the coast's bands.
+const coastFrom = { h: new Float32Array(N), lakeF: new Float32Array(N), sea: -1 };
+function coastSame() {
+  const h = world.h, sea = world.sea, o = coastFrom.h;
+  if (!D.coast || coastFrom.sea !== sea) return false;
+  // The coast runs through each square of four cells with some above the sea and some not, and only those cells' heights
+  // place it. A cell whose height changed matters if it crossed the sea level or has a cell beside it across it.
+  for (let i = 0; i < N; i++) {
+    const v = h[i]; if (v === o[i]) continue;
+    const up = v > sea; if ((o[i] > sea) !== up) return false;
+    const x = i % W, y = (i / W) | 0;
+    for (let yy = Math.max(0, y - 1); yy <= Math.min(H - 1, y + 1); yy++) for (let xx = Math.max(0, x - 1); xx <= Math.min(W - 1, x + 1); xx++) if ((h[yy * W + xx] > sea) !== up) return false;
+  }
+  const lf = D.lakeF, ol = coastFrom.lakeF; for (let i = 0; i < N; i++) if (lf[i] !== ol[i]) return false;
+  return true;
+}
 function buildCoast() {
   coastTraces++;
+  if (coastSame()) return;
   // Lake shores are traced from the grid of lake cells, so they are smoothed as they are chained; the sea's coast comes
   // from the heights, which are smooth already.
   const p = new Path2D(); pathFromContour(world.h, world.sea, p); D.lakeShores = []; chainPath(D.lakeF, 0.5, null, 3, p, D.lakeShores); D.coast = p;
+  coastFrom.h.set(world.h); coastFrom.lakeF.set(D.lakeF); coastFrom.sea = world.sea;
 }
 // Number each stretch of sea (water touching at a corner counts as one), so a coast is named after the water it is on.
 function buildBodies() {
@@ -1772,6 +1791,32 @@ function starPath(c, X, Y, R, r) { c.beginPath(); for (let k = 0; k < 10; k++) {
 function haloText(c, text, X, Y, fill, halo, lw) { if (halo) { c.lineWidth = lw; c.strokeStyle = halo; c.lineJoin = 'round'; c.strokeText(text, X, Y); } c.fillStyle = fill; c.fillText(text, X, Y); }
 
 let mapDraws = 0; // how many times the whole map has been drawn on screen, for the test of a sketch
+// The Atlas's shaded bands along the coast: three wide strokes of it in a blue-grey wash, each with a paler one inside
+// (c drawing in map cells, s pixels to a cell).
+function drawBands(c, s) {
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  for (const w of [7.5, 5, 2.6]) { c.lineWidth = w; c.strokeStyle = 'rgba(70,98,102,0.32)'; c.stroke(D.coast); c.lineWidth = Math.max(0, w - 1.1 / s); c.strokeStyle = 'rgb(201,216,208)'; c.stroke(D.coast); }
+}
+// They take most of an Atlas frame on a slow phone (about 600 of 850 ms), so while the map is moved, zoomed or painted
+// they are drawn from a picture of them instead: made on the first frame that moves, at that frame's zoom (up to 3 px to
+// a cell), made again when the coast changes, and stretched to each frame's zoom, so they can look a touch soft. Once
+// the map has been still for 150 ms it is drawn again with the bands drawn afresh, exactly as before.
+const BAND_M = 5; // cells of picture round the map, past the widest band's reach (3.75 cells)
+let bands = null, movedLast = false, bandTimer = 0, lastWheel = -1e9, bandPictures = 0;
+const mapMoving = () => { const g = gesture; return !!stroke || !!glide || performance.now() - lastWheel < 200 || !!(g && (g.type === 'pan' || g.type === 'pinch' || ((g.type === 'click' || g.type === 'drag') && g.moved))); };
+function bandPicture(s, k, fresh) {
+  const res = Math.min(3, s * k);
+  if (bands && bands.coast === D.coast && (!fresh || bands.res === res)) return bands;
+  if (!bands) bands = { c: document.createElement('canvas') };
+  bands.c.width = Math.ceil((W + 2 * BAND_M) * res); bands.c.height = Math.ceil((H + 2 * BAND_M) * res);
+  const g = bands.c.getContext('2d'); g.setTransform(res, 0, 0, res, BAND_M * res, BAND_M * res);
+  drawBands(g, s); bands.coast = D.coast; bands.res = res; bandPictures++;
+  return bands;
+}
+function settleBands() {
+  clearTimeout(bandTimer);
+  bandTimer = setTimeout(function still() { if (mapMoving()) bandTimer = setTimeout(still, 100); else { bandTimer = 0; requestDraw(); } }, 150);
+}
 function drawMap(c, k, vw, vh, v, opt) {
   if (!opt.export) mapDraws++;
   const s = v.s, ox = v.ox, oy = v.oy, atlas = ui.style === 'atlas', L = ui.layers, zr = s / v.s0;
@@ -1788,9 +1833,10 @@ function drawMap(c, k, vw, vh, v, opt) {
   c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
   c.drawImage(L_SEA.c, 0, 0, W, H);
   c.lineJoin = 'round'; c.lineCap = 'round';
-  if (atlas) {
-    for (const w of [7.5, 5, 2.6]) { c.lineWidth = w; c.strokeStyle = 'rgba(70,98,102,0.32)'; c.stroke(D.coast); c.lineWidth = Math.max(0, w - 1.1 / s); c.strokeStyle = 'rgb(201,216,208)'; c.stroke(D.coast); }
-  }
+  const moving = atlas && !opt.export && mapMoving();
+  if (moving) { const b = bandPicture(s, k, !movedLast); c.drawImage(b.c, 0, 0, b.c.width, b.c.height, -BAND_M, -BAND_M, b.c.width / b.res, b.c.height / b.res); settleBands(); }
+  else if (atlas) drawBands(c, s);
+  if (!opt.export) movedLast = moving;
   c.drawImage(L_LAND.c, 0, 0, W, H);
   if (L.realms && D.realms.length) { c.drawImage(L_TINT.c, 0, 0, W, H); }
   if (atlas && D.contours) { c.lineWidth = 0.7 / s; c.strokeStyle = 'rgba(110,82,50,0.32)'; c.stroke(D.contours); }
@@ -3401,7 +3447,7 @@ canvas.addEventListener('pointerleave', e => { if (e.pointerType !== 'touch') { 
 // press, as it always has. (See js/edge-guard.js.)
 guardEdges({ surfaces: [canvas] });
 canvas.addEventListener('wheel', e => {
-  e.preventDefault(); const pt = local(e);
+  e.preventDefault(); const pt = local(e); lastWheel = performance.now();
   const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
   zoomAt(pt.x, pt.y, Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0016)));
 }, { passive: false });
@@ -4570,6 +4616,8 @@ window.terra = {
   startBlank, setStyle, setTool, fitView, select, centerOn,
   // How many times the coast has been traced, and the whole map drawn on screen, since the page opened.
   coastTraces: () => coastTraces, mapDraws: () => mapDraws,
+  // How many pictures of the Atlas coast's bands have been made, and whether the last frame drew them from one.
+  bands: () => ({ pictures: bandPictures, fromPicture: movedLast }),
   // How many fills and strokes the Atlas's symbols took when the map was last drawn, and how many symbols it drew.
   glyphCalls: () => ({ calls: lastGlyphs.calls, drawn: lastGlyphs.drawn }),
   // Whether a world is still being grown or opened after its message went up.

@@ -158,7 +158,7 @@ let mapData;
     <svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.6" fill="none" stroke="currentColor" stroke-width="1.1"/><path d="M12 1.8 14 10 12 12 10 10Z" fill="currentColor"/><path d="M12 22.2 10 14 12 12 14 14Z" fill="currentColor" opacity=".45"/><path d="M1.8 12 10 10 12 12 10 14Z" fill="currentColor" opacity=".45"/><path d="M22.2 12 14 14 12 12 14 10Z" fill="currentColor" opacity=".45"/></svg>
     <h1>Terra Incognita</h1>
     <p>Sketch a world. Rivers, realms and borders follow the land.</p>
-    <div class="coord">58°N · 12°W · 1 league = 4.8 km</div>
+    <div class="coord">4,800 by 3,000 km · 1 league = 4.8 km</div>
   </div>
   <img class="map" src="${mapData}">`);
   await page.evaluate(() => document.fonts.ready);

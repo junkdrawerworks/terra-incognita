@@ -7,7 +7,10 @@ import { guardEdges } from './edge-guard.js';
 const W = 480, H = 300, N = W * H;
 const KM = 10;                 // km per cell
 const LEAGUE = 4.8;            // km per league
-const LAT0 = 58, LAT_SPAN = 27, LON0 = -12, LON_SPAN = 61;
+// The grid's lines, in map cells: they cross the map as they always have, but carry no latitude or longitude, since the
+// climate runs from ice sheet in the north to jungle in the south over a map 3,000 km tall, as no real map's would.
+const GRID_Y = [35, 40, 45, 50, 55].map(v => (58 - v) / 27 * H), GRID_X = [];
+for (let v = -10; v <= 45; v += 5) GRID_X.push((v + 12) / 61 * W);
 const MAX_ELEV = 5200, MAX_DEPTH = 5400;
 const RIVER_T = 70, LAKE_MIN = 0.003, RIVER_MAX = 60; // RIVER_MAX: the longest name a river keeps
 const DEFAULT_SEED = 20417;
@@ -42,8 +45,6 @@ function hexRgb(hex) { const n = parseInt(hex.slice(1), 16); return [n >> 16 & 2
 function hexA(hex, a) { const [r, g, b] = hexRgb(hex); return `rgba(${r},${g},${b},${a})`; }
 function shade(hex, k) { const [r, g, b] = hexRgb(hex); return `rgb(${Math.round(r * k)},${Math.round(g * k)},${Math.round(b * k)})`; }
 const cellAt = (x, y) => clamp(Math.floor(y), 0, H - 1) * W + clamp(Math.floor(x), 0, W - 1);
-function fmtDeg(v, pos, neg) { const a = Math.abs(v); let d = Math.floor(a), m = Math.round((a - d) * 60); if (m === 60) { d++; m = 0; } return `${d}°${String(m).padStart(2, '0')}′${v >= 0 ? pos : neg}`; }
-const fmtPos = (x, y) => `${fmtDeg(LAT0 - (y / H) * LAT_SPAN, 'N', 'S')} ${fmtDeg(LON0 + (x / W) * LON_SPAN, 'E', 'W')}`;
 function compass(dx, dy) { const a = Math.atan2(-dy, dx); const dirs = ['east', 'northeast', 'north', 'northwest', 'west', 'southwest', 'south', 'southeast']; return dirs[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8]; }
 
 // ------------------------------------------------------------------ noise
@@ -752,8 +753,6 @@ function populate(seed) {
   }
   autoLabels(rng);
 }
-// Where the latitudes labelled down the map's left edge (35° to 55°N) cross it, in map cells.
-const LAT_LINES = [35, 40, 45, 50, 55].map(lat => (LAT0 - lat) / LAT_SPAN * H);
 function autoLabels(rng) {
   const h = world.h, sea = world.sea, dist = D.dist, q = D.q; dist.fill(-1); let qh = 0, qt = 0;
   for (let i = 0; i < N; i++) if (h[i] >= sea) { dist[i] = 0; q[qt++] = i; }
@@ -770,10 +769,8 @@ function autoLabels(rng) {
     let best = -1, bd = pass ? 11 : 8;
     for (let y = 26; y < H - 24; y++) for (let x = half; x < W - half; x++) {
       // Keep clear of the compass in the top-right corner, and of the scale bar in the bottom-left, which on a laptop
-      // reaches about 180 cells along and 33 up (it is sized in pixels, so it covers less of a bigger map). By the left
-      // edge, keep clear of the latitude labels too: on a laptop they reach about 26 cells in and 11 down from their line.
+      // reaches about 180 cells along and 33 up (it is sized in pixels, so it covers less of a bigger map).
       if ((x > W - 70 && y < 44) || (x - half < 182 && y + size * 0.6 > H - 33)) continue;
-      if (x - half < 22 && LAT_LINES.some(yl => y + size * 0.6 > yl && y - size * 0.6 < yl + 12)) continue;
       const i = y * W + x; if (dist[i] > bd && (!first || Math.hypot(x - first.x, y - first.y) > 150)) { bd = dist[i]; best = i; }
     }
     if (best < 0) continue;
@@ -1361,8 +1358,8 @@ function drawMap(c, k, vw, vh, v, opt) {
   if (L.grid) {
     c.lineWidth = 0.6 / s; c.strokeStyle = atlas ? 'rgba(80,60,36,0.22)' : 'rgba(255,255,255,0.22)';
     c.beginPath();
-    for (let lat = 35; lat <= 55; lat += 5) { const y = (LAT0 - lat) / LAT_SPAN * H; c.moveTo(0, y); c.lineTo(W, y); }
-    for (let lon = -10; lon <= 45; lon += 5) { const x = (lon - LON0) / LON_SPAN * W; c.moveTo(x, 0); c.lineTo(x, H); }
+    for (const y of GRID_Y) { c.moveTo(0, y); c.lineTo(W, y); }
+    for (const x of GRID_X) { c.moveTo(x, 0); c.lineTo(x, H); }
     c.stroke();
   }
 
@@ -1371,19 +1368,6 @@ function drawMap(c, k, vw, vh, v, opt) {
   const X0 = ox, Y0 = oy, MW = W * s, MH = H * s, sb = scaleBar(X0, Y0, MH, MW, s, vh, vw);
   c.save(); c.beginPath(); c.rect(X0, Y0, MW, MH); c.clip();
   if (atlas) drawGlyphs(c, v, vw, vh);
-  if (L.grid && zr > 0.7) {
-    c.font = `10px ${F_MONO}`; c.fillStyle = atlas ? 'rgba(70,52,30,0.75)' : 'rgba(255,255,255,0.8)'; c.textBaseline = 'top'; c.textAlign = 'left';
-    // Label every 5°, or every 10° when the map is small enough that they'd run together; keep clear of the compass.
-    const lonStep = 5 / LON_SPAN * W * s < 46 ? 10 : 5, latStep = 5 / LAT_SPAN * H * s < 26 ? 10 : 5;
-    // Latitudes are labelled down the left edge, except where the scale bar would cover the label.
-    const labelX = Math.max(X0, 0) + 6;
-    for (let lat = 35; lat <= 55; lat += 5) {
-      if (lat % latStep) continue; const y = oy + (LAT0 - lat) / LAT_SPAN * H * s;
-      if (labelX < sb.right && y + 14 > sb.top && y + 3 < sb.bottom) continue;
-      c.fillText(`${lat}°N`, labelX, y + 3);
-    }
-    for (let lon = -10; lon <= 45; lon += 5) { if (lon % lonStep) continue; const x = ox + (lon - LON0) / LON_SPAN * W * s; if (x > Math.min(vw, X0 + MW) - 84) continue; c.fillText(`${Math.abs(lon)}°${lon < 0 ? 'W' : 'E'}`, x + 4, Math.max(Y0, 0) + 6); }
-  }
   if (L.realms) drawRealmNames(c, v, atlas);
   if (L.rivers && L.labels && zr >= 0.95) {
     for (const r of D.riverLabels) {
@@ -2574,7 +2558,7 @@ function updateStatus() {
   const w = toWorld(hover.x, hover.y);
   if (w.x < 0 || w.y < 0 || w.x >= W || w.y >= H) { el.hidden = true; return; }
   const i = cellAt(w.x, w.y), E = surfaceM(i), water = world.h[i] < world.sea && !D.lake[i];
-  const parts = [fmtPos(w.x, w.y), water ? `${fmtInt(-E)} m deep` : `${fmtInt(Math.max(0, E))} m`, BIOME_NAME[D.biome[i]], `${Math.round(D.temp[i])} °C`];
+  const parts = [water ? `${fmtInt(-E)} m deep` : `${fmtInt(Math.max(0, E))} m`, BIOME_NAME[D.biome[i]], `${Math.round(D.temp[i])} °C`];
   const own = D.owner[i]; if (own >= 0 && !water && D.realms[own]) parts.push(D.realms[own].name);
   el.textContent = parts.join('  ·  '); el.hidden = false;
 }
@@ -2669,7 +2653,6 @@ function riverWay(c) {
 }
 function factsHTML(f, p) {
   const rows = [];
-  rows.push(['Position', `<span class="mono">${fmtPos(f.x, f.y)}</span>`]);
   if (f.water && !f.lake) rows.push(['Depth', `<span class="mono">${fmtInt(-f.E)} m</span>`]);
   // A few metres above the sea reads as a missing figure when it rounds to '0 m'. On a lake it is the water's surface.
   else rows.push([f.lake ? 'Surface' : 'Elevation', f.E < 5 ? 'At sea level' : `<span class="mono">${fmtInt(f.E)} m</span>`]);
@@ -3510,25 +3493,15 @@ window.terra = {
   // What lies at a map cell: its height against sea level (below zero in the sea), whether it holds a lake or a river,
   // its rain (m, 0 to 1), its kind of land, its height in metres (a lake's surface on a lake) and its mean temperature.
   cell: (x, y) => { const i = cellAt(x, y); return { h: world.h[i] - world.sea, lake: !!D.lake[i], river: !!D.isR[i], m: world.m[i], kind: BIOME_NAME[D.biome[i]], elev: surfaceM(i), temp: D.temp[i] }; },
-  // Where the scale bar's box, the sea names, the latitude labels, the realms' names and every label sit on the screen,
+  // Where the scale bar's box, the sea names, the realms' names and every label sit on the screen,
   // as drawn: [left, top, right, bottom] in CSS pixels.
   boxes: () => {
-    const s = view.s, sb = scaleBar(view.ox, view.oy, H * s, W * s, s, view.ch, view.cw), seas = [], lats = [];
+    const s = view.s, sb = scaleBar(view.ox, view.oy, H * s, W * s, s, view.ch, view.cw), seas = [];
     for (const l of world.labels) {
       const fs = labelSize(l, view); if (l.kind !== 'sea' || fs < 6) continue;
       const st = labelStyle(l, ui.style === 'atlas'); ctx.save(); ctx.font = `${st.font} ${fs}px ${st.face}`; ctx.letterSpacing = `${(fs * st.sp).toFixed(1)}px`;
       const w = ctx.measureText(l.text).width; ctx.restore();
       const X = view.ox + l.x * s, Y = view.oy + l.y * s; seas.push([X - w / 2, Y - fs * 0.6, X + w / 2, Y + fs * 0.6]);
-    }
-    if (ui.layers.grid && s / view.s0 > 0.7) {
-      const X = Math.max(view.ox, 0) + 6, step = 5 / LAT_SPAN * H * s < 26 ? 10 : 5;
-      ctx.save(); ctx.font = `10px ${F_MONO}`; ctx.letterSpacing = '0px';
-      for (let lat = 35; lat <= 55; lat += 5) {
-        if (lat % step) continue; const y = view.oy + (LAT0 - lat) / LAT_SPAN * H * s;
-        if (X < sb.right && y + 14 > sb.top && y + 3 < sb.bottom) continue;
-        lats.push([X, y + 3, X + ctx.measureText(`${lat}°N`).width, y + 13]);
-      }
-      ctx.restore();
     }
     // Every label drawn, as the box it fills (turned labels by the box round them).
     const labels = [];
@@ -3545,7 +3518,7 @@ window.terra = {
       ctx.save(); ctx.font = `${sz}px ${F_SC}`; ctx.letterSpacing = `${(sz * 0.26).toFixed(1)}px`; const w = ctx.measureText(r.name).width; ctx.restore();
       const X = view.ox + r.lx * s, Y = view.oy + r.ly * s; realms.push([X - w / 2, Y - sz * 0.6, X + w / 2, Y + sz * 0.6]);
     }
-    return { scale: [sb.X - 6, sb.top, sb.right, sb.bottom], seas, lats, realms, labels };
+    return { scale: [sb.X - 6, sb.top, sb.right, sb.bottom], seas, realms, labels };
   },
   // What a seed and shape generated, to tell when that changes: the first 12 hex of the sha1 of the saved heights, of
   // the saved rainfall, and of the place names and label texts.

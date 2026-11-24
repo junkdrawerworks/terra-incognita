@@ -8,7 +8,7 @@
 // files that are damaged or from a newer version, keyboard focus and shortcuts, and the dark theme Claude's viewer
 // can stamp. Then what the map says about itself: a lake's elevation, rivers drawn out of lakes (one with a wide
 // valley) that leave the lakes be, a coast named after the sea it is on, a coast drawn smooth that comes out
-// smooth, sea names clear of the scale bar and the latitudes down the left edge, and places the sea rises over; and
+// smooth, sea names clear of the scale bar, no latitudes the climate doesn't match, and places the sea rises over; and
 // the README's count of the kinds of land. Last, a phone held sideways, the map clear of a touch screen's sides, a
 // Back mid-sketch taken for a slip, a browser that won't keep the autosave, and saved worlds the page can't read or
 // that a newer version wrote, kept aside and given back by Download the old save. Five seeds that must keep growing the
@@ -888,20 +888,36 @@ const fit = await M(() => {
 });
 ok(fit.n > 50 && fit.rms < 0.1, `a straight coast drawn smooth comes out straight (${fit.rms.toFixed(3)} cells off a straight line, over ${fit.n} rows)`);
 
-// Sea names stay clear of the scale bar in the bottom-left corner, and of the latitudes down the left edge. The first
-// three worlds had one under the scale bar; in the last two, keeping it off the scale bar put it on 35°N.
-const covered = [], onLat = [];
+// Sea names stay clear of the scale bar in the bottom-left corner. The first three worlds had one under it.
+const covered = [];
 for (const [seed, shape] of [[645278, 'inland'], [793904, 'twin'], [543439, 'twin'], [487097, 'continent'], [368654, 'twin']]) {
-  const [under, across] = await M(([seed, shape]) => {
+  const under = await M(([seed, shape]) => {
     window.terra.newWorld(seed, shape);
-    const { scale, seas, lats } = window.terra.boxes(), hit = (a, b) => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
-    return [seas.some((a) => hit(a, scale)), seas.some((a) => lats.some((b) => hit(a, b)))];
+    const { scale, seas } = window.terra.boxes(), hit = (a, b) => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
+    return seas.some((a) => hit(a, scale));
   }, [seed, shape]);
   if (under) covered.push(seed);
-  if (across) onLat.push(seed);
 }
 ok(covered.length === 0, 'sea names stay clear of the scale bar' + (covered.length ? ': not in ' + covered.join(', ') : ''));
-ok(onLat.length === 0, 'and of the latitudes down the left edge' + (onLat.length ? ': not in ' + onLat.join(', ') : ''));
+
+// The map prints no latitudes or longitudes, on the map, on a place's page or under the pointer: the climate runs from
+// ice sheet to jungle over 3,000 km, and the numbers put a frozen north at 55°N, where Denmark is.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await c.addInitScript(() => { const said = (window.__drawn = []), f = CanvasRenderingContext2D.prototype.fillText; CanvasRenderingContext2D.prototype.fillText = function (t, ...a) { said.push(String(t)); return f.call(this, t, ...a); }; });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const cap = (await pg.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
+  await pg.evaluate(([id, x, y]) => { window.terra.select({ type: 'place', id }); window.terra.centerOn(x, y); }, [cap.id, cap.x, cap.y]);
+  const at = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), [cap.x + 3, cap.y + 3]), mb = await pg.locator('#map').boundingBox();
+  await pg.mouse.move(mb.x + at.x, mb.y + at.y);
+  await pg.waitForTimeout(200);
+  const drawn = await pg.evaluate(() => window.__drawn.filter((t) => /\d\s*°\s*[NSEW]/.test(t)));
+  const page = await pg.textContent('#pane-inspect .facts'), status = await pg.textContent('#status');
+  ok(drawn.length === 0 && !/°[NSEW]|°\d|′/.test(page) && !/°[NSEW]|′/.test(status) && /Elevation|At sea level/.test(page) && /°C/.test(status), `no latitudes or longitudes on the map, a place's page or under the pointer (${drawn.slice(0, 3).join(', ') || 'none drawn'}; status "${status}")`);
+  await c.close();
+}
 
 // Raising the sea says how many places it covered, and its Undo brings them back up: in the starting world, three
 // steps of the slider cover 18 of its 54 places. A Sea sketch and a brush that leave a place in the water say so too.
@@ -2098,7 +2114,7 @@ await oldCtx.close();
   ok(d.select.startsWith('Drag to pan. Scroll or pinch to zoom. Click') && d.settle === 'Click dry land to found it.' && d.landmark === 'Click dry land to mark it.' && d.label === 'Click the map to place it.' && !/Two fingers/.test(d.sketch + d.raise), 'with a mouse the hints say Click');
   ok(d.keys && !d.twoFingers && d.rows.includes('+ −') && d.rows.includes('Esc') && d.rows.includes('Ctrl Z') && d.rows.includes('Ctrl S') && d.rows.includes('Ctrl O') && d.undo[0] === 'Undo (Ctrl+Z)', `with a mouse the shortcuts show, zoom and Esc among them (${d.rows.join(', ')})`);
   ok(JSON.stringify(d.land) === JSON.stringify(['400', '1,000', '2,500'].map((m) => `Draw a loop. Land rises inside it, to about ${m} m.`)), `a Land loop's hint says how high it rises (${d.land.map((h) => h.match(/about ([\d,]+) m/)[1]).join(', ')} m)`);
-  ok(d.grid === 'Latitude and longitude lines' && d.tool === 'Sketch land, sea, ranges and rivers', 'the grid layer and the sketch tool say what they are');
+  ok(d.grid === 'Grid lines' && d.tool === 'Sketch land, sea, ranges and rivers', 'the grid layer and the sketch tool say what they are');
   await m.close();
   const mac = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await mac.addInitScript(() => { for (const [k, v] of [['platform', 'MacIntel'], ['userAgentData', { platform: 'macOS' }]]) Object.defineProperty(Navigator.prototype, k, { get: () => v, configurable: true }); });
@@ -2294,7 +2310,7 @@ await oldCtx.close();
   await pg.goto(base);
   const b = await pg.locator('#map').boundingBox();
   const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
-  const position = () => pg.evaluate(() => [...document.querySelectorAll('#pane-inspect .facts dd')].find((d) => d.previousElementSibling.textContent === 'Position').textContent);
+  const position = () => pg.evaluate(() => [...document.querySelectorAll('#pane-inspect .facts dd')].map((d) => d.textContent).join(' | '));
   const cap = (await pg.evaluate(() => window.terra.places())).find((p) => p.kind === 'capital');
   const s = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), [cap.x, cap.y]), a = [b.x + s.x, b.y + s.y];
   await touch('touchStart', [a]);

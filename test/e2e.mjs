@@ -1567,6 +1567,50 @@ await oldCtx.close();
   await c.close();
 }
 
+// A road of your own: the Sketch tool's Road mode draws one where you draw it, named by the places at its ends, kept
+// through a reload and in the world file; Erase on it takes it away, and Undo brings it back. Erase on a road between
+// towns says those come and go with the towns.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 }, acceptDownloads: true });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  await pg.evaluate(() => window.terra.newWorld(20417, 'continent'));
+  const ps = await pg.evaluate(() => window.terra.places());
+  // Two settlements 40 to 80 cells apart, drawn between in a gentle curve.
+  let a = null, b = null;
+  for (const p of ps) for (const q of ps) if (!a && p.kind !== 'landmark' && q.kind !== 'landmark' && p.id < q.id && Math.hypot(p.x - q.x, p.y - q.y) > 40 && Math.hypot(p.x - q.x, p.y - q.y) < 80) { a = p; b = q; }
+  const line = []; for (let k = 0; k <= 8; k++) { const t = k / 8; line.push([a.x + (b.x - a.x) * t + Math.sin(t * Math.PI) * 4, a.y + (b.y - a.y) * t]); }
+  await pg.evaluate(() => window.terra.setTool('sketch'));
+  await pg.click('.chip[data-v="road"]');
+  await drag(line, 6, pg);
+  const drew = await pg.textContent('#toast span'), roads = await pg.evaluate(() => window.terra.drawnRoads());
+  const inText = (p) => p.name.replace(/^The /, 'the ');
+  ok(roads.length === 1 && roads[0].length >= 30 && drew === `Drew a road from ${inText(a)} to ${inText(b)}.`, `the Road sketch draws a road where it is drawn, named by its ends ("${drew}", ${roads[0] && roads[0].length / 2} points)`);
+  await pg.waitForTimeout(1200);
+  await pg.reload(); await pg.waitForFunction(() => window.terra && window.terra.state().places > 0);
+  const kept = await pg.evaluate(() => window.terra.drawnRoads().length), file = JSON.parse(await pg.evaluate(() => window.terra.worldText()));
+  ok(kept === 1 && Array.isArray(file.roads) && file.roads.length === 1 && file.roads[0].pts.length === roads[0].length, 'the road is kept through a reload and goes in the world file');
+  await pg.evaluate(() => window.terra.setTool('erase'));
+  // The point on a line farthest from any place or label, so Erase finds the road there rather than a place.
+  const clear = (pts) => pg.evaluate((pts) => { const t = window.terra, things = t.places().concat(t.labels()); let best = null, bd = -1; for (const [x, y] of pts) { const d = Math.min(...things.map((q) => Math.hypot(q.x - x, q.y - y))); if (d > bd) { bd = d; best = [x, y]; } } return best; }, pts);
+  const pts = []; for (let k = 0; k < roads[0].length; k += 2) pts.push([roads[0][k], roads[0][k + 1]]);
+  const mid = await clear(pts), box = await pg.locator('#map').boundingBox(), at = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), mid);
+  await pg.mouse.click(box.x + at.x, box.y + at.y);
+  await pg.waitForTimeout(200);
+  const erased = [await pg.textContent('#toast span'), await pg.evaluate(() => window.terra.drawnRoads().length)];
+  await pg.click('#toast button');
+  const back = await pg.evaluate(() => window.terra.drawnRoads().length);
+  ok(erased[0] === 'Took away the road.' && erased[1] === 0 && back === 1, `Erase on a drawn road takes it away and Undo brings it back ("${erased[0]}")`);
+  // Erase on a road between towns: the longest one, where it is farthest from any place.
+  const town = await clear(await pg.evaluate(() => window.terra.roads().sort((p, q) => q.cells.length - p.cells.length)[0].cells.map(([x, y]) => [x + 0.5, y + 0.5])));
+  const tAt = await pg.evaluate(([x, y]) => window.terra.toScreen(x, y), town);
+  await pg.mouse.click(box.x + tAt.x, box.y + tAt.y);
+  await pg.waitForTimeout(200);
+  const said = await pg.textContent('#toast span');
+  ok(said.startsWith('That road joins towns, so it comes and goes with them.'), `Erase on a road between towns says it comes and goes with them ("${said}")`);
+  await c.close();
+}
+
 // No two realms share a name. A realm's name was drawn without looking at the others, so now and then two came out
 // the same (two Oaklands among 30 realms). Here two towns of one tongue are made capitals with the same roll of the
 // dice, which drew the same name for both.
@@ -2490,7 +2534,7 @@ await oldCtx.close();
   ok(d.select.startsWith('Drag to pan. Scroll or pinch to zoom. Click') && d.settle === 'Click dry land to found it.' && d.landmark === 'Click dry land to mark it.' && d.label === 'Click the map to place it.' && !/Two fingers/.test(d.sketch + d.raise), 'with a mouse the hints say Click');
   ok(d.keys && !d.twoFingers && d.rows.includes('+ −') && d.rows.includes('Esc') && d.rows.includes('Ctrl Z') && d.rows.includes('Ctrl S') && d.rows.includes('Ctrl O') && d.undo[0] === 'Undo (Ctrl+Z)', `with a mouse the shortcuts show, zoom and Esc among them (${d.rows.join(', ')})`);
   ok(JSON.stringify(d.land) === JSON.stringify(['400', '1,000', '2,500'].map((m) => `Draw a loop. Land rises inside it, to about ${m} m.`)), `a Land loop's hint says how high it rises (${d.land.map((h) => h.match(/about ([\d,]+) m/)[1]).join(', ')} m)`);
-  ok(d.grid === 'Grid lines' && d.tool === 'Sketch land, sea, ranges and rivers', 'the grid layer and the sketch tool say what they are');
+  ok(d.grid === 'Grid lines' && d.tool === 'Sketch land, sea, ranges, rivers and roads', 'the grid layer and the sketch tool say what they are');
   await m.close();
   const mac = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await mac.addInitScript(() => { for (const [k, v] of [['platform', 'MacIntel'], ['userAgentData', { platform: 'macOS' }]]) Object.defineProperty(Navigator.prototype, k, { get: () => v, configurable: true }); });

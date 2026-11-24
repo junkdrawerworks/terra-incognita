@@ -742,6 +742,12 @@ function buildRoads() {
     }
   }
   D.roads = roads;
+  buildRoadPath();
+}
+// The roads as drawn: the roads between towns as one set of lines, each stretch once, joined into runs between the
+// places where roads meet or end; and the roads you drew.
+function buildRoadPath() {
+  const roads = D.roads;
   // Drawn as one set of lines: each stretch of road once, joined into runs between the places where roads meet or end.
   const adj = new Map(), link = (a, b) => { if (!adj.has(a)) adj.set(a, new Set()); adj.get(a).add(b); };
   for (const rd of roads) for (let k = 0; k + 1 < rd.cells.length; k++) { link(rd.cells[k], rd.cells[k + 1]); link(rd.cells[k + 1], rd.cells[k]); }
@@ -758,6 +764,7 @@ function buildRoads() {
   };
   for (const [a, nx] of adj) if (nx.size !== 2) for (const b of nx) if (!done.has(key(a, b))) run(a, b);
   for (const [a, nx] of adj) for (const b of nx) if (!done.has(key(a, b))) run(a, b);
+  for (const r of world.roads || []) smoothLine(path, r.pts);
   D.roadPath = path;
 }
 // The road a place is on, for its page. A capital: how many of its realm's settlements its roads reach, and which
@@ -774,6 +781,12 @@ function roadBy(p) {
   const by = D.roads.filter(rd => rd.from !== p && rd.to !== p && near(rd));
   const pass = by.find(rd => rd.from.kind === 'capital') || by.sort((a, b) => b.cells.length - a.cells.length)[0];
   if (pass) return { from: pass.from, to: pass.to };
+  // A road you drew from one place to another that passes it.
+  for (const r of world.roads) {
+    if (!r.pts.some((v, k) => k % 2 === 0 && Math.abs(v - p.x) <= 1.5 && Math.abs(r.pts[k + 1] - p.y) <= 1.5)) continue;
+    const a = roadEnd(r.pts[0], r.pts[1]), b = roadEnd(r.pts[r.pts.length - 2], r.pts[r.pts.length - 1]);
+    if (a && b && a !== b && a !== p && b !== p) return { from: a, to: b };
+  }
   const own = D.roads.find(rd => rd.from === p);
   return own ? { to: own.to, km: roadLength(own.cells) * KM } : null;
 }
@@ -1152,7 +1165,7 @@ function newWorld(seed, shape, opts = {}) {
   if (world && !opts.noUndo) pushUndo({ h: true, m: true, meta: true, world: true });
   const t = generateTerrain(seed, shape);
   if (!world) world = { h: t.h, m: t.m }; else { world.h.set(t.h); world.m.set(t.m); }
-  Object.assign(world, { seed, shape, name: '', sea: 0.5, places: [], labels: [], springs: [], rivers: [], nextId: 1, editedAt: null, filedAt: null });
+  Object.assign(world, { seed, shape, name: '', sea: 0.5, places: [], labels: [], springs: [], rivers: [], roads: [], nextId: 1, editedAt: null, filedAt: null });
   forgetRivers(); computeTN(); hydrology(); fillPits(); snapToSave(world.h); snapToSave(world.m); hydrology(); computeClimate(); buildRivers();
   populate(seed);
   const rng = mulberry32(seed + 404);
@@ -1171,7 +1184,7 @@ function takeSnap(parts) {
   if (parts.world) s.world = true;
   if (parts.h) s.h = world.h.slice();
   if (parts.m) s.m = world.m.slice();
-  if (parts.meta) s.meta = JSON.stringify({ name: world.name, seed: world.seed, shape: world.shape, sea: world.sea, places: world.places, labels: world.labels, springs: world.springs || [], rivers: world.rivers || [], nextId: world.nextId });
+  if (parts.meta) s.meta = JSON.stringify({ name: world.name, seed: world.seed, shape: world.shape, sea: world.sea, places: world.places, labels: world.labels, springs: world.springs || [], rivers: world.rivers || [], roads: world.roads || [], nextId: world.nextId });
   return s;
 }
 // Typing in the world's name is one Undo step per run of typing: a step from anything else, an Undo or a Redo ends the
@@ -1185,7 +1198,7 @@ function applySnap(s) {
   if (s.h) world.h.set(s.h);
   if (s.m) world.m.set(s.m);
   if (s.meta) {
-    const o = JSON.parse(s.meta); if (!o.springs) o.springs = []; if (!o.rivers) o.rivers = [];
+    const o = JSON.parse(s.meta); if (!o.springs) o.springs = []; if (!o.rivers) o.rivers = []; if (!o.roads) o.roads = [];
     // Notes are part of the step too: writing in a place's notes is a step of its own (see bindPlace), so the notes
     // come back as they were when it was taken.
     const seedChanged = o.seed !== world.seed; Object.assign(world, o); if (seedChanged) computeTN();
@@ -1248,7 +1261,7 @@ function unpackF(str, whole) { const b = unb64(str); if (whole && b.length !== N
 // A world file also says which look it was saved in (Terrain or Atlas), and opening it switches to that look, so it
 // opens on another device as it was made. The autosave doesn't: there your own choice of look stays.
 function serialize(savedAt = new Date().toISOString(), forFile = false) {
-  return JSON.stringify({ format: 'terra-incognita', version: 1, ...(forFile ? {} : { id: worldId }), name: world.name, seed: world.seed, shape: world.shape, sea: world.sea, W, H, h: packF(world.h), m: packF(world.m), places: world.places, labels: world.labels, springs: world.springs || [], rivers: world.rivers || [], nextId: world.nextId, editedAt: world.editedAt || null, filedAt: world.filedAt || null, ...(forFile ? { style: ui.style } : {}), savedAt });
+  return JSON.stringify({ format: 'terra-incognita', version: 1, ...(forFile ? {} : { id: worldId }), name: world.name, seed: world.seed, shape: world.shape, sea: world.sea, W, H, h: packF(world.h), m: packF(world.m), places: world.places, labels: world.labels, springs: world.springs || [], rivers: world.rivers || [], roads: world.roads || [], nextId: world.nextId, editedAt: world.editedAt || null, filedAt: world.filedAt || null, ...(forFile ? { style: ui.style } : {}), savedAt });
 }
 // A world file must be whole: one cut short would open as a black map and then be autosaved over the world you had.
 // One saved by a newer version isn't opened at all, since saving it again here would lose whatever is new in it.
@@ -1265,6 +1278,8 @@ function applyWorld({ o, h, m }) {
   if (!world) world = { h, m }; else { world.h.set(h); world.m.set(m); }
   const stamp = v => typeof v === 'string' && !isNaN(Date.parse(v)) ? v : null;
   Object.assign(world, { editedAt: stamp(o.editedAt), filedAt: stamp(o.filedAt), name: String(o.name || 'Untitled world'), seed: o.seed | 0, shape: SHAPES[o.shape] ? o.shape : 'continent', sea: clamp(+o.sea || 0.5, 0.4, 0.6), places: Array.isArray(o.places) ? o.places.filter(placed) : [], labels: Array.isArray(o.labels) ? o.labels.filter(placed) : [], nextId: o.nextId | 0 || 1,
+    // The roads drawn by hand: each a list of points on the map, at least two; a file from before there were any has none.
+    roads: Array.isArray(o.roads) ? o.roads.filter(r => r && Array.isArray(r.pts) && r.pts.length >= 4 && r.pts.length <= 20000 && r.pts.every(v => typeof v === 'number' && isFinite(v))).slice(0, 2000).map(r => ({ pts: r.pts.slice(0, r.pts.length & ~1).map((v, k) => clamp(v, 0, k % 2 ? H : W)) })) : [],
     springs: Array.isArray(o.springs) ? o.springs.filter(sp => sp && isFinite(sp.x) && isFinite(sp.y)).map(sp => ({ x: clamp(+sp.x, 0, W), y: clamp(+sp.y, 0, H), flow: clamp(+sp.flow || 0, 0, 500) })) : [],
     // Each river's name, by where its mouth is; a file from before rivers kept their names has none, and names its
     // rivers from its seed as it always did.
@@ -1700,7 +1715,7 @@ function drawMap(c, k, vw, vh, v, opt) {
   }
   c.lineWidth = (atlas ? 1.3 : 0.9) / s; c.strokeStyle = atlas ? 'rgba(70,52,30,0.85)' : 'rgba(16,38,52,0.55)'; c.stroke(D.coast);
   // Roads: a fine dashed line, a little bolder close in.
-  if (L.roads && D.roads.length) {
+  if (L.roads && (D.roads.length || world.roads.length)) {
     const lw = Math.min(1.8, 1.05 * Math.sqrt(zr)) / s;
     c.lineWidth = lw * 2.4; c.strokeStyle = atlas ? 'rgba(250,240,214,0.55)' : 'rgba(246,236,214,0.42)'; c.stroke(D.roadPath);
     c.setLineDash([3.2 / s, 2.2 / s]); c.lineWidth = lw; c.strokeStyle = atlas ? 'rgba(128,52,22,0.95)' : 'rgba(110,40,16,0.95)'; c.stroke(D.roadPath);
@@ -2041,7 +2056,7 @@ const ICONS = {
 };
 const TOOLS = [
   { id: 'select', key: 'v', label: 'Select and pan' }, 0,
-  { id: 'sketch', key: 'p', label: 'Sketch land, sea, ranges and rivers' },
+  { id: 'sketch', key: 'p', label: 'Sketch land, sea, ranges, rivers and roads' },
   { id: 'raise', key: 'r', label: 'Raise land' }, { id: 'lower', key: 'l', label: 'Lower land' }, { id: 'smooth', key: 's', label: 'Smooth terrain' },
   { id: 'rain', key: 'w', label: 'Make wetter' }, { id: 'drought', key: 'd', label: 'Make drier' }, 0,
   { id: 'settle', key: 'c', label: 'Found a settlement' }, { id: 'landmark', key: 'm', label: 'Mark a landmark' }, { id: 'label', key: 't', label: 'Add a map label' }, 0,
@@ -2087,12 +2102,12 @@ function renderToolOpts() {
       <span class="hint">${t === 'rain' || t === 'drought' ? 'Rainfall shifts forests, grassland and desert.' : `${BRUSH_HINT[t]} Hold and drag. Rivers and borders settle when you let go.`}${TWO_FINGERS}</span>`;
   } else if (t === 'sketch') {
     const sk = ui.sketch;
-    h += chipGroup('Sketch mode', [['land', 'Land'], ['sea', 'Sea'], ['range', 'Mountain range'], ['river', 'River']], sk.mode, 'skmode');
+    h += chipGroup('Sketch mode', [['land', 'Land'], ['sea', 'Sea'], ['range', 'Mountain range'], ['river', 'River'], ['road', 'Road']], sk.mode, 'skmode');
     if (sk.mode === 'river') h += `<label class="opt" for="optValley">Valley <input type="range" id="optValley" min="2" max="12" value="${sk.valley}"><output id="optValleyOut">${acrossKm(sk.valley)}</output></label>`;
     else if (sk.mode === 'range') h += `<label class="opt" for="optWidth">Width <input type="range" id="optWidth" min="3" max="24" value="${sk.width}"><output id="optWidthOut">${acrossKm(sk.width)}</output></label>`;
-    else h += `<label class="opt" for="optRough">Coast <input type="range" id="optRough" min="0" max="10" value="${sk.rough}"><output id="optRoughOut" style="min-width:6.5ch">${ROUGH_WORD[sk.rough]}</output></label>`;
+    else if (sk.mode !== 'road') h += `<label class="opt" for="optRough">Coast <input type="range" id="optRough" min="0" max="10" value="${sk.rough}"><output id="optRoughOut" style="min-width:6.5ch">${ROUGH_WORD[sk.rough]}</output></label>`;
     if (sk.mode === 'land' || sk.mode === 'range') h += `<span class="opt">Height ${chipGroup('Height', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], sk.height, 'skh')}</span>`;
-    h += `<span class="hint">${sk.mode === 'land' ? `Draw a loop. Land rises inside it, to about ${LAND_TOP[sk.height] || LAND_TOP.medium} m.` : sk.mode === 'sea' ? 'Draw a loop to flood it: bays, straits, inland seas.' : sk.mode === 'river' ? `Draw from the source toward the sea. A valley forms so the water follows your line, and it gathers tributaries as rain drains into the valley. To take one away, ${TOUCH ? 'tap' : 'click'} where it starts with Erase.` : `Draw along the ridge line. Peaks rise to about ${RANGE_TOP[sk.height] || RANGE_TOP.medium} m. A valley they block drains through a gorge at the lowest pass.`}${TWO_FINGERS}</span>`;
+    h += `<span class="hint">${sk.mode === 'road' ? `Draw a road from one place to another. It goes where you draw it. To take one away, ${TOUCH ? 'tap' : 'click'} it with Erase.` : sk.mode === 'land' ? `Draw a loop. Land rises inside it, to about ${LAND_TOP[sk.height] || LAND_TOP.medium} m.` : sk.mode === 'sea' ? 'Draw a loop to flood it: bays, straits, inland seas.' : sk.mode === 'river' ? `Draw from the source toward the sea. A valley forms so the water follows your line, and it gathers tributaries as rain drains into the valley. To take one away, ${TOUCH ? 'tap' : 'click'} where it starts with Erase.` : `Draw along the ridge line. Peaks rise to about ${RANGE_TOP[sk.height] || RANGE_TOP.medium} m. A valley they block drains through a gorge at the lowest pass.`}${TWO_FINGERS}</span>`;
   } else if (t === 'settle') {
     h += chipGroup('Settlement size', [['capital', 'Capital'], ['city', 'City'], ['town', 'Town'], ['village', 'Village']], ui.settleKind, 'settle') + `<span class="hint">${ui.settleKind === 'capital' ? 'A capital founds a new realm.' : `${TAP} dry land to found it.`}</span>`;
   } else if (t === 'landmark') {
@@ -2100,7 +2115,7 @@ function renderToolOpts() {
   } else if (t === 'label') {
     h += chipGroup('Label style', [['region', 'Region'], ['sea', 'Sea'], ['range', 'Mountains']], ui.labelKind, 'label') + `<label class="sr" for="optLabelText">Label text</label><input class="txt" id="optLabelText" placeholder="Text (blank for a name)" value="${esc(ui.labelText)}"><span class="hint">${TAP} the map to place it.</span>`;
   } else if (t === 'erase') {
-    h += `<span class="hint">${TAP} a place or label to remove it, or the ring where a river you drew starts. Undo brings it back.</span>`;
+    h += `<span class="hint">${TAP} a place or label to remove it, a road you drew, or the ring where a river you drew starts. Undo brings it back.</span>`;
   } else {
     h += firstHint ? `<span class="hint">${TAP} a town to read its page, or ${TOUCH ? 'tap' : 'pick'} the pencil to sketch your own land.</span>` : `<span class="hint">${TOUCH ? 'Drag to pan. Pinch to zoom. Tap a place or any spot to read about it.' : 'Drag to pan. Scroll or pinch to zoom. Click a place or any spot to read about it.'}</span>`;
   }
@@ -2653,8 +2668,40 @@ function dropDrownedSprings() {
 }
 function finishSketch() {
   const d = sketchDraft; sketchDraft = null; if (!d) return;
-  if (d.mode === 'range') sketchRange(d.pts); else if (d.mode === 'river') sketchRiver(d.pts); else sketchLoop(d.pts, d.mode);
+  if (d.mode === 'range') sketchRange(d.pts); else if (d.mode === 'river') sketchRiver(d.pts); else if (d.mode === 'road') sketchRoad(d.pts); else sketchLoop(d.pts, d.mode);
   requestDraw();
+}
+// A road you draw goes where you draw it, over land or water, and is kept with the world (world.roads, each a list of
+// points in map cells). It is named by the places at its ends, where there are any.
+const roadEnd = (x, y) => { let best = null, bd = 5 * 5; for (const p of world.places) { const d = (p.x - x) ** 2 + (p.y - y) ** 2; if (d < bd) { bd = d; best = p; } } return best; };
+function sketchRoad(raw) {
+  const pts = resample(raw, 1.5).map(v => Math.round(v * 10) / 10);
+  let len = 0; for (let k = 2; k < pts.length; k += 2) len += Math.hypot(pts[k] - pts[k - 2], pts[k + 1] - pts[k - 1]);
+  if (len < 4) { toast('Draw a longer road, from one place to another.'); return; }
+  pushUndo({ meta: true });
+  world.roads.push({ pts }); buildRoadPath(); markDirty();
+  const a = roadEnd(pts[0], pts[1]), b = roadEnd(pts[pts.length - 2], pts[pts.length - 1]);
+  toast(a && b && a !== b ? `Drew a road from ${placeIn(a)} to ${placeIn(b)}.` : a || b ? `Drew a road from ${placeIn(a || b)}.` : 'Drew a road.', { label: 'Undo', fn: undo });
+}
+// The road you drew under a point on the screen, if any: within 10 pixels of its line.
+function drawnRoadAt(sx, sy) {
+  let best = null, bd = 10 * 10;
+  for (const r of world.roads) for (let k = 2; k < r.pts.length; k += 2) {
+    const ax = view.ox + r.pts[k - 2] * view.s, ay = view.oy + r.pts[k - 1] * view.s, bx = view.ox + r.pts[k] * view.s, by = view.oy + r.pts[k + 1] * view.s;
+    const L = (bx - ax) ** 2 + (by - ay) ** 2, t = L ? clamp(((sx - ax) * (bx - ax) + (sy - ay) * (by - ay)) / L, 0, 1) : 0, d = (ax + (bx - ax) * t - sx) ** 2 + (ay + (by - ay) * t - sy) ** 2;
+    if (d < bd) { bd = d; best = r; }
+  }
+  return best;
+}
+// Whether a point on the screen is on one of the roads between towns, which come and go with the towns.
+function townRoadAt(sx, sy) {
+  const w = toWorld(sx, sy), r = Math.max(1, 8 / view.s);
+  return D.roads.some(rd => rd.cells.some(c => Math.hypot(c % W + 0.5 - w.x, ((c / W) | 0) + 0.5 - w.y) < r));
+}
+function removeRoad(r) {
+  pushUndo({ meta: true });
+  world.roads = world.roads.filter(q => q !== r); buildRoadPath(); requestDraw(); markDirty();
+  toast('Took away the road.', { label: 'Undo', fn: undo });
 }
 function drawSketch(c, v) {
   const P = sketchDraft.pts, n = P.length / 2; if (n < 2) return;
@@ -2666,6 +2713,9 @@ function drawSketch(c, v) {
     c.lineWidth = 4.5; c.strokeStyle = 'rgba(255,255,255,0.7)'; c.stroke();
     c.lineWidth = 2.4; c.strokeStyle = '#1d5f88'; c.stroke();
     c.beginPath(); c.arc(v.ox + P[0] * v.s, v.oy + P[1] * v.s, 4, 0, Math.PI * 2); c.fillStyle = '#fff'; c.fill(); c.lineWidth = 1.5; c.stroke();
+  } else if (mode === 'road') {
+    c.lineWidth = 4.5; c.strokeStyle = 'rgba(255,248,232,0.75)'; c.stroke();
+    c.lineWidth = 2; c.setLineDash([5, 3.5]); c.strokeStyle = 'rgba(110,40,16,0.95)'; c.stroke(); c.setLineDash([]);
   } else if (mode === 'range') {
     c.lineWidth = Math.max(4, ui.sketch.width * 2 * v.s); c.strokeStyle = 'rgba(128,92,44,0.3)'; c.stroke();
     c.lineWidth = 2; c.setLineDash([6, 4]); c.strokeStyle = 'rgba(72,46,16,0.95)'; c.stroke(); c.setLineDash([]);
@@ -2834,7 +2884,9 @@ function handleClick(sx, sy) {
   if (t === 'erase') {
     const hit = hitTest(sx, sy); if (hit) { removeSel(hit); return; }
     const sp = sourceAt(sx, sy); if (sp) { removeSource(sp); return; }
-    toast(`Nothing to remove there. ${TAP} a place, a label or where a river you drew starts.`); return;
+    const rd = drawnRoadAt(sx, sy); if (rd) { removeRoad(rd); return; }
+    if (ui.layers.roads && townRoadAt(sx, sy)) { toast('That road joins towns, so it comes and goes with them. The Roads layer in the World tab hides them.'); return; }
+    toast(`Nothing to remove there. ${TAP} a place, a label, a road you drew or where a river you drew starts.`); return;
   }
   if (!inside) return;
   if (t === 'settle' || t === 'landmark') {
@@ -3947,6 +3999,8 @@ window.terra = {
   // The roads: the place each starts at and the capital it runs to, by id, and the cells it runs through, [x, y] in
   // map cells, from its start.
   roads: () => D.roads.map(rd => ({ from: rd.from.id, to: rd.to.id, cells: rd.cells.map(c => [c % W, (c / W) | 0]) })),
+  // The roads drawn by hand, each a list of points [x, y, x, y, …] in map cells.
+  drawnRoads: () => world.roads.map(r => r.pts.slice()),
   // The open world as a world file has it.
   worldText: () => serialize(new Date().toISOString(), true),
   riverNear: (x, y, r = 1.5) => {

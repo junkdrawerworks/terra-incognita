@@ -21,7 +21,8 @@ and sea stop them. Every town has a page for its story.
   *Sea*: a loop floods, for bays, straits and inland seas. *Mountain range*: draw the ridge line; a valley it blocks
   drains through a gorge at the lowest pass instead of becoming a lake. *River*: draw from the source toward the sea,
   and a valley forms so the water follows your line; the map names every river you draw, and Erase on the ring where
-  one starts takes it away again (its valley stays).
+  one starts takes it away again (its valley stays). *Road*: a road of your own goes where you draw it, and Erase on
+  it takes it away.
 - **Brushes for the details.** Raise, Lower and Smooth reshape the ground; a river Raise builds over keeps a gorge
   through, as a range's valley does. Wetter and Drier move the rain, and the forests, grassland and deserts move with
   it.
@@ -39,7 +40,8 @@ and sea stop them. Every town has a page for its story.
   tongue, so towns founded inside it sound like they belong there.
 - **Roads.** Each capital's roads run to every settlement of its realm and to the capitals beside it, along the
   easiest ground: beside rivers where they can, round mountains where they can't, never over water. They follow the
-  towns, so a town you found or move gets its road, and the Roads layer in the World tab turns them off.
+  towns, so a town you found or move gets its road, and the Roads layer in the World tab turns them off, with the
+  roads you draw.
 - **Places.** Tap any town or patch of ground to see its elevation, climate, nearest neighbour and local
   goods, with distances in leagues of 4.8 km, its river: which way it flows, how far on it reaches the sea and how
   much land it drains, and the road it is on. Keep notes for your lore, or roll a rumor built from the map around it. From the keyboard, Tab

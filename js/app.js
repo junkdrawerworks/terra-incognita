@@ -2389,13 +2389,13 @@ function compassAt(X0, Y0, MW, MH, vw, vh, u = 1) {
 
 // ------------------------------------------------------------------ view
 const canvas = $('#map'), ctx = canvas.getContext('2d');
-// The whole map fits inside these margins. On a narrow or short map they leave room for the zoom buttons, so they don't
-// cover the map: below it where the buttons are a row (a phone held upright), beside it where they are a column (a
-// phone held sideways).
+// The whole map fits inside these margins. They leave room for the zoom buttons, so they don't cover the map: below it
+// where the buttons are a row (a phone or tablet held upright, whose frame is sized for the whole map above that row),
+// beside it on a narrow or short map where they are a column (a phone held sideways).
 function fitMargins() {
-  if (view.cw >= 500 && view.ch >= 400) return { l: 26, r: 26, t: 26, b: 26 };
   const z = $('.zoom'), zw = z.offsetWidth || 36, zh = z.offsetHeight || 98;
-  return zw > zh ? { l: 12, r: 12, t: 12, b: 14 + zh } : { l: 12, r: 10 + zw, t: 12, b: 12 };
+  if (zw > zh) return { l: 12, r: 12, t: 12, b: 14 + zh };
+  return view.cw >= 500 && view.ch >= 400 ? { l: 26, r: 26, t: 26, b: 26 } : { l: 12, r: 10 + zw, t: 12, b: 12 };
 }
 function computeS0() { const m = fitMargins(); view.s0 = Math.max(0.2, Math.min((view.cw - m.l - m.r) / W, (view.ch - m.t - m.b) / H)); }
 function fitView() {

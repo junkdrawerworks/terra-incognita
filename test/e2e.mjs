@@ -145,6 +145,18 @@ const fitted = await S(() => {
 });
 ok(fitted.share < 0.4 && fitted.mapBottom <= fitted.zoomTop + 0.5, `on a phone the scale bar takes ${Math.round(fitted.share * 100)}% of the map's width, and the zoom buttons stay off the map`);
 ok(fitted.fill >= 0.9, `on a phone the whole map fills the frame's width (${fitted.w} x ${fitted.h} px, ${Math.round(fitted.fill * 100)}% of the frame)`);
+// On a tablet held upright the zoom buttons are a row under the map too, and the whole map fills the frame's width above
+// them (it was fitted with a laptop's margins, a band of empty frame over it and the row over its corner).
+{
+  const c = await browser.newContext({ viewport: { width: 768, height: 1024 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }), p = await c.newPage();
+  await p.goto(base);
+  const tab = await p.evaluate(() => {
+    const a = window.terra.toScreen(0, 0), b = window.terra.toScreen(480, 300), wrap = document.getElementById('mapwrap').getBoundingClientRect(), zoom = document.querySelector('.zoom').getBoundingClientRect();
+    return { fill: (b.x - a.x) / wrap.width, mapBottom: wrap.top + b.y, zoomTop: zoom.top };
+  });
+  ok(tab.fill >= 0.9 && tab.mapBottom <= tab.zoomTop + 0.5, `on a tablet the whole map fills ${Math.round(tab.fill * 100)}% of the frame's width, above the zoom buttons`);
+  await c.close();
+}
 // And the toolbar wraps a group at a time: no tool sits on a row away from the rest of its group, here or on narrower
 // phones. (Drier sat alone on the second row at 390 px, and Erase alone on a third at 320.)
 const toolRows = async (pg) => pg.evaluate(() => {

@@ -24,7 +24,8 @@ and sea stop them. Every town has a page for its story.
 - **Brushes for the details.** Raise, Lower and Smooth reshape the ground; Wetter and Drier move the rain, and the
   forests, grassland and deserts move with it.
 - **Water finds its way.** Every patch of ground drains downhill to the sea. Where enough rain gathers there's a river,
-  and every river has a name; where water can't get out it pools into a lake.
+  and every river has a name of its own, which it keeps as you reshape the land; where water can't get out it pools
+  into a lake.
 - **Climate from latitude and height.** Cold in the north, warm in the south, 6.5 °C cooler for every kilometre up, and
   rainfall in millimetres a year. Fourteen kinds of land, from ice sheet to jungle.
 - **Realms.** A capital claims the land around it until hills, deserts and sea make going further too costly, and its

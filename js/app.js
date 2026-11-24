@@ -9,7 +9,7 @@ const KM = 10;                 // km per cell
 const LEAGUE = 4.8;            // km per league
 const LAT0 = 58, LAT_SPAN = 27, LON0 = -12, LON_SPAN = 61;
 const MAX_ELEV = 5200, MAX_DEPTH = 5400;
-const RIVER_T = 70, LAKE_MIN = 0.003;
+const RIVER_T = 70, LAKE_MIN = 0.003, RIVER_MAX = 60; // RIVER_MAX: the longest name a river keeps
 const DEFAULT_SEED = 20417;
 const STORE_KEY = 'terra-incognita/world/v1', PREF_KEY = 'terra-incognita/prefs/v1';
 // An autosave this page couldn't read, kept as it was; Download the old save in the World tab hands it back as a file.
@@ -415,7 +415,7 @@ function buildRivers() {
     if (run.length >= 4) smoothLine(paths[rb], run);
   }
   D.riverPaths = paths;
-  D.riverNames = new Map();
+  nameRivers();
   mouths.sort((a, b) => acc[b] - acc[a]);
   const labels = [];
   for (const m of mouths) {
@@ -443,13 +443,50 @@ function mouthOf(i) {
   }
   return i;
 }
-function riverName(m) {
-  let r = D.riverNames.get(m); if (r) return r;
-  const rng = mulberry32(hash3(m, world.seed, 77));
-  const tg = TONGUE_IDS[hash3(m, world.seed, 5) % TONGUE_IDS.length];
-  const core = makeName(tg, rng, { bare: true });
-  r = rng() < 0.55 ? { full: `River ${core}`, on: `the River ${core}` } : { full: `The ${core}`, on: `the ${core}` };
-  D.riverNames.set(m, r); return r;
+// A river's name, by its mouth: { full: 'River Bahar', on: 'the River Bahar', own } (own: typed in for it).
+function riverName(m) { return D.riverNames.get(m) || { full: newRiverName(m, 0), on: riverOn(newRiverName(m, 0)), own: false }; }
+// Rivers keep their names. A river (one that reaches the sea, with its tributaries and the lakes on its way) is named
+// after its mouth, and the world keeps each mouth's name (world.rivers), so a reload, an Undo or a Redo brings the same
+// names back by where the mouths are. After an edit, a river takes the name of the river most of its water ran in
+// before, going by how much water each of its cells carried then, so a sea loop over its mouth or a stream it gathers
+// leaves it its name. A river that's new gets a new name. No two rivers share a name: the bigger one keeps it, and a
+// name typed in for a river comes before others.
+const riverKey = s => String(s).trim().toLowerCase().replace(/^the\s+/, '').replace(/^river\s+/, '');
+const riverOn = full => /^the /i.test(full) ? 'the ' + full.slice(4) : 'the ' + full;
+// What each river cell was called at the last naming, as an index into list, and the water it carried then.
+const RV = { cell: new Int32Array(N).fill(-1), acc: new Float32Array(N), list: [] };
+// A world put in place of another starts with none: its own names come from what it kept (world.rivers).
+function forgetRivers() { RV.cell.fill(-1); RV.list = []; }
+// Set for the next naming when world.rivers has just been put back as it was (an Undo or a Redo), or changed by hand.
+let riversFromTable = false;
+// Try k = 0 first: that's the name a mouth has always had from its world's seed.
+function newRiverName(m, k) {
+  const s = k ? world.seed + k * 7919 : world.seed, rng = mulberry32(hash3(m, s, 77));
+  const core = makeName(TONGUE_IDS[hash3(m, s, 5) % TONGUE_IDS.length], rng, { bare: true });
+  return rng() < 0.55 ? `River ${core}` : `The ${core}`;
+}
+function nameRivers() {
+  const isR = D.isR, acc = D.acc, votes = new Map(), mouths = new Set();
+  for (let i = 0; i < N; i++) {
+    if (!isR[i]) continue; const m = mouthOf(i); mouths.add(m);
+    const e = RV.cell[i]; if (e < 0) continue;
+    let v = votes.get(m); if (!v) votes.set(m, v = new Map()); v.set(e, (v.get(e) || 0) + RV.acc[i]);
+  }
+  const kept = new Map(), fromTable = riversFromTable || !RV.list.length; riversFromTable = false;
+  if (fromTable) for (const r of world.rivers || []) kept.set(r.y * W + r.x, r);
+  const order = [...mouths].sort((a, b) => acc[b] - acc[a] || a - b), got = new Map(), used = new Set();
+  const give = (m, name, own) => { got.set(m, { full: name, on: riverOn(name), own: !!own }); used.add(riverKey(name)); };
+  for (const own of [true, false]) for (const m of order) { const r = kept.get(m); if (r && !got.has(m) && !!r.own === own && !used.has(riverKey(r.name))) give(m, r.name, r.own); }
+  const pairs = [];
+  for (const [m, v] of votes) if (!got.has(m)) for (const [e, w] of v) pairs.push([RV.list[e].own ? 1 : 0, w, m, RV.list[e]]);
+  pairs.sort((a, b) => b[0] - a[0] || b[1] - a[1]);
+  for (const [, , m, r] of pairs) if (!got.has(m) && !used.has(riverKey(r.name))) give(m, r.name, r.own);
+  for (const m of order) if (!got.has(m)) { let k = 0, nm; do nm = newRiverName(m, k++); while (used.has(riverKey(nm)) && k < 60); give(m, nm, false); }
+  D.riverNames = got;
+  world.rivers = order.map(m => { const r = got.get(m); return r.own ? { x: m % W, y: (m / W) | 0, name: r.full, own: true } : { x: m % W, y: (m / W) | 0, name: r.full }; });
+  const at = new Map(order.map((m, k) => [m, k]));
+  RV.list = order.map(m => ({ name: got.get(m).full, own: got.get(m).own })); RV.cell.fill(-1);
+  for (let i = 0; i < N; i++) if (isR[i]) { RV.cell[i] = at.get(mouthOf(i)); RV.acc[i] = acc[i]; }
 }
 
 // ------------------------------------------------------------------ atlas glyphs
@@ -744,8 +781,8 @@ function newWorld(seed, shape, opts = {}) {
   if (world && !opts.noUndo) pushUndo({ h: true, m: true, meta: true, world: true });
   const t = generateTerrain(seed, shape);
   if (!world) world = { h: t.h, m: t.m }; else { world.h.set(t.h); world.m.set(t.m); }
-  Object.assign(world, { seed, shape, sea: 0.5, places: [], labels: [], springs: [], nextId: 1, editedAt: null, filedAt: null });
-  computeTN(); hydrology(); fillPits(); snapToSave(world.h); snapToSave(world.m); hydrology(); computeClimate(); buildRivers();
+  Object.assign(world, { seed, shape, sea: 0.5, places: [], labels: [], springs: [], rivers: [], nextId: 1, editedAt: null, filedAt: null });
+  forgetRivers(); computeTN(); hydrology(); fillPits(); snapToSave(world.h); snapToSave(world.m); hydrology(); computeClimate(); buildRivers();
   populate(seed);
   const rng = mulberry32(seed + 404);
   world.name = worldTitle(shape, rng, D.realms.length ? D.realms[0].tongue : 'vale');
@@ -761,7 +798,7 @@ function takeSnap(parts) {
   if (parts.world) s.world = true;
   if (parts.h) s.h = world.h.slice();
   if (parts.m) s.m = world.m.slice();
-  if (parts.meta) s.meta = JSON.stringify({ name: world.name, seed: world.seed, shape: world.shape, sea: world.sea, places: world.places, labels: world.labels, springs: world.springs || [], nextId: world.nextId });
+  if (parts.meta) s.meta = JSON.stringify({ name: world.name, seed: world.seed, shape: world.shape, sea: world.sea, places: world.places, labels: world.labels, springs: world.springs || [], rivers: world.rivers || [], nextId: world.nextId });
   return s;
 }
 // Typing in the world's name is one Undo step per run of typing: a step from anything else, an Undo or a Redo ends the
@@ -775,7 +812,7 @@ function applySnap(s) {
   if (s.h) world.h.set(s.h);
   if (s.m) world.m.set(s.m);
   if (s.meta) {
-    const o = JSON.parse(s.meta); if (!o.springs) o.springs = [];
+    const o = JSON.parse(s.meta); if (!o.springs) o.springs = []; if (!o.rivers) o.rivers = [];
     // Notes are part of the step too: writing in a place's notes is a step of its own (see bindPlace), so the notes
     // come back as they were when it was taken.
     const seedChanged = o.seed !== world.seed; Object.assign(world, o); if (seedChanged) computeTN();
@@ -819,9 +856,10 @@ function settleGesture() {
 function afterRestore(otherWorld) {
   renaming = false;
   // Back to a different world: as with a new one, nothing from the world just left stays open.
-  if (otherWorld) { ui.selected = null; dropDraft(); }
+  if (otherWorld) { ui.selected = null; dropDraft(); forgetRivers(); }
   else if (ui.selected && ui.selected.type !== 'loc' && !findSel(ui.selected)) ui.selected = null;
   dropOrphanDraft();
+  riversFromTable = true; // the rivers' names come back as they were, by where their mouths are
   recomputeAll(); updateUndoButtons(); markDirty(); syncWorldTab();
 }
 function updateUndoButtons() { $('#btnUndo').disabled = !undoStack.length; $('#btnRedo').disabled = !redoStack.length; }
@@ -837,7 +875,7 @@ function unpackF(str, whole) { const b = unb64(str); if (whole && b.length !== N
 // A world file also says which look it was saved in (Terrain or Atlas), and opening it switches to that look, so it
 // opens on another device as it was made. The autosave doesn't: there your own choice of look stays.
 function serialize(savedAt = new Date().toISOString(), forFile = false) {
-  return JSON.stringify({ format: 'terra-incognita', version: 1, ...(forFile ? {} : { id: worldId }), name: world.name, seed: world.seed, shape: world.shape, sea: world.sea, W, H, h: packF(world.h), m: packF(world.m), places: world.places, labels: world.labels, springs: world.springs || [], nextId: world.nextId, editedAt: world.editedAt || null, filedAt: world.filedAt || null, ...(forFile ? { style: ui.style } : {}), savedAt });
+  return JSON.stringify({ format: 'terra-incognita', version: 1, ...(forFile ? {} : { id: worldId }), name: world.name, seed: world.seed, shape: world.shape, sea: world.sea, W, H, h: packF(world.h), m: packF(world.m), places: world.places, labels: world.labels, springs: world.springs || [], rivers: world.rivers || [], nextId: world.nextId, editedAt: world.editedAt || null, filedAt: world.filedAt || null, ...(forFile ? { style: ui.style } : {}), savedAt });
 }
 // A world file must be whole: one cut short would open as a black map and then be autosaved over the world you had.
 // One saved by a newer version isn't opened at all, since saving it again here would lose whatever is new in it.
@@ -854,7 +892,11 @@ function applyWorld({ o, h, m }) {
   if (!world) world = { h, m }; else { world.h.set(h); world.m.set(m); }
   const stamp = v => typeof v === 'string' && !isNaN(Date.parse(v)) ? v : null;
   Object.assign(world, { editedAt: stamp(o.editedAt), filedAt: stamp(o.filedAt), name: String(o.name || 'Untitled world'), seed: o.seed | 0, shape: SHAPES[o.shape] ? o.shape : 'continent', sea: clamp(+o.sea || 0.5, 0.4, 0.6), places: Array.isArray(o.places) ? o.places.filter(placed) : [], labels: Array.isArray(o.labels) ? o.labels.filter(placed) : [], nextId: o.nextId | 0 || 1,
-    springs: Array.isArray(o.springs) ? o.springs.filter(sp => sp && isFinite(sp.x) && isFinite(sp.y)).map(sp => ({ x: clamp(+sp.x, 0, W), y: clamp(+sp.y, 0, H), flow: clamp(+sp.flow || 0, 0, 500) })) : [] });
+    springs: Array.isArray(o.springs) ? o.springs.filter(sp => sp && isFinite(sp.x) && isFinite(sp.y)).map(sp => ({ x: clamp(+sp.x, 0, W), y: clamp(+sp.y, 0, H), flow: clamp(+sp.flow || 0, 0, 500) })) : [],
+    // Each river's name, by where its mouth is; a file from before rivers kept their names has none, and names its
+    // rivers from its seed as it always did.
+    rivers: Array.isArray(o.rivers) ? o.rivers.filter(r => r && Number.isInteger(r.x) && Number.isInteger(r.y) && r.x >= 0 && r.y >= 0 && r.x < W && r.y < H && typeof r.name === 'string' && r.name.trim()).map(r => r.own === true ? { x: r.x, y: r.y, name: r.name.trim().slice(0, RIVER_MAX), own: true } : { x: r.x, y: r.y, name: r.name.trim().slice(0, RIVER_MAX) }) : [] });
+  forgetRivers();
   const items = world.places.concat(world.labels), ids = new Set(), colors = new Set(world.places.map(p => p.realm && p.realm.color));
   for (const q of items) if (Number.isInteger(q.id)) world.nextId = Math.max(world.nextId, q.id + 1);
   for (const q of items) { if (!Number.isInteger(q.id) || ids.has(q.id)) q.id = world.nextId++; ids.add(q.id); }
@@ -2077,8 +2119,20 @@ function sketchRiver(raw) {
   // sea: the water runs on down to it. Only one that ends further in is said to end inland.
   let c = at(last), toSea = h[c] < sea;
   for (let k = 0; k < 6 && !toSea && D.down[c] >= 0; k++) { c = D.down[c]; toSea = h[c] < sea; }
-  const inland = toSea ? '' : ' It ends inland, so it finds its own way on from there.';
-  toast(leftOut ? 'River drawn. The line crossed the sea, so only its longest stretch of land became a river.' : reversed ? 'River drawn, flowing downhill from the end of your line.' + inland : 'River drawn.' + inland, { label: 'Undo', fn: undo });
+  const inland = toSea ? '' : ' It ends inland, so it finds its own way on from there.', drew = `Drew ${drawnRiver(cellAt(pts[2 * first], pts[2 * first + 1]))}.`;
+  toast(leftOut ? drew + ' The line crossed the sea, so only its longest stretch of land became a river.' : reversed ? drew + ' It flows downhill from the end of your line.' + inland : drew + inland, { label: 'Undo', fn: undo });
+}
+// What a drawn river is called, from its source: 'the River Bahar', or where it runs into a bigger river on its way to
+// the sea, 'a tributary of the River Bahar' (a river is named after its mouth, its tributaries too).
+function drawnRiver(src) {
+  let prev = src, c = D.down[src], into = false;
+  for (let g = 0; g < 4000 && c >= 0 && world.h[c] >= world.sea && !into; g++, prev = c, c = D.down[c]) {
+    if (D.lake[c] || D.lake[prev]) continue; // what flows into a lake is measured where the river leaves it
+    const cx = c % W, cy = (c / W) | 0;
+    for (let k = 0; k < 8; k++) { const nx = cx + NBX[k], ny = cy + NBY[k]; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; const n = ny * W + nx; if (n !== prev && D.down[n] === c && D.isR[n] && D.acc[n] > D.acc[prev]) into = true; }
+  }
+  const r = riverName(mouthOf(src));
+  return into ? `a tributary of ${r.on}` : r.on;
 }
 // Cut a gorge from the bottom of a basin, along its overflow route, until the ground falls away on the far side. A lake
 // that was there before the sketch keeps its water: the gorge stops where its route reaches one, as the lake's own
@@ -3375,6 +3429,10 @@ window.terra = {
   glyphs: () => { const all = D.glyphs.filter(g => g.t >= 2), keep = glyphShare(view.s), drawn = all.filter(g => g.k <= keep).length; return { all: all.length, drawn, spacing: drawn ? TREE_STEP * view.s * Math.sqrt(all.length / drawn) : 0 }; },
   // n names in a tongue as the map draws them (a third each bare, for a realm and plain), from a seed.
   names: (tongue, n, seed = 1) => { const rng = mulberry32(seed), out = []; for (let k = 0; k < n; k++) out.push(makeName(tongue, rng, [{ bare: true }, { realm: true }, {}][k % 3])); return out; },
+  // Every river, biggest first: its name, where its mouth is, and whether its name was typed in.
+  rivers: () => world.rivers.map(r => ({ ...r, own: !!r.own })),
+  // The name of the river a spot is on, as its page has it, or null.
+  riverAt: (x, y) => { const f = facts(x, y, null); return f.river ? f.river.full : null; },
   riverNear: (x, y, r = 1.5) => {
     for (let dy = -Math.ceil(r); dy <= Math.ceil(r); dy++) for (let dx = -Math.ceil(r); dx <= Math.ceil(r); dx++) {
       if (dx * dx + dy * dy > r * r) continue; const i = cellAt(x + dx, y + dy); if (D.isR[i]) return true;

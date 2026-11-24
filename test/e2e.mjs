@@ -12,7 +12,8 @@
 // the README's count of the kinds of land. Last, a phone held sideways, the map clear of a touch screen's sides, a
 // Back mid-sketch taken for a slip, a browser that won't keep the autosave, and saved worlds the page can't read or
 // that a newer version wrote, kept aside and given back by Download the old save. Five seeds that must keep growing the
-// same worlds, and a world file from an earlier build that must keep opening. Then nothing lost and nothing undone by
+// same worlds, and a world file from an earlier build that must keep opening. Rivers that keep their names through an
+// edit, an Undo and a reload, never two of one name, and a drawn river named in its toast. Then nothing lost and nothing undone by
 // surprise: a pinch that paints nothing (one finger off the map too), a drag a pinch cuts short (and a wobble it
 // doesn't keep), a town dragged into the sea, a page left mid-stroke, an autosave mid-stroke, Undo mid-stroke, a
 // toast's Undo, Undo naming the places it takes (and the rumor rolled for one), Found new realms and Clear naming the
@@ -1663,8 +1664,51 @@ await oldCtx.close();
   const uphill = await said([[east - 2, 150], [east - 30, 148], [258, 150]]);
   const short = await said([[226, 150], [190, 152], [west + 3.5, 150]]);
   const farIn = await said([[226, 150], [190, 152], [west + 12.5, 150]]);
-  ok(uphill === 'River drawn, flowing downhill from the end of your line.' && short === 'River drawn.' && farIn === 'River drawn. It ends inland, so it finds its own way on from there.',
-    `a River line drawn uphill says the water flows from its end, one stopped 3 cells short of the coast reaches the sea, and one stopped 12 cells short ends inland ("${uphill}", "${short}", "${farIn}")`);
+  // A river is named after its mouth: one drawn on this island often runs into a bigger river on its way down.
+  const drew = '^Drew (a tributary of )?the (River )?\\S+\\.';
+  ok(new RegExp(drew + ' It flows downhill from the end of your line\\.$').test(uphill) && new RegExp(drew + '$').test(short) && new RegExp(drew + ' It ends inland, so it finds its own way on from there\\.$').test(farIn),
+    `a River line drawn uphill says the water flows from its end, one stopped 3 cells short of the coast reaches the sea, and one stopped 12 cells short ends inland, each naming the river ("${uphill}", "${short}", "${farIn}")`);
+  await c.close();
+}
+
+// Rivers keep their names. A river was named after the cell at its mouth, so an edit that moved its mouth renamed it
+// (a sea loop over the mouth of the starting world's biggest river turned the River Pameo into the River Las), and
+// two rivers could share a name (seed 9 had two Rivers Thu, seed 3 the Riand and the River Riand). Now an edited
+// river keeps its name, the names are saved with the world, and the bigger of two rivers keeps a name they'd share.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const E = (fn, arg) => pg.evaluate(fn, arg);
+  const key = (n) => n.toLowerCase().replace(/^the\s+/, '').replace(/^river\s+/, '');
+  const twins = [];
+  for (const [seed, shape] of [[9, 'continent'], [3, 'continent'], [8, 'continent'], [3, 'archipelago']]) {
+    const names = await E(([s, sh]) => { window.terra.newWorld(s, sh); return window.terra.rivers().map((r) => r.name); }, [seed, shape]);
+    if (new Set(names.map(key)).size !== names.length) twins.push(`${shape} ${seed}`);
+  }
+  ok(!twins.length, `no two rivers share a name, on four worlds that had twins (${twins.join(', ') || 'none now'})`);
+  await E(() => window.terra.newWorld(20417, 'continent'));
+  const big = (await E(() => window.terra.rivers()))[0];
+  await E(([x, y]) => window.terra.centerOn(x, y), [big.x, big.y]);
+  await pg.click('.tool[data-tool="sketch"]'); await pg.click('.chip[data-v="sea"]');
+  const loop = []; for (let a = 0; a <= 16; a++) loop.push([big.x + 0.5 + 5 * Math.cos(a / 16 * Math.PI * 2), big.y + 0.5 + 5 * Math.sin(a / 16 * Math.PI * 2)]);
+  await drag(loop, 3, pg);
+  // The flood can split its lower course in two; the bigger part, now the first river out to sea near there, keeps it.
+  const nearOld = (rs) => rs.filter((r) => Math.hypot(r.x - big.x, r.y - big.y) < 14);
+  const moved = nearOld(await E(() => window.terra.rivers()))[0];
+  ok(moved && (moved.x !== big.x || moved.y !== big.y) && moved.name === big.name, `a sea loop over a river's mouth moves the mouth and leaves the river its name (${big.name} at ${big.x},${big.y}, now ${moved && moved.name} at ${moved && moved.x},${moved && moved.y})`);
+  await pg.click('#btnUndo'); await pg.waitForTimeout(300);
+  const undone = await E(() => window.terra.rivers()[0]);
+  await pg.click('#btnRedo'); await pg.waitForTimeout(1500);
+  await pg.reload(); await pg.waitForTimeout(600);
+  const reloaded = nearOld(await E(() => window.terra.rivers()))[0];
+  ok(undone.name === big.name && undone.x === big.x && reloaded.name === big.name && reloaded.x === moved.x && reloaded.y === moved.y, `Undo, Redo and a reload keep it (${undone.name}, ${reloaded.name})`);
+  // A river drawn into it is named as its tributary.
+  await E(() => { window.terra.newWorld(20417, 'continent'); window.terra.centerOn(262.5, 134.5); });
+  await pg.click('.tool[data-tool="sketch"]'); await pg.click('.chip[data-v="river"]');
+  await drag([[276.6, 148.6], [269.5, 141.5], [262.5, 134.5]], 8, pg);
+  const into = await pg.textContent('#toast span');
+  ok(into.startsWith(`Drew a tributary of ${big.name.replace(/^The /, 'the ').replace(/^River /, 'the River ')}.`), `a river drawn into it is called its tributary ("${into}")`);
   await c.close();
 }
 

@@ -1919,18 +1919,11 @@ function nameObstacles(c, v, atlas, opt) {
   return out;
 }
 // The selected place's name as drawPlaces last drew it, so drawSelection can draw it again over its ring; and every
-// name it placed, on the screen and on the last saved image, for terra.names.
+// name it placed, on the screen and on the last saved image, for terra.nameSpots.
 let selName = null;
 const placedNames = { screen: [], image: [], screenMarks: [], imageMarks: [] };
 // The compass and scale bar as drawMap last drew them on screen and on the saved image, for terra.furniture.
 const furniture = { screen: null, image: null };
-// Each place's symbol, then its name. Names are given their spots before any is drawn, in order of rank (capitals
-// first, then the selected place, then cities, towns, landmarks and villages, the more people first): to the right
-// of the symbol, or else to the left, above, below or at a corner, wherever the name is clear of the names and symbols
-// already there, the realms' names, the map's labels and river names, the compass and scale bar (opt.avoid) and the
-// map's edge. A town's, village's or landmark's name with no clear spot is left off until the map is zoomed in far
-// enough to give it one, and so is a city's that would print over another name; a capital's, and the selected
-// place's, always shows, in the spot where it covers least.
 // A place's symbol at X, Y, sc times its size on the whole map, a capital's star filled with its realm's colour; it
 // gives back how far the symbol reaches from its middle.
 function drawSymbol(c, kind, sub, X, Y, sc, color, INK, iconHalo) {
@@ -1954,6 +1947,13 @@ function drawSymbol(c, kind, sub, X, Y, sc, color, INK, iconHalo) {
   else { c.lineWidth = 1.7; c.strokeStyle = INK; c.stroke(lm.p); }
   c.restore(); return 6 * sc;
 }
+// Each place's symbol, then its name. Names are given their spots before any is drawn, in order of rank (capitals
+// first, then the selected place, then cities, towns, landmarks and villages, the more people first): to the right
+// of the symbol, or else to the left, above, below or at a corner, wherever the name is clear of the names and symbols
+// already there, the realms' names, the map's labels and river names, the compass and scale bar (opt.avoid) and the
+// map's edge. A town's, village's or landmark's name with no clear spot is left off until the map is zoomed in far
+// enough to give it one, and so is a city's that would print over another name; a capital's, and the selected
+// place's, always shows, in the spot where it covers least.
 function drawPlaces(c, v, vw, vh, atlas, INK, HALO, opt, small = 1) {
   const s = v.s, zr = s / v.s0, sc = clamp(Math.pow(zr, 0.22), 1, 1.35) * small;
   selName = null;
@@ -2188,7 +2188,7 @@ function imagePanels(c, X0, Y0, MW, MH, u, atlas, named = true) {
   const kinds = new Set(world.places.map(p => p.kind === 'landmark' ? 'lm:' + p.sub : p.kind)), rows = [];
   for (const k of ['capital', 'city', 'town', 'village']) if (kinds.has(k)) rows.push({ kind: k, label: k[0].toUpperCase() + k.slice(1) });
   for (const k of Object.keys(LANDMARKS)) if (kinds.has('lm:' + k)) rows.push({ kind: 'landmark', sub: k, label: LANDMARKS[k].label });
-  if (L.rivers && D.riverPaths.length && D.riverLabels.length) rows.push({ line: 'river', label: 'River' });
+  if (L.rivers && world.rivers && world.rivers.length) rows.push({ line: 'river', label: 'River' });
   if (L.roads && (D.roads.length || world.roads.length)) rows.push({ line: 'road', label: 'Road' });
   if (L.realms && D.realms.length) rows.push({ line: 'border', label: "Realm's border" });
   const ks = 9 * u, rowH = 13.5 * u, per = Math.ceil(rows.length / 2) || 1, cols = rows.length > 5 ? 2 : 1;
@@ -3823,7 +3823,8 @@ function syncWorldTab() {
   renderWorlds(); syncFileNote(); renderMapKey();
 }
 // The Map key in the World tab: each kind of place (a capital's star in its realm's colour), the six landmarks, a river,
-// a road and a realm's border, drawn as the map draws them; and in the Terrain look a swatch for each kind of land this world has at least 1,000 km² of.
+// a road and a realm's border, drawn as the map draws them; and in the Terrain look a swatch for each kind of land
+// this world has at least 1,000 km² of.
 function renderMapKey() {
   const el = $('#wKey'); if (!el) return;
   const atlas = ui.style === 'atlas', line = (stroke, extra = '') => `<svg width="22" height="14" viewBox="0 0 22 14" aria-hidden="true">${extra}<path d="M1 9c4-6 8 2 12-3s6-2 8-3" fill="none" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round"${stroke === 'currentColor' ? ' stroke-dasharray="4 3"' : ''}/></svg>`;

@@ -163,7 +163,7 @@ const D = {
   filled: new Float32Array(N), down: new Int32Array(N), acc: new Float32Array(N), area: new Float32Array(N), order: new Int32Array(N), lake: new Uint8Array(N), lakeF: new Float32Array(N),
   vis: new Uint8Array(N), isR: new Uint8Array(N), hasUp: new Uint8Array(N), mouth: new Int32Array(N), body: new Int32Array(N),
   owner: new Int16Array(N), cost: new Float64Array(N), ind: new Float32Array(N), tmp: new Float32Array(N), dist: new Int16Array(N), q: new Int32Array(N),
-  realms: [], borders: [], coast: new Path2D(), contours: null, riverPaths: [], riverLabels: [], riverMouths: [], glyphs: [], riverNames: new Map(),
+  realms: [], borders: [], coast: new Path2D(), lakeShores: [], riverEnds: [], contours: null, riverPaths: [], riverLabels: [], riverMouths: [], glyphs: [], riverNames: new Map(),
 };
 const view = { s: 1, s0: 1, ox: 0, oy: 0, cw: 0, ch: 0, dpr: 1 };
 
@@ -386,12 +386,14 @@ function contourInto(f, lv, out, keep) {
   }
 }
 function pathFromContour(f, lv, path, keep) { contourInto(f, lv, (ax, ay, bx, by) => { path.moveTo(ax, ay); path.lineTo(bx, by); }, keep); return path; }
-function chainPath(f, lv, keep) {
+// Chained into lines, and with passes, each line's corners cut a quarter of the way along both sides that many times
+// over (Chaikin's corner cutting), which takes the 45° steps out of an outline traced from a grid of cells.
+function chainPath(f, lv, keep, passes = 0, path = new Path2D(), lines = null) {
   const segs = []; contourInto(f, lv, (ax, ay, bx, by) => segs.push(ax, ay, bx, by), keep);
   const n = segs.length / 4, key = (x, y) => Math.round(x * 64) * 100003 + Math.round(y * 64);
   const map = new Map(); const add = (k, s) => { const l = map.get(k); if (l) l.push(s); else map.set(k, [s]); };
   for (let s = 0; s < n; s++) { add(key(segs[s * 4], segs[s * 4 + 1]), s); add(key(segs[s * 4 + 2], segs[s * 4 + 3]), s); }
-  const used = new Uint8Array(n), path = new Path2D();
+  const used = new Uint8Array(n);
   const extend = (pts) => {
     for (;;) {
       const ex = pts[pts.length - 2], ey = pts[pts.length - 1]; const l = map.get(key(ex, ey)); let found = -1;
@@ -405,7 +407,17 @@ function chainPath(f, lv, keep) {
     if (used[s]) continue; used[s] = 1; const o = s * 4;
     const fwd = [segs[o], segs[o + 1], segs[o + 2], segs[o + 3]]; extend(fwd);
     const back = [segs[o + 2], segs[o + 3], segs[o], segs[o + 1]]; extend(back);
-    const pts = []; for (let k = back.length - 2; k >= 2; k -= 2) pts.push(back[k], back[k + 1]); for (let k = 0; k < fwd.length; k++) pts.push(fwd[k]);
+    let pts = []; for (let k = back.length - 2; k >= 2; k -= 2) pts.push(back[k], back[k + 1]); for (let k = 0; k < fwd.length; k++) pts.push(fwd[k]);
+    if (passes && pts.length >= 6) {
+      const closed = key(pts[0], pts[1]) === key(pts[pts.length - 2], pts[pts.length - 1]);
+      for (let k = 0; k < passes; k++) {
+        const m = pts.length / 2, out = closed ? [] : [pts[0], pts[1]];
+        for (let j = 0; j < m - 1; j++) { const ax = pts[2 * j], ay = pts[2 * j + 1], bx = pts[2 * j + 2], by = pts[2 * j + 3]; out.push(ax * 0.75 + bx * 0.25, ay * 0.75 + by * 0.25, ax * 0.25 + bx * 0.75, ay * 0.25 + by * 0.75); }
+        if (closed) out.push(out[0], out[1]); else out.push(pts[2 * m - 2], pts[2 * m - 1]);
+        pts = out;
+      }
+    }
+    if (lines) lines.push(pts);
     smoothLine(path, pts);
   }
   return path;
@@ -418,7 +430,9 @@ function smoothLine(path, pts) {
   path.lineTo(pts[(n - 1) * 2], pts[(n - 1) * 2 + 1]);
 }
 function buildCoast() {
-  const p = new Path2D(); pathFromContour(world.h, world.sea, p); pathFromContour(D.lakeF, 0.5, p); D.coast = p;
+  // Lake shores are traced from the grid of lake cells, so they are smoothed as they are chained; the sea's coast comes
+  // from the heights, which are smooth already.
+  const p = new Path2D(); pathFromContour(world.h, world.sea, p); D.lakeShores = []; chainPath(D.lakeF, 0.5, null, 3, p, D.lakeShores); D.coast = p;
 }
 // Number each stretch of sea (water touching at a corner counts as one), so a coast is named after the water it is on.
 function buildBodies() {
@@ -3643,6 +3657,8 @@ window.terra = {
   rivers: () => world.rivers.map(r => ({ ...r, own: !!r.own })),
   // The name of the river a spot is on, as its page has it, or null.
   riverAt: (x, y) => { const f = facts(x, y, null); return f.river ? f.river.full : null; },
+  // Each lake's shore as drawn, a list of [x, y, x, y, …] in map cells, after it is smoothed.
+  lakeShores: () => D.lakeShores.map(a => Array.from(a)),
   // The rivers named on the map, as drawn at full size: their names, and where each sits.
   riverLabels: () => D.riverLabels.map(l => ({ name: l.name, x: l.x, y: l.y })),
   riverNear: (x, y, r = 1.5) => {

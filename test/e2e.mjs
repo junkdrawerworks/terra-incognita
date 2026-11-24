@@ -1030,6 +1030,28 @@ ok(covered.length === 0, 'sea names stay clear of the scale bar' + (covered.leng
   await c.close();
 }
 
+// Lake shores are smoothed like the coast. Traced round the lake's cells they turned in 45° and 90° steps; now no
+// shore in the starting world turns more than 30° from one point to the next.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const r = await pg.evaluate(() => {
+    let worst = 0, points = 0; const shores = window.terra.lakeShores();
+    for (const a of shores) {
+      const closed = a.length > 6 && Math.hypot(a[0] - a[a.length - 2], a[1] - a[a.length - 1]) < 1e-6, n = a.length / 2;
+      for (let j = 1; j < n - (closed ? 0 : 1); j++) {
+        const k = j === n - 1 ? 1 : j + 1, ux = a[2 * j] - a[2 * j - 2], uy = a[2 * j + 1] - a[2 * j - 1], vx = a[2 * k] - a[2 * j], vy = a[2 * k + 1] - a[2 * j + 1];
+        const lu = Math.hypot(ux, uy), lv = Math.hypot(vx, vy); if (lu < 1e-9 || lv < 1e-9) continue;
+        worst = Math.max(worst, Math.acos(Math.max(-1, Math.min(1, (ux * vx + uy * vy) / lu / lv))) * 180 / Math.PI); points++;
+      }
+    }
+    return { shores: shores.length, points, worst };
+  });
+  ok(r.shores > 50 && r.worst < 30, `lake shores are drawn smooth (${r.shores} shores, ${r.points} points, the sharpest turn ${r.worst.toFixed(1)}°)`);
+  await c.close();
+}
+
 // The map prints no latitudes or longitudes, on the map, on a place's page or under the pointer: the climate runs from
 // ice sheet to jungle over 3,000 km, and the numbers put a frozen north at 55°N, where Denmark is.
 {

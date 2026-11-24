@@ -688,6 +688,31 @@ await desk.evaluate((id) => window.terra.select({ type: 'place', id }), otherPla
 const otherBox = await desk.evaluate(() => document.getElementById('draftBox').hidden);
 const cameBack = await desk.evaluate((id) => { window.terra.select({ type: 'place', id }); return [document.getElementById('draftBox').textContent, document.getElementById('draftActions').hidden]; }, firstCap.id);
 ok(otherBox && cameBack[0] === rolledRumor && !cameBack[1], 'an unkept rumor waits on its own place\'s page while another place is open');
+// A settlement's population can be typed in. Its realm's total counts it, a change of kind keeps it, the world file
+// keeps it, and Undo takes it back, by name.
+{
+  const town = (await desk.evaluate(() => window.terra.places())).find((p) => p.kind === 'town' && p.capital);
+  const num = (t) => +t.replace(/,/g, '');
+  await desk.evaluate((id) => window.terra.select({ type: 'place', id }), town.capital);
+  const realmWas = num(await desk.textContent('#rPop'));
+  await desk.evaluate((id) => window.terra.select({ type: 'place', id }), town.id);
+  const popField = () => desk.evaluate(() => [document.getElementById('pPop').value, document.getElementById('pPopAbout').hidden]);
+  const rolled = await popField();
+  await desk.fill('#pPop', '250,000'); await desk.press('#pPop', 'Tab');
+  const typed = await popField(), popStep = await desk.getAttribute('#btnUndo', 'aria-label');
+  await desk.selectOption('#pKind', 'village');
+  const kept = await desk.evaluate((id) => [window.terra.places().find((p) => p.id === id).pop, document.getElementById('pPop').value, JSON.parse(window.terra.worldText()).places.find((p) => p.id === id).ownPop], town.id);
+  await desk.fill('#pPop', ''); await desk.press('#pPop', 'Tab');
+  const cleared = (await popField())[0];
+  await desk.evaluate((id) => window.terra.select({ type: 'place', id }), town.capital);
+  const realmNow = num(await desk.textContent('#rPop'));
+  await desk.click('#btnUndo'); await desk.click('#btnUndo');
+  const back = (await desk.evaluate(() => window.terra.places())).find((p) => p.id === town.id);
+  ok(rolled[0] === town.pop.toLocaleString('en-US') && !rolled[1] && typed[0] === '250,000' && typed[1] && popStep === `Undo: Population of ${town.name}`
+    && kept.join() === '250000,250,000,250000' && cleared === '250,000' && Math.abs(realmNow - realmWas - (250000 - town.pop)) < realmNow * 0.06
+    && back.pop === town.pop && back.kind === 'town',
+    `a town's population can be typed in (~${rolled[0]} to ${typed[0]}), a change of kind and the world file keep it, an empty box puts it back, its realm counts it (${realmWas} to ${realmNow}), and Undo ("${popStep}") takes it back`);
+}
 await desk.click('#btnNew');
 await desk.click('#mnRandom');
 await desk.waitForTimeout(300);
@@ -1730,7 +1755,7 @@ await oldCtx.close();
   ok(new RegExp(`^Removed ${riielName}\\. The ${before.title} of ${before.name} is no longer a realm\\. (Its ${settlements - 1} other settlements now belong to|Of its ${settlements - 1} other settlements, )`).test(removed) && (await realm()).realms === before.realms - 1, `removing a capital says its realm is no more, and where its other settlements went ("${removed}")`);
   await pg.click('#toast button');
   await pg.evaluate((id) => window.terra.select({ type: 'place', id }), riiel);
-  const pop = () => pg.evaluate(() => { const dd = [...document.querySelectorAll('#pane-inspect .facts dd')].find((d) => d.previousElementSibling.textContent === 'Population'); return dd ? +dd.textContent.replace(/[~,]/g, '') : 0; });
+  const pop = () => pg.evaluate(() => { const dd = [...document.querySelectorAll('#pane-inspect .facts dd')].find((d) => d.previousElementSibling.textContent === 'Population'); return dd ? +dd.querySelector('input').value.replace(/,/g, '') : 0; });
   const village = await pg.evaluate(() => window.terra.places().find((p) => p.kind === 'village').id);
   await pg.evaluate((id) => window.terra.select({ type: 'place', id }), village);
   const pops = [await pop()];
@@ -3792,6 +3817,11 @@ await oldCtx.close();
   const village = all.find((p) => p.kind !== 'capital' && p.kind !== 'landmark' && p.landTongue);
   const long = 'FIRST-LINE The Margrave rules here. ' + 'Old quarrels and salt. '.repeat(160) + 'LATEST-HISTORY The bridge fell.';
   const [vp, vnote] = await ask(village.id, long);
+  // A population typed in goes to Claude as it is, not as a guess.
+  await pg.evaluate((id) => window.terra.select({ type: 'place', id }), village.id);
+  await pg.fill('#pPop', '12,345'); await pg.press('#pPop', 'Tab');
+  const [pp] = await ask(village.id);
+  ok(new RegExp(` of 12,345 people\\.`).test(pp) && / of about [\d,]+ people/.test(vp), `the history prompt gives a population typed in as it is ("${pp.match(/^Place: .*$/m)}")`);
   ok(/Its capital is [^,]+, \d+ leagues? (north|south|east|west)/.test(vp) && vp.includes('FIRST-LINE') && vp.includes('LATEST-HISTORY') && /\s(Old|quarrels|and|salt\.) … (Old|quarrels|and|salt\.)\s/.test(vp) && vnote === 'Only part of your notes fits: the start and the latest are sent.',
     `a town's prompt names its capital and sends the start and the end of long notes ("${vp.match(/Its capital[^.]*\./)}"; "${vnote}")`);
   // A landmark has no tongue, and a refusal on a place with no notes says to add one.

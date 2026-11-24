@@ -42,11 +42,13 @@ and sea stop them. Every town has a page for its story.
   easiest ground: beside rivers where they can, round mountains where they can't, never over water. They follow the
   towns, so a town you found or move gets its road, and the Roads layer in the World tab turns them off, with the
   roads you draw.
-- **Places.** Tap any town or patch of ground to see its elevation, climate, nearest neighbour and local
-  goods, with distances in leagues of 4.8 km, its river: which way it flows, how far on it reaches the sea and how
-  much land it drains, and the road it is on. Keep notes for your lore, or roll a rumor built from the map around it. From the keyboard, Tab
-  to the map, pan it with the arrow keys and press Enter to read the spot in the middle. The Codex lists every place
-  and every sea, region and range named on the map, and finds words in your notes.
+- **Places.** Tap any town or patch of ground to see its elevation, climate, nearest neighbour and local goods, with
+  distances in leagues of 4.8 km, its river: which way it flows, how far on it reaches the sea and how much land it
+  drains, and the road it is on. A settlement's population is a guess from its land until you type in your own, which
+  stays through a change of kind and counts in its realm's total. Keep notes for your lore, or roll a rumor built from
+  the map around it. From the keyboard, Tab to the map, pan it with the arrow keys and press Enter to read the spot in
+  the middle. The Codex lists every place and every sea, region and range named on the map, and finds words in your
+  notes.
 - **Keyboard.** Every tool has a letter (V, P, R…), [ and ] size the brush, F shows the whole map, and Ctrl S saves
   the world file; the World tab lists them.
 - **Two looks.** Terrain is shaded relief; Atlas is parchment with drawn mountains and trees. A world file opens in

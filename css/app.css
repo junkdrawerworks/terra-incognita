@@ -138,6 +138,9 @@ button{touch-action:manipulation} /* a quick second tap on Undo doesn't zoom the
 .facts{display:grid;grid-template-columns:88px minmax(0,1fr);gap:7px 12px;margin:0;font-size:13.5px}
 .facts dt{color:var(--muted);font-size:12px;padding-top:1px}
 .facts dd{margin:0}
+.pop-field{display:inline-flex;align-items:baseline;gap:1px}
+.pop-field input{width:11ch;border:0;border-bottom:1px dashed var(--field-line);background:transparent;padding:0 0 1px;border-radius:0;min-width:0}
+.pop-field input:focus{outline:none;border-bottom:1px solid var(--accent)}
 .mono{font-family:var(--f-mono);font-size:12.5px}
 .section{display:flex;flex-direction:column;gap:9px}
 .section h3,.h3{margin:0;font:600 11px var(--f-ui);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
@@ -264,6 +267,8 @@ kbd{font:11px var(--f-mono);border:1px solid var(--line-strong);border-bottom-wi
 @media (pointer: coarse){
   .txt,.search,.grid2 input,select,.field input[type=text],.field input[type=number],textarea{font-size:16px}
   .txt,select,.field input[type=text],.field input[type=number],.grid2 input{height:40px}
+  .pop-field input,.pop-field .mono{font-size:16px}
+  .pop-field input{height:28px;padding:0}
   .search{height:44px}
   .tool,.zoom button,.icon-btn{width:44px;height:44px}
   .btn,.seg{height:44px}

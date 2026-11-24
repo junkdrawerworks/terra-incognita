@@ -672,7 +672,12 @@ function territories() {
     }
     r.lx = cx; r.ly = cy;
   }
-  for (const p of world.places) { if (p.kind === 'landmark') continue; const o = own[cellAt(p.x, p.y)]; if (o >= 0) { D.realms[o].pop += p.pop || 0; D.realms[o].count++; } }
+  realmPops();
+}
+// Each realm's people and settlements, from its places' own numbers (a population typed on a place's page among them).
+function realmPops() {
+  for (const r of D.realms) { r.pop = 0; r.count = 0; }
+  for (const p of world.places) { if (p.kind === 'landmark') continue; const o = D.owner[cellAt(p.x, p.y)]; if (o >= 0 && D.realms[o]) { D.realms[o].pop += p.pop || 0; D.realms[o].count++; } }
 }
 // What crossing each cell costs a realm spreading over it: nothing, or on a big river (more than 6 times the water a
 // river needs to show) from 20 up to 40 for the greatest.
@@ -1310,6 +1315,8 @@ function applyWorld({ o, h, m }) {
   for (const q of items) { if (!Number.isInteger(q.id) || ids.has(q.id)) q.id = world.nextId++; ids.add(q.id); }
   for (const p of world.places) {
     if (!KINDS[p.kind]) p.kind = 'village'; if (!TONGUES[p.tongue]) p.tongue = 'vale'; p.name = String(p.name || 'Nameless'); p.lore = String(p.lore || ''); p.pop = Math.max(0, +p.pop || 0);
+    // A population typed on its page; a settlement goes by it.
+    const own = Math.round(+p.ownPop); if (own >= 1 && own <= POP_MAX) { p.ownPop = own; if (p.kind !== 'landmark') p.pop = own; } else delete p.ownPop;
     if (p.kind === 'landmark' && !LANDMARKS[p.sub]) p.sub = 'ruin';
     // A capital always rules a realm; fill in whatever the file left out.
     if (p.kind === 'capital') {
@@ -3350,7 +3357,8 @@ function factsHTML(f, p) {
   if (rd && rd.from) rows.push(['Road', `On the road from ${goto(rd.from)} to ${goto(rd.to)}`]);
   else if (rd && rd.to) { const n = Math.max(1, Math.round(rd.km / LEAGUE)); rows.push(['Road', `On the road to ${goto(rd.to)}, ${n} league${n === 1 ? '' : 's'} (${fmtInt(roundSig(rd.km, 2))} km)`]); }
   else if (rd) rows.push(['Roads', (rd.towns ? `To its ${rd.towns} settlement${rd.towns === 1 ? '' : 's'}` : 'To') + (rd.caps.length ? `${rd.towns ? ' and to ' : ' '}${andList(rd.caps.map(goto))}` : '')]);
-  if (p && p.pop) rows.push(['Population', `<span class="mono">~${fmtInt(p.pop)}</span>`]);
+  // A settlement's number of people can be typed in. One rolled from the land is a guess, so it shows with a ~.
+  if (p && p.kind !== 'landmark') rows.push(['<label for="pPop">Population</label>', `<span class="pop-field"><span class="mono" id="pPopAbout" aria-hidden="true"${p.ownPop ? ' hidden' : ''}>~</span><input id="pPop" class="mono" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" maxlength="12" value="${fmtInt(p.pop)}"></span>`]);
   // In leagues, as the scale bar has it, with km beside them, as the rest of the page measures.
   if (f.near) rows.push(['Nearest', `${f.near.leagues} league${f.near.leagues === 1 ? '' : 's'} (${fmtInt(f.near.km)} km) ${f.near.dir} of ${placeIn(f.near.p) !== f.near.p.name ? 'the ' : ''}<button class="link" data-goto="${f.near.p.id}">${esc(f.near.p.name.replace(/^The /, ''))}</button>`]);
   if (f.goods.length) rows.push(['Goods', esc(f.goods.join(', '))]);
@@ -3423,7 +3431,7 @@ function buildPrompt(p) {
   const c = storyCtx(p), f = c.f;
   const L = [];
   L.push(`World: ${world.name}`);
-  L.push(`Place: ${p.name}, a ${kindLabel(p).toLowerCase()}${p.pop ? ` of about ${fmtInt(p.pop)} people` : ''}.`);
+  L.push(`Place: ${p.name}, a ${kindLabel(p).toLowerCase()}${p.pop ? ` of ${p.ownPop ? '' : 'about '}${fmtInt(p.pop)} people` : ''}.`);
   // A landmark has no people of its own to speak a tongue; a town is told where its capital is.
   const cap = f.realm && f.realm.place !== p && p.kind !== 'landmark' ? f.realm.place : null;
   L.push(f.realm ? `Realm: ${f.realm.display}${p.kind === 'capital' ? ' (this is its capital)' : ''}.${p.kind === 'landmark' ? '' : ` Its people speak the ${TONGUES[f.realm.tongue].label} tongue.`}${cap ? ` Its capital is ${cap.name}, ${leagues(Math.hypot(cap.x - p.x, cap.y - p.y))} ${compass(cap.x - p.x, cap.y - p.y)}.` : ''}` : 'Realm: none. It lies in unclaimed land.');
@@ -3587,7 +3595,7 @@ function placeHTML(p) {
       <div class="field"><label for="rTitle">Title</label><select id="rTitle">${ALL_TITLES.map(t => `<option ${t === p.realm.title ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></div>
       <div class="field"><label for="rTongue">Tongue</label><select id="rTongue">${TONGUE_IDS.map(t => `<option value="${t}" ${t === p.tongue ? 'selected' : ''}>${TONGUES[t].label}</option>`).join('')}</select></div>
       <div class="field"><span class="h3" style="text-transform:none;letter-spacing:0;font-weight:400;font-size:12px">Color</span><div class="swatches" role="group" aria-label="Realm color">${REALM_COLORS.map((c, k) => `<button data-color="${c}" style="background:${c}" aria-label="${REALM_COLOR_NAMES[k]}" title="${REALM_COLOR_NAMES[k]}" aria-pressed="${c === p.realm.color}"></button>`).join('')}<span class="swatch-name" aria-hidden="true">${REALM_COLOR_NAMES[REALM_COLORS.indexOf(p.realm.color)] || ''}</span></div></div>
-      <p class="note">${f.realm ? `<span class="mono">${fmtInt(f.realm.area * KM * KM)}</span> km², ${f.realm.count} settlement${f.realm.count === 1 ? '' : 's'}, about <span class="mono">${fmtInt(roundSig(f.realm.pop, 2))}</span> people.` : ''} New places founded here take their names from its tongue.</p>
+      <p class="note">${f.realm ? `<span class="mono">${fmtInt(f.realm.area * KM * KM)}</span> km², ${f.realm.count} settlement${f.realm.count === 1 ? '' : 's'}, about <span class="mono" id="rPop">${fmtInt(roundSig(f.realm.pop, 2))}</span> people.` : ''} New places founded here take their names from its tongue.</p>
     </div>`;
   }
   const busy = draftFor(p.id).busy;
@@ -3679,6 +3687,21 @@ function bindPlace(p) {
   nm.addEventListener('change', () => { if (!p.name.trim()) { p.name = 'Nameless'; nm.value = p.name; named(); } refreshCodex(); requestDraw(); });
   $('#pReroll').onclick = () => { pushUndo({ meta: true }, `Rename ${p.name}`); p.name = freshName(() => p.kind === 'landmark' ? landmarkName(p.sub, p.tongue, Math.random) : makeName(p.tongue, Math.random)); nm.value = p.name; named(); requestDraw(); refreshCodex(); markDirty(); };
   $('#pKind').onchange = e => { changeKind(p, e.target.value); refocus('#pKind'); };
+  // A population typed in stays the place's own: a change of kind keeps it, and its realm's total counts it.
+  const pop = $('#pPop'), showRealmPop = () => { const rp = $('#rPop'), r = D.realms.find(r => r.place === p); if (rp && r) rp.textContent = fmtInt(roundSig(r.pop, 2)); };
+  if (pop) {
+    pop.addEventListener('input', () => {
+      const n = typedPop(pop.value); if (n === null || n === p.pop) return;
+      once(`Population of ${p.name}`); p.pop = p.ownPop = n; realmPops(); touched(); markDirty(); showRealmPop();
+    });
+    // A box left empty, or with no number in it, goes back to what it held when it was entered, rather than the
+    // last number on the way to emptying it.
+    let atFocus = null; pop.addEventListener('focus', () => { atFocus = { pop: p.pop, own: p.ownPop }; });
+    pop.addEventListener('change', () => {
+      if (typedPop(pop.value) === null && atFocus) { p.pop = atFocus.pop; if (atFocus.own) p.ownPop = atFocus.own; else delete p.ownPop; realmPops(); markDirty(); showRealmPop(); }
+      pop.value = fmtInt(p.pop); $('#pPopAbout').hidden = !!p.ownPop; refreshCodex();
+    });
+  }
   $('#pLore').addEventListener('input', e => { once(`Notes on ${p.name}`); p.lore = e.target.value; touched(); markDirty(); });
   $('#pDelete').onclick = () => removeSel({ type: 'place', id: p.id });
   $('#pRumor').onclick = () => { if (draftFor(p.id).busy) return; setDraft(p.id, { text: rumor(p), busy: false, kind: 'rumor', note: '', ctl: null }); renderDraft(); };
@@ -3702,6 +3725,9 @@ function bindPlace(p) {
 // the place itself among them, unless it became a landmark); the place keeps the realm's name,
 // title and colour, so making it a capital again brings the same realm back. The population is rolled again only
 // when it doesn't fit the new kind, from numbers of the place's own, so switching back and forth comes back to it.
+// A number of people as typed: digits, with commas, spaces or dots between thousands; null for anything else, or none.
+const POP_MAX = 99999999;
+function typedPop(text) { const t = String(text).replace(/[\s,.'’_~]/g, ''); if (!/^\d{1,8}$/.test(t)) return null; const n = +t; return n >= 1 && n <= POP_MAX ? n : null; }
 function changeKind(p, val) {
   pushUndo({ meta: true }, `Change what ${p.name} is`);
   const [kind, sub] = val.split(':'), i = cellAt(p.x, p.y);
@@ -3713,7 +3739,8 @@ function changeKind(p, val) {
   else {
     p.kind = kind; delete p.sub;
     const r = POP[kind], f = fertility(i);
-    if (!(p.pop >= r[0] * f * 0.95 && p.pop <= r[1] * f * 1.05)) p.pop = rollPop(kind, i, mulberry32(hash3(world.seed, p.id, 41 + Object.keys(POP).indexOf(kind))));
+    if (p.ownPop) p.pop = p.ownPop;
+    else if (!(p.pop >= r[0] * f * 0.95 && p.pop <= r[1] * f * 1.05)) p.pop = rollPop(kind, i, mulberry32(hash3(world.seed, p.id, 41 + Object.keys(POP).indexOf(kind))));
   }
   recomputePolitics(); renderInspector(); refreshCodex(); requestDraw(); markDirty();
   if (ended) toast(`${display} ${plural ? 'are' : 'is'} no longer a realm. ${whereTheyWent(held)}`, { label: 'Undo', fn: undo }, 10000);

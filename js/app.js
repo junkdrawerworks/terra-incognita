@@ -271,6 +271,7 @@ function hydrology() {
       vis[n] = 1; const f = h[n] > key + 1e-6 ? h[n] : key + 1e-6; filled[n] = f; down[n] = c; order[cnt++] = n; heap.push(f, n);
     }
   }
+  D.orderN = cnt; // order holds every cell that drains somewhere, outlets first: read backwards, each comes before where it drains
   // acc is the water each cell carries; area, the cells of land that drain through it, itself included.
   const area = D.area; acc.fill(0); area.fill(0);
   for (let i = 0; i < N; i++) if (h[i] >= sea) { acc[i] = 0.25 + world.m[i]; area[i] = 1; }
@@ -1861,9 +1862,38 @@ function endStroke() {
     markDirty();
     return;
   }
+  if (tool === 'raise') keepRiversThrough(step.h, box);
   if (!rain) dropDrownedSprings();
   recomputeAll(); markDirty();
   const wet = drowned(dry); if (wet.length) toast(`${someWet(wet)} ${wet.length === 1 ? 'is' : 'are'} under water now.`, { label: 'Undo', fn: undo });
+}
+
+// Ground raised across a river dammed it into a string of small lakes along its bed, and could leave a town on its
+// bank 'under water'. As a range drawn across a valley leaves it a gorge, a river that Raise built ground over keeps a
+// channel through it: along the way it ran before (the lowest way, then), the bed is cut back down so it runs downhill
+// all the way, never below where the ground was before the stroke, and the banks beside the cut ease down toward it.
+// Lakes on its way keep their level. Then, as after a sketch, a hollow left in the raised ground fills to its rim
+// rather than holding a pond. (prev is the ground before the stroke; the drainage is still the one from then.)
+function keepRiversThrough(prev, box) {
+  const h = world.h, sea = world.sea, down = D.down, acc = D.acc, cut = [];
+  for (let k = D.orderN - 1; k >= 0; k--) {
+    const i = D.order[k], d = down[i];
+    if (d < 0 || h[i] < sea || h[d] < sea || acc[i] <= RIVER_T) continue;
+    const cap = (D.lake[i] ? Math.max(h[i], D.filled[i]) : h[i]) - 2e-5;
+    if (h[d] > cap && h[d] > prev[d]) { h[d] = Math.max(prev[d], cap); cut.push(d); }
+  }
+  for (const c of cut) {
+    const cx = c % W, cy = (c / W) | 0;
+    for (let k = 0; k < 8; k++) {
+      const nx = cx + NBX[k], ny = cy + NBY[k]; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      const n = ny * W + nx; if (acc[n] > RIVER_T || h[n] <= prev[n] || h[n] <= h[c]) continue;
+      h[n] = Math.max(prev[n], Math.min(h[n], h[c] + (h[n] - h[c]) * 0.55 + 0.0005));
+    }
+  }
+  hydrology();
+  for (let y = Math.max(0, Math.floor(box[1])); y <= Math.min(H - 1, Math.ceil(box[3])); y++) for (let x = Math.max(0, Math.floor(box[0])); x <= Math.min(W - 1, Math.ceil(box[2])); x++) {
+    const i = y * W + x; if (h[i] >= sea && h[i] !== prev[i] && D.filled[i] > h[i]) h[i] = D.filled[i];
+  }
 }
 
 // ------------------------------------------------------------------ sketch

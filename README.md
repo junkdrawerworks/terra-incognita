@@ -22,8 +22,9 @@ and sea stop them. Every town has a page for its story.
   drains through a gorge at the lowest pass instead of becoming a lake. *River*: draw from the source toward the sea,
   and a valley forms so the water follows your line; the map names every river you draw, and Erase on the ring where
   one starts takes it away again (its valley stays).
-- **Brushes for the details.** Raise, Lower and Smooth reshape the ground; Wetter and Drier move the rain, and the
-  forests, grassland and deserts move with it.
+- **Brushes for the details.** Raise, Lower and Smooth reshape the ground; a river Raise builds over keeps a gorge
+  through, as a range's valley does. Wetter and Drier move the rain, and the forests, grassland and deserts move with
+  it.
 - **Water finds its way.** Every patch of ground drains downhill to the sea. Where enough rain gathers there's a river,
   and every river has a name of its own, which it keeps as you reshape the land (*Rename* on a place's River line gives
   it one of yours); where water can't get out it pools into a lake.

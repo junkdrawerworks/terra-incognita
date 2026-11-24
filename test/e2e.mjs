@@ -22,7 +22,8 @@
 // notes they take, a label cleared of its text, a refused file, and two tabs on one world. And sketches that keep
 // what's on the map: rivers drawn into and beside lakes, a range across a lake's way out, a river line across an inlet,
 // figure-8s and loops drawn twice round, a drawn river's source going under the sea, edits that change nothing saying
-// so, and each brush, with its ring under a finger and Raise held still building a dome. The single-file copy for
+// so, and each brush, with its ring under a finger, Raise held still building a dome, and Raise over a river keeping it a
+// channel. The single-file copy for
 // Claude's viewer, from a file and over http.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
@@ -1980,6 +1981,25 @@ await oldCtx.close();
   });
   const atCeiling = top.filter((h) => h > 1 - 1e-6).length, flat = new Set(top.slice(3, 10).map((h) => h.toFixed(5))).size;
   ok(atCeiling === 0 && flat > 3, `Raise held 3 s in one spot builds a dome, not a flat disc at the top (${atCeiling} cells at the very top, ${flat} different heights across its middle)`);
+  await c.close();
+}
+
+// Raise over a river keeps it a channel through the raised ground, as a range does, instead of damming its bed into a
+// string of small lakes (four dabs over a river on seed 10 turned 7 cells of its bed into lake, one cell wide). And a
+// hollow it leaves fills rather than holding a pond.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const grid = () => pg.evaluate(() => { const g = []; for (let y = 100; y < 140; y++) for (let x = 140; x < 180; x++) { const c = window.terra.cell(x + 0.5, y + 0.5); g.push(c.lake ? 2 : c.river ? 1 : 0); } return g; });
+  await pg.evaluate(() => { window.terra.newWorld(10, 'continent'); window.terra.setTool('raise'); window.terra.centerOn(160.5, 118.5); });
+  await pg.evaluate(() => { for (const [id, v] of [['optSize', '6'], ['optStr', '10']]) { const r = document.getElementById(id); r.value = v; r.dispatchEvent(new Event('input')); } });
+  const before = await grid(), riverCells = before.filter((v) => v === 1).length;
+  await pg.focus('#map');
+  for (let k = 0; k < 4; k++) { await pg.keyboard.press('Enter'); await pg.waitForTimeout(150); }
+  const after = await grid(), raised = await pg.evaluate(() => window.terra.cell(160.5, 118.5).elev);
+  const bed = before.filter((v, i) => v === 1 && after[i] === 2).length, ponds = before.filter((v, i) => v !== 2 && after[i] === 2).length;
+  ok(riverCells > 30 && bed === 0 && ponds === 0 && after.filter((v) => v === 1).length >= riverCells * 0.9, `Raise over a river leaves it running, with no lake along its bed (${bed} bed cells and ${ponds} cells in all turned to lake; ${after.filter((v) => v === 1).length} of ${riverCells} river cells; ground raised to ${Math.round(raised)} m)`);
   await c.close();
 }
 

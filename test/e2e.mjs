@@ -8,7 +8,7 @@
 // files that are damaged or from a newer version, keyboard focus and shortcuts, and the dark theme Claude's viewer
 // can stamp. Then what the map says about itself: a lake's elevation, rivers drawn out of lakes (one with a wide
 // valley) that leave the lakes be, a coast named after the sea it is on, a coast drawn smooth that comes out
-// smooth, sea names clear of the scale bar, no latitudes the climate doesn't match, and places the sea rises over; and
+// smooth, sea names clear of the scale bar, no latitudes the climate doesn't match, frozen land no wetter than the rest, and places the sea rises over; and
 // the README's count of the kinds of land. Last, a phone held sideways, the map clear of a touch screen's sides, a
 // Back mid-sketch taken for a slip, a browser that won't keep the autosave, and saved worlds the page can't read or
 // that a newer version wrote, kept aside and given back by Download the old save. Five seeds that must keep growing the
@@ -899,6 +899,25 @@ for (const [seed, shape] of [[645278, 'inland'], [793904, 'twin'], [543439, 'twi
   if (under) covered.push(seed);
 }
 ok(covered.length === 0, 'sea names stay clear of the scale bar' + (covered.length ? ': not in ' + covered.join(', ') : ''));
+
+// Cold air carries little rain, so frozen land isn't the wettest on the map: in the starting world, land colder than
+// 0 °C got up to 2,990 mm a year, as much as anywhere ('-4 °C mean, 2,990 mm rain, Tundra'), and the coldest fifth of
+// the land was wetter on average than the land as a whole.
+{
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const pg = watch(await c.newPage());
+  await pg.goto(base);
+  const r = await pg.evaluate(() => {
+    const land = [];
+    for (let y = 0; y < 300; y += 2) for (let x = 0; x < 480; x += 2) { const c = window.terra.cell(x + 0.5, y + 0.5); if (c.h >= 0 && !c.lake) land.push(c); }
+    land.sort((a, b) => a.temp - b.temp);
+    const fifth = Math.floor(land.length / 5), mean = (a) => a.reduce((s, c) => s + c.rain, 0) / a.length;
+    const frozen = land.filter((c) => c.temp < 0), wettest = land.reduce((a, b) => (b.rain > a.rain ? b : a));
+    return { frozen: frozen.length, frozenMax: Math.max(...frozen.map((c) => c.rain)), cold: mean(land.slice(0, fifth)), all: mean(land), wettest: wettest.temp };
+  });
+  ok(r.frozen > 500 && r.frozenMax <= 1150 && r.cold < r.all && r.wettest > 5, `frozen land gets at most ${Math.round(r.frozenMax)} mm a year (over ${r.frozen} spots), the coldest fifth of the land ${Math.round(r.cold)} mm against ${Math.round(r.all)} for all of it, and the wettest spot is at ${r.wettest.toFixed(1)} °C`);
+  await c.close();
+}
 
 // The map prints no latitudes or longitudes, on the map, on a place's page or under the pointer: the climate runs from
 // ice sheet to jungle over 3,000 km, and the numbers put a frozen north at 55°N, where Denmark is.
